@@ -61,6 +61,9 @@
   .navbtn { display: inline-block; padding: 5px 11px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 12.5px; white-space: nowrap; }
   .navbtn:hover { background: #f1f5fd; text-decoration: none; }
   .navbtn.disabled { color: #c3c9d2; pointer-events: none; }
+  button.navbtn { cursor: pointer; font-family: inherit; color: var(--text); }
+  .upload-panel { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px dashed var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; background: #fbfcfe; }
+  .upload-panel select { padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 13px; }
   .tool-call .name { font-weight: 650; }
   .tool-call .err { color: var(--fail); font-size: 12.5px; }
   .filelist { columns: 2; font-size: 12.5px; }
@@ -124,7 +127,19 @@ async function renderList() {
     <div class="toolbar">
       <input id="q" placeholder="Search run name / agent…" value="${esc(listState.q)}">
       ${opts('project','project')} ${opts('agent_name','agent')}
+      <button class="navbtn" id="uploadToggle" type="button">⬆ Upload runs</button>
       <span class="count">${filtered.length} / ${runs.length} runs</span>
+    </div>
+    <div id="uploadPanel" class="upload-panel" hidden>
+      <select id="upProject">
+        <option value="talk-bench">talk-bench</option>
+        <option value="talk-bench-talkdesk">talk-bench-talkdesk</option>
+      </select>
+      <input type="file" id="upFile" accept=".zip">
+      <label style="font-size:13px"><input type="checkbox" id="upOverwrite"> overwrite existing runs</label>
+      <button class="navbtn" id="upSubmit" type="button">Import</button>
+      <span id="upStatus" class="muted" style="font-size:12.5px"></span>
+      <div class="muted" style="font-size:12px;width:100%">Zip a run directory (or several) and upload — each top-level folder in the zip becomes one run under data/&lt;project&gt;/.</div>
     </div>
     <table>
       <thead><tr><th>Time (UTC)</th><th>Run</th><th>Agent</th>
@@ -150,11 +165,32 @@ async function renderList() {
   const qEl = document.getElementById('q');
   qEl.addEventListener('input', () => { listState.q = qEl.value.toLowerCase(); renderList(); });
   qEl.focus(); qEl.setSelectionRange(qEl.value.length, qEl.value.length);
-  $main.querySelectorAll('select').forEach(sel =>
+  $main.querySelectorAll('select[data-k]').forEach(sel =>
     sel.addEventListener('change', () => {
       listState[sel.dataset.k] = sel.value;
       renderList();
     }));
+
+  const panel = document.getElementById('uploadPanel');
+  document.getElementById('uploadToggle').addEventListener('click', () => panel.hidden = !panel.hidden);
+  document.getElementById('upSubmit').addEventListener('click', async () => {
+    const f = document.getElementById('upFile').files[0];
+    const status = document.getElementById('upStatus');
+    if (!f) { status.textContent = 'choose a .zip file first'; return; }
+    status.textContent = 'uploading…';
+    const fd = new FormData();
+    fd.append('file', f);
+    fd.append('project', document.getElementById('upProject').value);
+    fd.append('overwrite', document.getElementById('upOverwrite').checked);
+    try {
+      const r = await fetch('/api/upload_run', { method: 'POST', body: fd });
+      const res = await r.json();
+      if (!r.ok) throw new Error(res.detail || r.status);
+      status.textContent = `imported: ${res.imported.length ? res.imported.join(', ') : 'none'}`
+        + (res.skipped_existing.length ? ` · skipped (already exist): ${res.skipped_existing.join(', ')}` : '');
+      if (res.imported.length) { RUNS = null; setTimeout(renderList, 1200); }
+    } catch (e) { status.textContent = 'error: ' + e.message; }
+  });
 }
 
 /* ---------- run detail ---------- */
@@ -333,11 +369,35 @@ async function renderScenario(path) {
   </div>
 
   <div class="card">
-    <h3 style="margin-top:0">Files (${d.files.length})</h3>
+    <h3 style="margin-top:0">Files (${d.files.length})
+      <label class="navbtn" style="font-weight:400;cursor:pointer;margin-left:10px">⬆ Add / replace file<input type="file" id="fileUp" hidden></label>
+      <span id="fileUpStatus" class="muted" style="font-size:12.5px;margin-left:8px"></span></h3>
     <div class="filelist">
       ${d.files.map(f => `<div><a class="mono" target="_blank" href="/data/${encodeURIComponent(path).replace(/%2F/g,'/')}/${esc(f.name)}">${esc(f.name)}</a> <span class="muted">${(f.size/1024).toFixed(0)} KB</span></div>`).join('')}
     </div>
   </div>`;
+
+  document.getElementById('fileUp').addEventListener('change', async ev => {
+    const f = ev.target.files[0];
+    if (!f) return;
+    const status = document.getElementById('fileUpStatus');
+    const exists = d.files.some(x => x.name === f.name);
+    if (exists && !confirm(`"${f.name}" already exists in this scenario. Replace it?`)) {
+      ev.target.value = ''; return;
+    }
+    status.textContent = 'uploading…';
+    const fd = new FormData();
+    fd.append('file', f);
+    fd.append('target_dir', path);
+    fd.append('overwrite', exists);
+    try {
+      const r = await fetch('/api/upload_file', { method: 'POST', body: fd });
+      const res = await r.json();
+      if (!r.ok) throw new Error(res.detail || r.status);
+      status.textContent = (res.replaced ? 'replaced ' : 'added ') + f.name;
+      setTimeout(() => renderScenario(path), 800);
+    } catch (e) { status.textContent = 'error: ' + e.message; }
+  });
 
   const jump = document.getElementById('scenJump');
   if (jump) jump.addEventListener('change', () =>

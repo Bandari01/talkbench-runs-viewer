@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -196,6 +199,92 @@ def api_scenario(path: str = Query(...)):
             for name in ("conversation", "user", "agent")
         },
     }
+
+
+PROJECTS = ("talk-bench", "talk-bench-talkdesk")
+
+
+def _invalidate_index() -> None:
+    global _index_cache
+    _index_cache = None
+
+
+@app.post("/api/upload_run")
+async def upload_run(
+    file: UploadFile = File(...),
+    project: str = Form(...),
+    overwrite: bool = Form(False),
+):
+    """Import run directories from a .zip into data/<project>/."""
+    if project not in PROJECTS:
+        raise HTTPException(status_code=400, detail=f"project must be one of {PROJECTS}")
+    if not (file.filename or "").lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="expected a .zip file")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        zip_path = Path(tmp) / "upload.zip"
+        with zip_path.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+        try:
+            zf = zipfile.ZipFile(zip_path)
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail="not a valid zip file")
+        with zf:
+            entries = [n for n in zf.namelist() if n.strip("/") and "__MACOSX" not in n]
+            for n in entries:
+                if n.startswith("/") or ".." in Path(n).parts:
+                    raise HTTPException(status_code=400, detail=f"unsafe path in zip: {n}")
+            root_files = [n for n in entries if "/" not in n.strip("/") and not n.endswith("/")]
+            top_dirs = sorted({n.split("/")[0] for n in entries if "/" in n})
+
+            extract_root = Path(tmp) / "extracted"
+            zf.extractall(extract_root)
+
+        # zip of loose files (no directories) -> treat as one run named after the zip
+        if root_files and not top_dirs:
+            run_name = Path(file.filename).stem
+            src_runs = {run_name: extract_root}
+        else:
+            # each top-level directory in the zip is treated as one run
+            src_runs = {d: extract_root / d for d in top_dirs}
+
+        imported, skipped = [], []
+        for name, src in src_runs.items():
+            target = DATA_DIR / project / name
+            if target.exists():
+                if not overwrite:
+                    skipped.append(name)
+                    continue
+                shutil.rmtree(target)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(target))
+            imported.append(name)
+
+    _invalidate_index()
+    return {"imported": imported, "skipped_existing": skipped, "project": project}
+
+
+@app.post("/api/upload_file")
+async def upload_file(
+    file: UploadFile = File(...),
+    target_dir: str = Form(...),
+    overwrite: bool = Form(False),
+):
+    """Add or replace a single file inside an existing run/scenario directory."""
+    dirp = _safe_path(target_dir)
+    if not dirp.is_dir():
+        raise HTTPException(status_code=404, detail="target directory not found")
+    name = Path(file.filename or "").name
+    if not name:
+        raise HTTPException(status_code=400, detail="missing filename")
+    dest = dirp / name
+    if dest.exists() and not overwrite:
+        raise HTTPException(status_code=409, detail=f"{name} already exists (set overwrite)")
+    replaced = dest.exists()
+    with dest.open("wb") as out:
+        shutil.copyfileobj(file.file, out)
+    _invalidate_index()
+    return {"path": f"{target_dir}/{name}", "replaced": replaced}
 
 
 @app.get("/")
