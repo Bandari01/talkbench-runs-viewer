@@ -52,6 +52,8 @@
   audio { width: 100%; margin: 4px 0 10px; }
   .audio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 18px; }
   .tool-call { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+  .tool-call.inline { border-style: dashed; background: #fbfcfe; margin: 10px 40px; font-size: 13px; }
+  .ts { color: var(--muted); font-size: 11px; font-family: ui-monospace, Menlo, monospace; margin-right: 6px; }
   .tool-call .name { font-weight: 650; }
   .tool-call .err { color: var(--fail); font-size: 12.5px; }
   .filelist { columns: 2; font-size: 12.5px; }
@@ -182,6 +184,42 @@ async function renderRun(path) {
   ${ev ? `<div class="card"><details><summary>Raw talk_bench_evaluation_result.json</summary><pre>${esc(JSON.stringify(ev, null, 2))}</pre></details></div>` : ''}`;
 }
 
+/* ---------- transcript with tool calls merged chronologically ---------- */
+function renderTimeline(conversation, toolLog) {
+  if (!conversation && !toolLog?.length) return '<p class="muted">No conversation.json</p>';
+  const t0 = (conversation || []).concat(toolLog || []).reduce(
+    (m, x) => x.timestamp != null && x.timestamp < m ? x.timestamp : m, Infinity);
+  const fmtT = ts => ts == null || t0 === Infinity ? '' : '+' + (ts - t0).toFixed(1) + 's';
+  const items = [
+    ...(conversation || []).map(t => ({ kind: 'turn', ts: t.timestamp, d: t })),
+    ...(toolLog || []).map(c => ({ kind: 'tool', ts: c.timestamp, d: c })),
+  ];
+  // stable sort; items without a timestamp keep their original relative position at the end
+  items.sort((a, b) => (a.ts ?? Infinity) - (b.ts ?? Infinity));
+  return items.map(it => {
+    if (it.kind === 'turn') {
+      const t = it.d;
+      return `
+      <div class="turn ${t.speaker === 'user' ? 'user' : 'agent'}">
+        <div><div class="who">${esc(t.speaker)} · turn ${t.turn_index ?? ''} <span class="ts">${fmtT(t.timestamp)}</span></div>
+        <div class="bubble">${esc(t.text)}</div></div>
+      </div>`;
+    }
+    const c = it.d;
+    return `
+    <div class="tool-call inline">
+      <span class="ts">${fmtT(c.timestamp)}</span>
+      🔧 <span class="name mono">${esc(c.tool_name)}</span>
+      ${c.db_changed ? '<span class="badge pass" style="margin-left:8px">db changed</span>' : ''}
+      ${c.result?.error ? `<span class="badge fail" style="margin-left:8px">error</span>` : ''}
+      ${c.result?.error ? `<div class="err">${esc(c.result.error.message || JSON.stringify(c.result.error))}</div>` : ''}
+      <details><summary>args & result</summary>
+        <pre>${esc(JSON.stringify({arguments: c.arguments, result: c.result}, null, 2))}</pre>
+      </details>
+    </div>`;
+  }).join('');
+}
+
 /* ---------- scenario detail ---------- */
 async function renderScenario(path) {
   const d = await getJSON('/api/scenario?path=' + encodeURIComponent(path));
@@ -210,25 +248,9 @@ async function renderScenario(path) {
   </div></div>` : ''}
 
   <div class="card">
-    <h3 style="margin-top:0">Transcript ${d.conversation ? `(${d.conversation.length} turns)` : ''}</h3>
-    ${d.conversation ? d.conversation.map(t => `
-      <div class="turn ${t.speaker === 'user' ? 'user' : 'agent'}">
-        <div><div class="who">${esc(t.speaker)} · turn ${t.turn_index ?? ''}</div>
-        <div class="bubble">${esc(t.text)}</div></div>
-      </div>`).join('') : '<p class="muted">No conversation.json</p>'}
-  </div>
-
-  <div class="card">
-    <h3 style="margin-top:0">Tool calls ${d.tool_log ? `(${d.tool_log.length})` : ''}</h3>
-    ${d.tool_log?.length ? d.tool_log.map(c => `
-      <div class="tool-call">
-        <span class="name mono">${esc(c.tool_name)}</span>
-        ${c.db_changed ? '<span class="badge pass" style="margin-left:8px">db changed</span>' : ''}
-        ${c.result?.error ? `<div class="err">error: ${esc(c.result.error.message || JSON.stringify(c.result.error))}</div>` : ''}
-        <details><summary>args & result</summary>
-          <pre>${esc(JSON.stringify({arguments: c.arguments, result: c.result}, null, 2))}</pre>
-        </details>
-      </div>`).join('') : '<p class="muted">No tool calls logged.</p>'}
+    <h3 style="margin-top:0">Transcript
+      ${d.conversation ? `<span class="muted" style="font-weight:400">(${d.conversation.length} turns · ${d.tool_log?.length || 0} tool calls)</span>` : ''}</h3>
+    ${renderTimeline(d.conversation, d.tool_log)}
   </div>
 
   <div class="card">
