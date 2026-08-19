@@ -54,6 +54,11 @@
   .tool-call { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
   .tool-call.inline { border-style: dashed; background: #fbfcfe; margin: 10px 40px; font-size: 13px; }
   .ts { color: var(--muted); font-size: 11px; font-family: ui-monospace, Menlo, monospace; margin-right: 6px; }
+  .scen-nav { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .scen-nav select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 12.5px; max-width: 220px; }
+  .navbtn { display: inline-block; padding: 5px 11px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 12.5px; white-space: nowrap; }
+  .navbtn:hover { background: #f1f5fd; text-decoration: none; }
+  .navbtn.disabled { color: #c3c9d2; pointer-events: none; }
   .tool-call .name { font-weight: 650; }
   .tool-call .err { color: var(--fail); font-size: 12.5px; }
   .filelist { columns: 2; font-size: 12.5px; }
@@ -221,15 +226,44 @@ function renderTimeline(conversation, toolLog) {
 }
 
 /* ---------- scenario detail ---------- */
+const _runCache = {};
+async function getRun(runPath) {
+  if (!_runCache[runPath]) _runCache[runPath] = await getJSON('/api/run?path=' + encodeURIComponent(runPath));
+  return _runCache[runPath];
+}
+
+function scenarioNav(runPath, siblings, idx) {
+  const link = i => `#/scenario/${encodeURIComponent(runPath + '/' + siblings[i].id)}`;
+  const prev = idx > 0 ? siblings[idx - 1] : null;
+  const next = idx >= 0 && idx < siblings.length - 1 ? siblings[idx + 1] : null;
+  const mark = s => s.passed === true ? '✓ ' : s.passed === false ? '✗ ' : '';
+  return `
+  <div class="scen-nav">
+    ${prev ? `<a class="navbtn" href="${link(idx - 1)}">← ${esc(prev.id)}</a>` : '<span class="navbtn disabled">←</span>'}
+    <select id="scenJump">
+      ${siblings.map((s, i) => `<option value="${i}" ${i === idx ? 'selected' : ''}>${mark(s)}${esc(s.id)}</option>`).join('')}
+    </select>
+    <span class="muted" style="font-size:12px">${idx + 1} / ${siblings.length}</span>
+    ${next ? `<a class="navbtn" href="${link(idx + 1)}">${esc(next.id)} →</a>` : '<span class="navbtn disabled">→</span>'}
+  </div>`;
+}
+
 async function renderScenario(path) {
   const d = await getJSON('/api/scenario?path=' + encodeURIComponent(path));
   const runPath = path.split('/').slice(0, 3).join('/');
+  const scenId = path.split('/')[3];
+  const run = await getRun(runPath).catch(() => null);
+  const siblings = run?.scenarios || [];
+  const scenIdx = siblings.findIndex(s => s.id === scenId);
   const sc = d.scenario || {}, meta = d.run_meta || {};
   const persona = sc.user_persona || {};
   const audioNames = Object.entries(d.audio).filter(([,ok]) => ok).map(([n]) => n);
 
   $main.innerHTML = `
-  <div class="crumbs"><a href="#">All runs</a> / <a href="#/run/${encodeURIComponent(runPath)}">${esc(runPath.split('/').pop())}</a> / ${esc(path.split('/').pop())}</div>
+  <div class="crumbs" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <span><a href="#">All runs</a> / <a href="#/run/${encodeURIComponent(runPath)}">${esc(runPath.split('/').pop())}</a> / ${esc(path.split('/').pop())}</span>
+    ${siblings.length > 1 ? scenarioNav(runPath, siblings, scenIdx) : ''}
+  </div>
   <div class="card">
     <h2>${esc(path.split('/').pop())} <span class="muted" style="font-weight:400">· ${esc(sc.domain || '')}</span></h2>
     <div class="chips">
@@ -259,11 +293,26 @@ async function renderScenario(path) {
       ${d.files.map(f => `<div><a class="mono" target="_blank" href="/data/${encodeURIComponent(path).replace(/%2F/g,'/')}/${esc(f.name)}">${esc(f.name)}</a> <span class="muted">${(f.size/1024).toFixed(0)} KB</span></div>`).join('')}
     </div>
   </div>`;
+
+  const jump = document.getElementById('scenJump');
+  if (jump) jump.addEventListener('change', () =>
+    location.hash = '#/scenario/' + encodeURIComponent(runPath + '/' + siblings[+jump.value].id));
+  scenKeyNav = e => {
+    if (e.target.closest('input, select, textarea, audio')) return;
+    if (e.key === 'ArrowLeft' && scenIdx > 0)
+      location.hash = '#/scenario/' + encodeURIComponent(runPath + '/' + siblings[scenIdx - 1].id);
+    if (e.key === 'ArrowRight' && scenIdx >= 0 && scenIdx < siblings.length - 1)
+      location.hash = '#/scenario/' + encodeURIComponent(runPath + '/' + siblings[scenIdx + 1].id);
+  };
 }
 
 /* ---------- router ---------- */
+let scenKeyNav = null;
+window.addEventListener('keydown', e => { if (scenKeyNav) scenKeyNav(e); });
+
 async function route() {
   const h = decodeURIComponent(location.hash);
+  scenKeyNav = null;
   try {
     if (h.startsWith('#/scenario/')) await renderScenario(h.slice('#/scenario/'.length));
     else if (h.startsWith('#/run/')) await renderRun(h.slice('#/run/'.length));

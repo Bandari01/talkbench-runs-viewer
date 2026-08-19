@@ -188,7 +188,7 @@ def api_scenario(path: str = Query(...)):
 
 @app.get("/")
 def home():
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 # raw file access (audio playback, ndjson/json download) — supports Range requests
