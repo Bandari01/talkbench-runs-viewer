@@ -15,6 +15,7 @@ import json
 import re
 import shutil
 import tempfile
+import uuid
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -262,6 +263,86 @@ async def upload_run(
 
     _invalidate_index()
     return {"imported": imported, "skipped_existing": skipped, "project": project}
+
+
+# ---- folder sync: begin -> chunk (repeated) -> commit ----
+# staged uploads live in a temp dir until committed atomically into data/
+_staged: dict[str, dict[str, Any]] = {}
+
+
+def _get_staged(upload_id: str) -> dict[str, Any]:
+    st = _staged.get(upload_id)
+    if not st:
+        raise HTTPException(status_code=404, detail="unknown or expired upload_id")
+    return st
+
+
+@app.post("/api/upload_dir_begin")
+def upload_dir_begin(
+    project: str = Form(...),
+    run_name: str = Form(...),
+    overwrite: bool = Form(False),
+):
+    if project not in PROJECTS:
+        raise HTTPException(status_code=400, detail=f"project must be one of {PROJECTS}")
+    run_name = Path(run_name).name
+    if not run_name or run_name.startswith("."):
+        raise HTTPException(status_code=400, detail="invalid run name")
+    target = DATA_DIR / project / run_name
+    if target.exists() and not overwrite:
+        raise HTTPException(status_code=409, detail=f"run '{run_name}' already exists (enable overwrite)")
+    upload_id = uuid.uuid4().hex
+    _staged[upload_id] = {
+        "dir": Path(tempfile.mkdtemp(prefix="talkbench_upload_")),
+        "project": project,
+        "run_name": run_name,
+        "files": 0,
+    }
+    return {"upload_id": upload_id}
+
+
+@app.post("/api/upload_dir_chunk")
+async def upload_dir_chunk(
+    upload_id: str = Form(...),
+    paths: list[str] = Form(...),
+    files: list[UploadFile] = File(...),
+):
+    st = _get_staged(upload_id)
+    if len(paths) != len(files):
+        raise HTTPException(status_code=400, detail="paths/files count mismatch")
+    staging: Path = st["dir"]
+    for rel, f in zip(paths, files):
+        p = Path(rel)
+        if p.is_absolute() or ".." in p.parts or not p.parts:
+            raise HTTPException(status_code=400, detail=f"unsafe path: {rel}")
+        dest = staging / p
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with dest.open("wb") as out:
+            shutil.copyfileobj(f.file, out)
+        st["files"] += 1
+    return {"received": st["files"]}
+
+
+@app.post("/api/upload_dir_commit")
+def upload_dir_commit(upload_id: str = Form(...)):
+    st = _staged.pop(upload_id, None)
+    if not st:
+        raise HTTPException(status_code=404, detail="unknown or expired upload_id")
+    target = DATA_DIR / st["project"] / st["run_name"]
+    if target.exists():
+        shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(st["dir"]), str(target))
+    _invalidate_index()
+    return {"run": f"{st['project']}/{st['run_name']}", "files": st["files"]}
+
+
+@app.post("/api/upload_dir_abort")
+def upload_dir_abort(upload_id: str = Form(...)):
+    st = _staged.pop(upload_id, None)
+    if st:
+        shutil.rmtree(st["dir"], ignore_errors=True)
+    return {"aborted": bool(st)}
 
 
 @app.post("/api/upload_file")

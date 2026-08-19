@@ -135,11 +135,13 @@ async function renderList() {
         <option value="talk-bench">talk-bench</option>
         <option value="talk-bench-talkdesk">talk-bench-talkdesk</option>
       </select>
+      <label class="navbtn" style="cursor:pointer">📁 Select run folder<input type="file" id="upDir" webkitdirectory hidden></label>
+      <span class="muted" style="font-size:12px">or zip:</span>
       <input type="file" id="upFile" accept=".zip">
       <label style="font-size:13px"><input type="checkbox" id="upOverwrite"> overwrite existing runs</label>
-      <button class="navbtn" id="upSubmit" type="button">Import</button>
+      <button class="navbtn" id="upSubmit" type="button">Import zip</button>
       <span id="upStatus" class="muted" style="font-size:12.5px"></span>
-      <div class="muted" style="font-size:12px;width:100%">Zip a run directory (or several) and upload — each top-level folder in the zip becomes one run under data/&lt;project&gt;/.</div>
+      <div class="muted" style="font-size:12px;width:100%">Select a run folder to sync it directly (uploads all files inside, folder name becomes the run name), or upload a zip — each top-level folder in the zip becomes one run under data/&lt;project&gt;/.</div>
     </div>
     <table>
       <thead><tr><th>Time (UTC)</th><th>Run</th><th>Agent</th>
@@ -173,6 +175,65 @@ async function renderList() {
 
   const panel = document.getElementById('uploadPanel');
   document.getElementById('uploadToggle').addEventListener('click', () => panel.hidden = !panel.hidden);
+
+  document.getElementById('upDir').addEventListener('change', async ev => {
+    const files = [...ev.target.files];
+    ev.target.value = '';
+    if (!files.length) return;
+    const status = document.getElementById('upStatus');
+    const project = document.getElementById('upProject').value;
+    const runName = files[0].webkitRelativePath.split('/')[0];
+    let overwrite = document.getElementById('upOverwrite').checked;
+
+    const post = async (url, fd) => {
+      const r = await fetch(url, { method: 'POST', body: fd });
+      const res = await r.json().catch(() => ({}));
+      if (!r.ok) { const e = new Error(res.detail || r.status); e.status = r.status; throw e; }
+      return res;
+    };
+    const beginFd = ow => {
+      const fd = new FormData();
+      fd.append('project', project); fd.append('run_name', runName); fd.append('overwrite', ow);
+      return fd;
+    };
+
+    let uploadId;
+    try {
+      try {
+        uploadId = (await post('/api/upload_dir_begin', beginFd(overwrite))).upload_id;
+      } catch (e) {
+        if (e.status !== 409) throw e;
+        if (!confirm(`Run "${runName}" already exists in ${project}. Replace it?`)) { status.textContent = 'cancelled'; return; }
+        uploadId = (await post('/api/upload_dir_begin', beginFd(true))).upload_id;
+      }
+      // upload in batches: at most 40 files or ~200 MB per request
+      let batch = [], batchBytes = 0, sent = 0;
+      const flush = async () => {
+        if (!batch.length) return;
+        const fd = new FormData();
+        fd.append('upload_id', uploadId);
+        for (const f of batch) {
+          fd.append('paths', f.webkitRelativePath.split('/').slice(1).join('/'));
+          fd.append('files', f);
+        }
+        await post('/api/upload_dir_chunk', fd);
+        sent += batch.length;
+        status.textContent = `syncing "${runName}": ${sent}/${files.length} files…`;
+        batch = []; batchBytes = 0;
+      };
+      for (const f of files) {
+        if (batch.length >= 40 || batchBytes + f.size > 200e6) await flush();
+        batch.push(f); batchBytes += f.size;
+      }
+      await flush();
+      const res = await post('/api/upload_dir_commit', (() => { const fd = new FormData(); fd.append('upload_id', uploadId); return fd; })());
+      status.textContent = `synced ${res.run} (${res.files} files)`;
+      RUNS = null; setTimeout(renderList, 1200);
+    } catch (e) {
+      status.textContent = 'error: ' + e.message;
+      if (uploadId) { const fd = new FormData(); fd.append('upload_id', uploadId); fetch('/api/upload_dir_abort', { method: 'POST', body: fd }); }
+    }
+  });
   document.getElementById('upSubmit').addEventListener('click', async () => {
     const f = document.getElementById('upFile').files[0];
     const status = document.getElementById('upStatus');
