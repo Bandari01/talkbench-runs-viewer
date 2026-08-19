@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>talk-bench runs viewer</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --border: #e2e5ea; --text: #1c2330;
+    --muted: #6b7480; --accent: #2563eb; --pass: #15803d; --fail: #b91c1c;
+    --pass-bg: #ecfdf3; --fail-bg: #fef2f2; --chip-bg: #eef2f7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif; background: var(--bg); color: var(--text); }
+  header { background: #101828; color: #fff; padding: 14px 24px; display: flex; align-items: baseline; gap: 14px; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; cursor: pointer; }
+  header .sub { color: #98a2b3; font-size: 12.5px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 20px 24px 60px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+  .toolbar input, .toolbar select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13.5px; background: #fff; color: var(--text); }
+  .toolbar input { min-width: 260px; }
+  .toolbar .count { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 1px solid #eef0f3; vertical-align: top; }
+  tr.rowlink { cursor: pointer; }
+  tr.rowlink:hover { background: #f1f5fd; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+  .muted { color: var(--muted); }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge.pass { background: var(--pass-bg); color: var(--pass); }
+  .badge.fail { background: var(--fail-bg); color: var(--fail); }
+  .badge.na   { background: var(--chip-bg); color: var(--muted); }
+  .chips { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 4px; }
+  .chip { background: var(--chip-bg); border-radius: 8px; padding: 8px 14px; min-width: 96px; }
+  .chip .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .chip .v { font-size: 17px; font-weight: 650; margin-top: 1px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .crumbs { font-size: 13px; margin-bottom: 12px; color: var(--muted); }
+  h2 { font-size: 16px; margin: 4px 0 10px; }
+  h3 { font-size: 14px; margin: 18px 0 8px; }
+  details > summary { cursor: pointer; color: var(--accent); font-size: 13px; user-select: none; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; max-height: 480px; }
+  .bubble { max-width: 72%; padding: 9px 13px; border-radius: 12px; margin: 6px 0; white-space: pre-wrap; }
+  .turn { display: flex; }
+  .turn.user { justify-content: flex-end; }
+  .turn.user .bubble { background: #dbeafe; border-bottom-right-radius: 4px; }
+  .turn.agent .bubble { background: #f1f3f6; border-bottom-left-radius: 4px; }
+  .turn .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  audio { width: 100%; margin: 4px 0 10px; }
+  .audio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 18px; }
+  .tool-call { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+  .tool-call .name { font-weight: 650; }
+  .tool-call .err { color: var(--fail); font-size: 12.5px; }
+  .filelist { columns: 2; font-size: 12.5px; }
+  .filelist div { break-inside: avoid; padding: 2px 0; }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1 onclick="location.hash=''">🎧 talk-bench runs viewer</h1>
+  <span class="sub" id="headerSub"></span>
+</header>
+<main id="main"><div class="empty">Loading…</div></main>
+
+<script>
+const $main = document.getElementById('main');
+let RUNS = null;
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtScore = v => (v === null || v === undefined) ? '<span class="muted">—</span>' : Number(v).toFixed(v >= 1 || v === 0 ? 2 : 3).replace(/\.?0+$/,'') || '0';
+const fmtDur = ms => ms == null ? '—' : (ms/1000 < 90 ? (ms/1000).toFixed(1)+'s' : (ms/60000).toFixed(1)+'min');
+const passBadge = p => p === true ? '<span class="badge pass">PASS</span>' : p === false ? '<span class="badge fail">FAIL</span>' : '<span class="badge na">—</span>';
+
+async function getJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(url + ' → ' + r.status);
+  return r.json();
+}
+
+async function loadRuns() {
+  if (!RUNS) RUNS = (await getJSON('/api/runs')).runs;
+  return RUNS;
+}
+
+/* ---------- run list ---------- */
+const listState = { q: '', source: '', project: '', agent: '' };
+
+async function renderList() {
+  const runs = await loadRuns();
+  document.getElementById('headerSub').textContent = runs.length + ' runs archived';
+  const uniq = key => [...new Set(runs.map(r => r[key]).filter(Boolean))].sort();
+  const opts = (key, label) =>
+    `<select data-k="${key}"><option value="">${label}: all</option>` +
+    uniq(key).map(v => `<option ${listState[key]===v?'selected':''} value="${esc(v)}">${esc(v)}</option>`).join('') + '</select>';
+
+  const filtered = runs.filter(r =>
+    (!listState.source || r.source === listState.source) &&
+    (!listState.project || r.project === listState.project) &&
+    (!listState.agent || r.agent_name === listState.agent) &&
+    (!listState.q || r.run_name.toLowerCase().includes(listState.q) || (r.agent_name||'').toLowerCase().includes(listState.q)));
+
+  $main.innerHTML = `
+  <div class="card">
+    <div class="toolbar">
+      <input id="q" placeholder="Search run name / agent…" value="${esc(listState.q)}">
+      ${opts('source','source')} ${opts('project','project')} ${opts('agent_name','agent')}
+      <span class="count">${filtered.length} / ${runs.length} runs</span>
+    </div>
+    <table>
+      <thead><tr><th>Time (UTC)</th><th>Run</th><th>Agent</th><th>Source</th><th>Project</th>
+      <th>Scenarios</th><th>Primary</th><th>Eval final</th></tr></thead>
+      <tbody>
+      ${filtered.map(r => `
+        <tr class="rowlink" onclick="location.hash='#/run/${encodeURIComponent(r.path)}'">
+          <td class="mono muted" style="white-space:nowrap">${esc(r.timestamp || '?')}</td>
+          <td class="mono" style="word-break:break-all">${esc(r.run_name)}</td>
+          <td>${esc(r.agent_name || '—')}</td>
+          <td class="muted">${esc(r.source.replace('ai-ds-research','repo'))}</td>
+          <td class="muted">${esc(r.project.replace('talk-bench-talkdesk','talkdesk').replace('talk-bench','core'))}</td>
+          <td>${r.has_results
+              ? `<span class="${r.scenarios_passed===r.scenarios_total?'badge pass':'badge fail'}">${r.scenarios_passed}/${r.scenarios_total}</span>`
+                + (r.scenarios_errored ? ` <span class="muted">(${r.scenarios_errored} err)</span>` : '')
+              : `<span class="badge na">no results (${r.scenario_count} dirs)</span>`}</td>
+          <td>${fmtScore(r.primary_score)}</td>
+          <td>${fmtScore(r.eval_final)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    ${filtered.length ? '' : '<div class="empty">No runs match the filters.</div>'}
+  </div>`;
+
+  const qEl = document.getElementById('q');
+  qEl.addEventListener('input', () => { listState.q = qEl.value.toLowerCase(); renderList(); });
+  qEl.focus(); qEl.setSelectionRange(qEl.value.length, qEl.value.length);
+  $main.querySelectorAll('select').forEach(sel =>
+    sel.addEventListener('change', () => {
+      listState[sel.dataset.k === 'agent_name' ? 'agent' : sel.dataset.k] = sel.value;
+      renderList();
+    }));
+}
+
+/* ---------- run detail ---------- */
+async function renderRun(path) {
+  const d = await getJSON('/api/run?path=' + encodeURIComponent(path));
+  const res = d.results, ev = d.evaluation;
+  const chips = [];
+  if (res) {
+    chips.push(['Primary score', res.primary_score], ['Passed', `${res.scenarios_passed}/${res.scenarios_total}`], ['Errored', res.scenarios_errored]);
+  }
+  if (ev) {
+    chips.push(['Eval final', ev.final], ['Resolution', ev.resolution], ['Experience', ev.experience],
+               ['Responsiveness', ev.responsiveness], ['Conv. quality', ev.conversation_quality]);
+  }
+  $main.innerHTML = `
+  <div class="crumbs"><a href="#">All runs</a> / ${esc(path)}</div>
+  <div class="card">
+    <h2>${esc(res?.agent_name || path.split('/').pop())}</h2>
+    <div class="muted mono">${esc(path.split('/').pop())}</div>
+    <div class="chips">${chips.map(([k,v]) => `<div class="chip"><div class="k">${k}</div><div class="v">${typeof v === 'number' ? fmtScore(v) : esc(v ?? '—')}</div></div>`).join('')}</div>
+    ${res ? '' : '<p class="muted">This run has no results.json (likely errored or interrupted) — scenario directories are still browsable below.</p>'}
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">Scenarios (${d.scenarios.length})</h3>
+    <table>
+      <thead><tr><th>Scenario</th><th>Result</th><th>Goal score</th><th>End reason</th><th>Turns</th><th>Duration</th></tr></thead>
+      <tbody>${d.scenarios.map(s => `
+        <tr class="rowlink" onclick="location.hash='#/scenario/${encodeURIComponent(path + '/' + s.id)}'">
+          <td class="mono">${esc(s.id)}</td>
+          <td>${passBadge(s.passed)}</td>
+          <td>${fmtScore(s.goal_score)}</td>
+          <td>${esc(s.end_reason ?? '—')}</td>
+          <td>${s.turn_count ?? '—'}</td>
+          <td>${fmtDur(s.duration_ms)}</td>
+        </tr>`).join('')}</tbody>
+    </table>
+  </div>
+  ${res ? `<div class="card"><details><summary>Raw results.json</summary><pre>${esc(JSON.stringify(res, null, 2))}</pre></details></div>` : ''}
+  ${ev ? `<div class="card"><details><summary>Raw talk_bench_evaluation_result.json</summary><pre>${esc(JSON.stringify(ev, null, 2))}</pre></details></div>` : ''}`;
+}
+
+/* ---------- scenario detail ---------- */
+async function renderScenario(path) {
+  const d = await getJSON('/api/scenario?path=' + encodeURIComponent(path));
+  const runPath = path.split('/').slice(0, 3).join('/');
+  const sc = d.scenario || {}, meta = d.run_meta || {};
+  const persona = sc.user_persona || {};
+  const audioNames = Object.entries(d.audio).filter(([,ok]) => ok).map(([n]) => n);
+
+  $main.innerHTML = `
+  <div class="crumbs"><a href="#">All runs</a> / <a href="#/run/${encodeURIComponent(runPath)}">${esc(runPath.split('/').pop())}</a> / ${esc(path.split('/').pop())}</div>
+  <div class="card">
+    <h2>${esc(path.split('/').pop())} <span class="muted" style="font-weight:400">· ${esc(sc.domain || '')}</span></h2>
+    <div class="chips">
+      <div class="chip"><div class="k">End reason</div><div class="v" style="font-size:14px">${esc(meta.end_reason ?? '—')}</div></div>
+      <div class="chip"><div class="k">Duration</div><div class="v" style="font-size:14px">${fmtDur(meta.total_duration_ms)}</div></div>
+      <div class="chip"><div class="k">Persona</div><div class="v" style="font-size:14px">${esc([persona.age_group, persona.emotion, persona.patience && persona.patience + ' patience'].filter(Boolean).join(', ') || '—')}</div></div>
+    </div>
+    ${sc.goal?.description ? `<h3>Goal</h3><p>${esc(sc.goal.description)}</p>` : ''}
+    ${sc.user_scenario ? `<details><summary>Full scenario JSON</summary><pre>${esc(JSON.stringify(sc, null, 2))}</pre></details>`
+                       : `<details><summary>Full scenario JSON</summary><pre>${esc(JSON.stringify(sc, null, 2))}</pre></details>`}
+  </div>
+
+  ${audioNames.length ? `<div class="card"><h3 style="margin-top:0">Audio</h3><div class="audio-grid">
+    ${audioNames.map(n => `<div><div class="muted" style="font-size:12px">${n}.wav</div>
+      <audio controls preload="none" src="/data/${encodeURIComponent(path).replace(/%2F/g,'/')}/${n}.wav"></audio></div>`).join('')}
+  </div></div>` : ''}
+
+  <div class="card">
+    <h3 style="margin-top:0">Transcript ${d.conversation ? `(${d.conversation.length} turns)` : ''}</h3>
+    ${d.conversation ? d.conversation.map(t => `
+      <div class="turn ${t.speaker === 'user' ? 'user' : 'agent'}">
+        <div><div class="who">${esc(t.speaker)} · turn ${t.turn_index ?? ''}</div>
+        <div class="bubble">${esc(t.text)}</div></div>
+      </div>`).join('') : '<p class="muted">No conversation.json</p>'}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Tool calls ${d.tool_log ? `(${d.tool_log.length})` : ''}</h3>
+    ${d.tool_log?.length ? d.tool_log.map(c => `
+      <div class="tool-call">
+        <span class="name mono">${esc(c.tool_name)}</span>
+        ${c.db_changed ? '<span class="badge pass" style="margin-left:8px">db changed</span>' : ''}
+        ${c.result?.error ? `<div class="err">error: ${esc(c.result.error.message || JSON.stringify(c.result.error))}</div>` : ''}
+        <details><summary>args & result</summary>
+          <pre>${esc(JSON.stringify({arguments: c.arguments, result: c.result}, null, 2))}</pre>
+        </details>
+      </div>`).join('') : '<p class="muted">No tool calls logged.</p>'}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Files (${d.files.length})</h3>
+    <div class="filelist">
+      ${d.files.map(f => `<div><a class="mono" target="_blank" href="/data/${encodeURIComponent(path).replace(/%2F/g,'/')}/${esc(f.name)}">${esc(f.name)}</a> <span class="muted">${(f.size/1024).toFixed(0)} KB</span></div>`).join('')}
+    </div>
+  </div>`;
+}
+
+/* ---------- router ---------- */
+async function route() {
+  const h = decodeURIComponent(location.hash);
+  try {
+    if (h.startsWith('#/scenario/')) await renderScenario(h.slice('#/scenario/'.length));
+    else if (h.startsWith('#/run/')) await renderRun(h.slice('#/run/'.length));
+    else await renderList();
+    window.scrollTo(0, 0);
+  } catch (e) {
+    $main.innerHTML = `<div class="card"><b>Error:</b> ${esc(e.message)}</div>`;
+  }
+}
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
