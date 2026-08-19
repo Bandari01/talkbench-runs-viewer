@@ -76,41 +76,37 @@ def build_index() -> list[dict[str, Any]]:
     runs = []
     if not DATA_DIR.exists():
         return runs
-    for project in sorted(DATA_DIR.iterdir()):
-        if not project.is_dir():
+    for run_dir in sorted(DATA_DIR.iterdir()):
+        if not run_dir.is_dir():
             continue
-        for run_dir in sorted(project.iterdir()):
-            if not run_dir.is_dir():
-                continue
-            results = _load_json(run_dir / "results.json")
-            eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json")
-            scenarios = _scenario_dirs(run_dir)
-            entry: dict[str, Any] = {
-                "path": f"{project.name}/{run_dir.name}",
-                "project": project.name,
-                "run_name": run_dir.name,
-                "timestamp": _parse_timestamp(run_dir.name),
-                "scenario_count": len(scenarios),
-                "has_results": results is not None,
-            }
-            if results:
-                entry.update(
-                    agent_name=results.get("agent_name"),
-                    run_id=results.get("run_id"),
-                    primary_score=results.get("primary_score"),
-                    scenarios_passed=results.get("scenarios_passed"),
-                    scenarios_total=results.get("scenarios_total"),
-                    scenarios_errored=results.get("scenarios_errored"),
-                    domains=sorted((results.get("per_domain") or {}).keys()),
-                )
-            else:
-                # fall back to parsing the agent name out of the directory name
-                entry["agent_name"] = run_dir.name.split("-1trials-")[0].rsplit("-", 0)[0]
-            if eval_res:
-                entry["eval_final"] = eval_res.get("final")
-                entry["eval_resolution"] = eval_res.get("resolution")
-                entry["eval_experience"] = eval_res.get("experience")
-            runs.append(entry)
+        results = _load_json(run_dir / "results.json")
+        eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json")
+        scenarios = _scenario_dirs(run_dir)
+        entry: dict[str, Any] = {
+            "path": run_dir.name,
+            "run_name": run_dir.name,
+            "timestamp": _parse_timestamp(run_dir.name),
+            "scenario_count": len(scenarios),
+            "has_results": results is not None,
+        }
+        if results:
+            entry.update(
+                agent_name=results.get("agent_name"),
+                run_id=results.get("run_id"),
+                primary_score=results.get("primary_score"),
+                scenarios_passed=results.get("scenarios_passed"),
+                scenarios_total=results.get("scenarios_total"),
+                scenarios_errored=results.get("scenarios_errored"),
+                domains=sorted((results.get("per_domain") or {}).keys()),
+            )
+        else:
+            # fall back to parsing the agent name out of the directory name
+            entry["agent_name"] = run_dir.name.split("-1trials-")[0].rsplit("-", 0)[0]
+        if eval_res:
+            entry["eval_final"] = eval_res.get("final")
+            entry["eval_resolution"] = eval_res.get("resolution")
+            entry["eval_experience"] = eval_res.get("experience")
+        runs.append(entry)
     runs.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
     return runs
 
@@ -230,9 +226,6 @@ def api_scenario(path: str = Query(...)):
     }
 
 
-PROJECTS = ("talk-bench", "talk-bench-talkdesk")
-
-
 def _invalidate_index() -> None:
     global _index_cache
     _index_cache = None
@@ -241,12 +234,9 @@ def _invalidate_index() -> None:
 @app.post("/api/upload_run")
 async def upload_run(
     file: UploadFile = File(...),
-    project: str = Form(...),
     overwrite: bool = Form(False),
 ):
-    """Import run directories from a .zip into data/<project>/."""
-    if project not in PROJECTS:
-        raise HTTPException(status_code=400, detail=f"project must be one of {PROJECTS}")
+    """Import run directories from a .zip into data/."""
     if not (file.filename or "").lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="expected a .zip file")
 
@@ -279,7 +269,7 @@ async def upload_run(
 
         imported, skipped = [], []
         for name, src in src_runs.items():
-            target = DATA_DIR / project / name
+            target = DATA_DIR / name
             if target.exists():
                 if not overwrite:
                     skipped.append(name)
@@ -290,7 +280,7 @@ async def upload_run(
             imported.append(name)
 
     _invalidate_index()
-    return {"imported": imported, "skipped_existing": skipped, "project": project}
+    return {"imported": imported, "skipped_existing": skipped}
 
 
 # ---- folder sync: begin -> chunk (repeated) -> commit ----
@@ -307,22 +297,18 @@ def _get_staged(upload_id: str) -> dict[str, Any]:
 
 @app.post("/api/upload_dir_begin")
 def upload_dir_begin(
-    project: str = Form(...),
     run_name: str = Form(...),
     overwrite: bool = Form(False),
 ):
-    if project not in PROJECTS:
-        raise HTTPException(status_code=400, detail=f"project must be one of {PROJECTS}")
     run_name = Path(run_name).name
     if not run_name or run_name.startswith("."):
         raise HTTPException(status_code=400, detail="invalid run name")
-    target = DATA_DIR / project / run_name
+    target = DATA_DIR / run_name
     if target.exists() and not overwrite:
         raise HTTPException(status_code=409, detail=f"run '{run_name}' already exists (enable overwrite)")
     upload_id = uuid.uuid4().hex
     _staged[upload_id] = {
         "dir": Path(tempfile.mkdtemp(prefix="talkbench_upload_")),
-        "project": project,
         "run_name": run_name,
         "files": 0,
     }
@@ -356,13 +342,12 @@ def upload_dir_commit(upload_id: str = Form(...)):
     st = _staged.pop(upload_id, None)
     if not st:
         raise HTTPException(status_code=404, detail="unknown or expired upload_id")
-    target = DATA_DIR / st["project"] / st["run_name"]
+    target = DATA_DIR / st["run_name"]
     if target.exists():
         shutil.rmtree(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(st["dir"]), str(target))
     _invalidate_index()
-    return {"run": f"{st['project']}/{st['run_name']}", "files": st["files"]}
+    return {"run": st["run_name"], "files": st["files"]}
 
 
 @app.post("/api/upload_dir_abort")

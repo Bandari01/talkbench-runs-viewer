@@ -6,13 +6,13 @@ from the five local `ai-ds-research*` checkouts, plus a web viewer to browse the
 ## Data layout
 
 ```
-data/<project>/<run-dir>/
+data/<run-dir>/
 ```
 
-- `<project>`: `talk-bench` or `talk-bench-talkdesk`
 - `<run-dir>`: the original run directory, copied verbatim (results.json, per-scenario
-  audio/transcripts/tool logs/telemetry). Runs from all `ai-ds-research*` checkouts are
-  merged together; run directory names are globally unique.
+  audio/transcripts/tool logs/telemetry). Runs from all `ai-ds-research*` checkouts and
+  both projects (talk-bench, talk-bench-talkdesk) are merged into one flat folder;
+  run directory names are globally unique.
 
 The backup was made with APFS clones (`cp -c -R`), so it is a real independent copy that
 consumes almost no additional disk space. `data/` is gitignored (~49 GB).
@@ -36,7 +36,7 @@ Then open http://localhost:8377
 
 Features:
 
-- Run list with search + filters (project, agent family), sorted by time
+- Run list with search + agent-family filter and starring, sorted by time
 - Per-run summary: primary score, pass counts, talk-bench evaluation scores, per-scenario table
 - Per-scenario view: goal, transcript, audio playback (conversation / user / agent wav),
   tool-call log with errors, and raw file access for every artifact

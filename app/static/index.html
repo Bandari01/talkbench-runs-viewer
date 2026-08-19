@@ -126,7 +126,7 @@ async function loadRuns() {
 }
 
 /* ---------- run list ---------- */
-const listState = { q: '', project: '', agent_name: '', starredOnly: false };
+const listState = { q: '', agent_name: '', starredOnly: false };
 
 // collapse agent variants into families for the filter dropdown
 function agentGroup(name) {
@@ -146,7 +146,6 @@ async function renderList() {
 
   const filtered = runs.filter(r =>
     (!listState.starredOnly || STARS.has(r.path)) &&
-    (!listState.project || r.project === listState.project) &&
     (!listState.agent_name || agentGroup(r.agent_name) === listState.agent_name) &&
     (!listState.q || r.run_name.toLowerCase().includes(listState.q) || (r.agent_name||'').toLowerCase().includes(listState.q)));
 
@@ -154,22 +153,18 @@ async function renderList() {
   <div class="card">
     <div class="toolbar">
       <input id="q" placeholder="Search run name / agent…" value="${esc(listState.q)}">
-      ${opts('project','project')} ${opts('agent_name','agent')}
+      ${opts('agent_name','agent')}
       <button class="navbtn ${listState.starredOnly ? 'active' : ''}" id="starFilter" type="button">★ Starred${listState.starredOnly ? ' ✓' : ''}</button>
       <button class="navbtn" id="uploadToggle" type="button">⬆ Upload runs</button>
       <span class="count">${filtered.length} / ${runs.length} runs</span>
     </div>
     <div id="uploadPanel" class="upload-panel" hidden>
-      <select id="upProject">
-        <option value="talk-bench">talk-bench</option>
-        <option value="talk-bench-talkdesk">talk-bench-talkdesk</option>
-      </select>
       <label class="navbtn" style="cursor:pointer">📁 Select run folder<input type="file" id="upDir" webkitdirectory hidden></label>
       <span class="muted" style="font-size:12px">or zip:</span>
       <input type="file" id="upFile" accept=".zip">
       <button class="navbtn" id="upSubmit" type="button">Import zip</button>
       <span id="upStatus" class="muted" style="font-size:12.5px"></span>
-      <div class="muted" style="font-size:12px;width:100%">Select a single run folder, or an outer runs/ folder to sync every run inside it (auto-detected). Or upload a zip — each top-level folder in the zip becomes one run under data/&lt;project&gt;/.</div>
+      <div class="muted" style="font-size:12px;width:100%">Select a single run folder, or an outer runs/ folder to sync every run inside it (auto-detected). Or upload a zip — each top-level folder in the zip becomes one run under data/.</div>
     </div>
     <table>
       <thead><tr><th></th><th>Time (UTC)</th><th>Run</th><th>Agent</th>
@@ -219,7 +214,6 @@ async function renderList() {
     ev.target.value = '';
     if (!files.length) return;
     const status = document.getElementById('upStatus');
-    const project = document.getElementById('upProject').value;
 
     const post = async (url, fd) => {
       const r = await fetch(url, { method: 'POST', body: fd });
@@ -232,7 +226,7 @@ async function renderList() {
     const syncOneRun = async (runName, entries, progressPrefix) => {
       const beginFd = ow => {
         const fd = new FormData();
-        fd.append('project', project); fd.append('run_name', runName); fd.append('overwrite', ow);
+        fd.append('run_name', runName); fd.append('overwrite', ow);
         return fd;
       };
       let uploadId;
@@ -240,7 +234,7 @@ async function renderList() {
         uploadId = (await post('/api/upload_dir_begin', beginFd(false))).upload_id;
       } catch (e) {
         if (e.status !== 409) throw e;
-        if (!confirm(`Run "${runName}" already exists in ${project}. Replace it?`)) return 'skipped';
+        if (!confirm(`Run "${runName}" already exists. Replace it?`)) return 'skipped';
         uploadId = (await post('/api/upload_dir_begin', beginFd(true))).upload_id;
       }
       try {
@@ -313,11 +307,9 @@ async function renderList() {
     const f = document.getElementById('upFile').files[0];
     const status = document.getElementById('upStatus');
     if (!f) { status.textContent = 'choose a .zip file first'; return; }
-    const project = document.getElementById('upProject').value;
     const send = async overwrite => {
       const fd = new FormData();
       fd.append('file', f);
-      fd.append('project', project);
       fd.append('overwrite', overwrite);
       const r = await fetch('/api/upload_run', { method: 'POST', body: fd });
       const res = await r.json();
@@ -329,7 +321,7 @@ async function renderList() {
       let res = await send(false);
       let imported = res.imported;
       if (res.skipped_existing.length) {
-        if (confirm(`These runs already exist in ${project}:\n\n${res.skipped_existing.join('\n')}\n\nReplace them?`)) {
+        if (confirm(`These runs already exist:\n\n${res.skipped_existing.join('\n')}\n\nReplace them?`)) {
           status.textContent = 'replacing…';
           res = await send(true);
           imported = res.imported;
@@ -485,8 +477,8 @@ function scenarioNav(runPath, siblings, idx) {
 
 async function renderScenario(path) {
   const d = await getJSON('/api/scenario?path=' + encodeURIComponent(path));
-  const runPath = path.split('/').slice(0, 2).join('/');
-  const scenId = path.split('/')[2];
+  const runPath = path.split('/')[0];
+  const scenId = path.split('/')[1];
   const run = await getRun(runPath).catch(() => null);
   const siblings = run?.scenarios || [];
   const scenIdx = siblings.findIndex(s => s.id === scenId);

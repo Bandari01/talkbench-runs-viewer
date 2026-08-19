@@ -10,15 +10,14 @@ for d in ai-ds-research ai-ds-research-1 ai-ds-research-2 ai-ds-research-3 ai-ds
   for sub in talk-bench talk-bench-talkdesk; do
     src="$GITHUB_DIR/$d/$sub/data/runs"
     [ -d "$src" ] || continue
-    tgt="$DEST/$sub"
-    mkdir -p "$tgt"
+    mkdir -p "$DEST"
     new=0
     for run in "$src"/*/; do
       name=$(basename "$run")
-      [ -e "$tgt/$name" ] && continue
-      cp -c -R "$run" "$tgt/$name"
+      [ -e "$DEST/$name" ] && continue
+      cp -c -R "$run" "$DEST/$name"
       new=$((new + 1))
     done
-    echo "$d/$sub: +$new new runs ($(ls "$tgt" | wc -l | tr -d ' ') total)"
+    echo "$d/$sub: +$new new runs"
   done
 done
