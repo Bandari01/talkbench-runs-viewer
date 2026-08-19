@@ -46,9 +46,14 @@ def _safe_path(rel: str) -> Path:
     return p
 
 
+def _natural_key(name: str) -> list:
+    # "airline-tau2-10" -> ["airline-tau", 2, "-", 10]: numbers compare numerically
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)]
+
+
 def _scenario_dirs(run_dir: Path) -> list[Path]:
     out = []
-    for child in sorted(run_dir.iterdir()):
+    for child in sorted(run_dir.iterdir(), key=lambda p: _natural_key(p.name)):
         if child.is_dir() and ((child / "scenario.json").exists() or (child / "conversation.json").exists()):
             out.append(child)
     return out
