@@ -71,45 +71,41 @@ def build_index() -> list[dict[str, Any]]:
     runs = []
     if not DATA_DIR.exists():
         return runs
-    for source in sorted(DATA_DIR.iterdir()):
-        if not source.is_dir():
+    for project in sorted(DATA_DIR.iterdir()):
+        if not project.is_dir():
             continue
-        for project in sorted(source.iterdir()):
-            if not project.is_dir():
+        for run_dir in sorted(project.iterdir()):
+            if not run_dir.is_dir():
                 continue
-            for run_dir in sorted(project.iterdir()):
-                if not run_dir.is_dir():
-                    continue
-                results = _load_json(run_dir / "results.json")
-                eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json")
-                scenarios = _scenario_dirs(run_dir)
-                entry: dict[str, Any] = {
-                    "path": f"{source.name}/{project.name}/{run_dir.name}",
-                    "source": source.name,
-                    "project": project.name,
-                    "run_name": run_dir.name,
-                    "timestamp": _parse_timestamp(run_dir.name),
-                    "scenario_count": len(scenarios),
-                    "has_results": results is not None,
-                }
-                if results:
-                    entry.update(
-                        agent_name=results.get("agent_name"),
-                        run_id=results.get("run_id"),
-                        primary_score=results.get("primary_score"),
-                        scenarios_passed=results.get("scenarios_passed"),
-                        scenarios_total=results.get("scenarios_total"),
-                        scenarios_errored=results.get("scenarios_errored"),
-                        domains=sorted((results.get("per_domain") or {}).keys()),
-                    )
-                else:
-                    # fall back to parsing the agent name out of the directory name
-                    entry["agent_name"] = run_dir.name.split("-1trials-")[0].rsplit("-", 0)[0]
-                if eval_res:
-                    entry["eval_final"] = eval_res.get("final")
-                    entry["eval_resolution"] = eval_res.get("resolution")
-                    entry["eval_experience"] = eval_res.get("experience")
-                runs.append(entry)
+            results = _load_json(run_dir / "results.json")
+            eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json")
+            scenarios = _scenario_dirs(run_dir)
+            entry: dict[str, Any] = {
+                "path": f"{project.name}/{run_dir.name}",
+                "project": project.name,
+                "run_name": run_dir.name,
+                "timestamp": _parse_timestamp(run_dir.name),
+                "scenario_count": len(scenarios),
+                "has_results": results is not None,
+            }
+            if results:
+                entry.update(
+                    agent_name=results.get("agent_name"),
+                    run_id=results.get("run_id"),
+                    primary_score=results.get("primary_score"),
+                    scenarios_passed=results.get("scenarios_passed"),
+                    scenarios_total=results.get("scenarios_total"),
+                    scenarios_errored=results.get("scenarios_errored"),
+                    domains=sorted((results.get("per_domain") or {}).keys()),
+                )
+            else:
+                # fall back to parsing the agent name out of the directory name
+                entry["agent_name"] = run_dir.name.split("-1trials-")[0].rsplit("-", 0)[0]
+            if eval_res:
+                entry["eval_final"] = eval_res.get("final")
+                entry["eval_resolution"] = eval_res.get("resolution")
+                entry["eval_experience"] = eval_res.get("experience")
+            runs.append(entry)
     runs.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
     return runs
 

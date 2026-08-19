@@ -94,7 +94,7 @@ async function loadRuns() {
 }
 
 /* ---------- run list ---------- */
-const listState = { q: '', source: '', project: '', agent_name: '' };
+const listState = { q: '', project: '', agent_name: '' };
 
 // collapse agent variants into families for the filter dropdown
 function agentGroup(name) {
@@ -113,7 +113,6 @@ async function renderList() {
     uniq(key).map(v => `<option ${listState[key]===v?'selected':''} value="${esc(v)}">${esc(v)}</option>`).join('') + '</select>';
 
   const filtered = runs.filter(r =>
-    (!listState.source || r.source === listState.source) &&
     (!listState.project || r.project === listState.project) &&
     (!listState.agent_name || agentGroup(r.agent_name) === listState.agent_name) &&
     (!listState.q || r.run_name.toLowerCase().includes(listState.q) || (r.agent_name||'').toLowerCase().includes(listState.q)));
@@ -122,11 +121,11 @@ async function renderList() {
   <div class="card">
     <div class="toolbar">
       <input id="q" placeholder="Search run name / agent…" value="${esc(listState.q)}">
-      ${opts('source','source')} ${opts('project','project')} ${opts('agent_name','agent')}
+      ${opts('project','project')} ${opts('agent_name','agent')}
       <span class="count">${filtered.length} / ${runs.length} runs</span>
     </div>
     <table>
-      <thead><tr><th>Time (UTC)</th><th>Run</th><th>Agent</th><th>Source</th>
+      <thead><tr><th>Time (UTC)</th><th>Run</th><th>Agent</th>
       <th>Scenarios</th><th>Primary</th><th>Eval final</th></tr></thead>
       <tbody>
       ${filtered.map(r => `
@@ -134,7 +133,6 @@ async function renderList() {
           <td class="mono muted" style="white-space:nowrap">${esc(r.timestamp || '?')}</td>
           <td class="mono" style="word-break:break-all">${esc(r.run_name)}</td>
           <td>${esc(r.agent_name || '—')}</td>
-          <td class="muted">${esc(r.source.replace('ai-ds-research','repo'))}</td>
           <td>${r.has_results
               ? `<span class="${r.scenarios_passed===r.scenarios_total?'badge pass':'badge fail'}">${r.scenarios_passed}/${r.scenarios_total}</span>`
                 + (r.scenarios_errored ? ` <span class="muted">(${r.scenarios_errored} err)</span>` : '')
@@ -293,8 +291,8 @@ function scenarioNav(runPath, siblings, idx) {
 
 async function renderScenario(path) {
   const d = await getJSON('/api/scenario?path=' + encodeURIComponent(path));
-  const runPath = path.split('/').slice(0, 3).join('/');
-  const scenId = path.split('/')[3];
+  const runPath = path.split('/').slice(0, 2).join('/');
+  const scenId = path.split('/')[2];
   const run = await getRun(runPath).catch(() => null);
   const siblings = run?.scenarios || [];
   const scenIdx = siblings.findIndex(s => s.id === scenId);

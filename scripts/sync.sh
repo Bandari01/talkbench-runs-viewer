@@ -10,7 +10,7 @@ for d in ai-ds-research ai-ds-research-1 ai-ds-research-2 ai-ds-research-3 ai-ds
   for sub in talk-bench talk-bench-talkdesk; do
     src="$GITHUB_DIR/$d/$sub/data/runs"
     [ -d "$src" ] || continue
-    tgt="$DEST/$d/$sub"
+    tgt="$DEST/$sub"
     mkdir -p "$tgt"
     new=0
     for run in "$src"/*/; do
