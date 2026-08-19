@@ -126,7 +126,7 @@ async function renderList() {
       <span class="count">${filtered.length} / ${runs.length} runs</span>
     </div>
     <table>
-      <thead><tr><th>Time (UTC)</th><th>Run</th><th>Agent</th><th>Source</th><th>Project</th>
+      <thead><tr><th>Time (UTC)</th><th>Run</th><th>Agent</th><th>Source</th>
       <th>Scenarios</th><th>Primary</th><th>Eval final</th></tr></thead>
       <tbody>
       ${filtered.map(r => `
@@ -135,7 +135,6 @@ async function renderList() {
           <td class="mono" style="word-break:break-all">${esc(r.run_name)}</td>
           <td>${esc(r.agent_name || '—')}</td>
           <td class="muted">${esc(r.source.replace('ai-ds-research','repo'))}</td>
-          <td class="muted">${esc(r.project.replace('talk-bench-talkdesk','talkdesk').replace('talk-bench','core'))}</td>
           <td>${r.has_results
               ? `<span class="${r.scenarios_passed===r.scenarios_total?'badge pass':'badge fail'}">${r.scenarios_passed}/${r.scenarios_total}</span>`
                 + (r.scenarios_errored ? ` <span class="muted">(${r.scenarios_errored} err)</span>` : '')
