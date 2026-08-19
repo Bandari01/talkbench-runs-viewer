@@ -62,6 +62,11 @@
   .navbtn:hover { background: #f1f5fd; text-decoration: none; }
   .navbtn.disabled { color: #c3c9d2; pointer-events: none; }
   button.navbtn { cursor: pointer; font-family: inherit; color: var(--text); }
+  button.navbtn.active { background: #fef3c7; border-color: #f59e0b; }
+  .star { color: #c3c9d2; font-size: 16px; }
+  .star.on { color: #f59e0b; }
+  .starcell { cursor: pointer; user-select: none; }
+  .starcell:hover .star { color: #f59e0b; }
   .upload-panel { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px dashed var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; background: #fbfcfe; }
   .upload-panel select { padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 13px; }
   .tool-call .name { font-weight: 650; }
@@ -81,6 +86,24 @@
 <script>
 const $main = document.getElementById('main');
 let RUNS = null;
+let STARS = new Set();
+
+async function toggleStar(path, rerender) {
+  const starred = !STARS.has(path);
+  starred ? STARS.add(path) : STARS.delete(path);
+  rerender();
+  const fd = new FormData();
+  fd.append('path', path);
+  fd.append('starred', starred);
+  try {
+    const r = await fetch('/api/star', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error(r.status);
+  } catch (e) {
+    starred ? STARS.delete(path) : STARS.add(path);  // roll back on failure
+    rerender();
+  }
+}
+const starIcon = path => `<span class="star ${STARS.has(path) ? 'on' : ''}">${STARS.has(path) ? '★' : '☆'}</span>`;
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtScore = v => (v === null || v === undefined) ? '<span class="muted">—</span>' : Number(v).toFixed(v >= 1 || v === 0 ? 2 : 3).replace(/\.?0+$/,'') || '0';
@@ -94,12 +117,16 @@ async function getJSON(url) {
 }
 
 async function loadRuns() {
-  if (!RUNS) RUNS = (await getJSON('/api/runs')).runs;
+  if (!RUNS) {
+    const d = await getJSON('/api/runs');
+    RUNS = d.runs;
+    STARS = new Set(d.stars || []);
+  }
   return RUNS;
 }
 
 /* ---------- run list ---------- */
-const listState = { q: '', project: '', agent_name: '' };
+const listState = { q: '', project: '', agent_name: '', starredOnly: false };
 
 // collapse agent variants into families for the filter dropdown
 function agentGroup(name) {
@@ -118,6 +145,7 @@ async function renderList() {
     uniq(key).map(v => `<option ${listState[key]===v?'selected':''} value="${esc(v)}">${esc(v)}</option>`).join('') + '</select>';
 
   const filtered = runs.filter(r =>
+    (!listState.starredOnly || STARS.has(r.path)) &&
     (!listState.project || r.project === listState.project) &&
     (!listState.agent_name || agentGroup(r.agent_name) === listState.agent_name) &&
     (!listState.q || r.run_name.toLowerCase().includes(listState.q) || (r.agent_name||'').toLowerCase().includes(listState.q)));
@@ -127,6 +155,7 @@ async function renderList() {
     <div class="toolbar">
       <input id="q" placeholder="Search run name / agent…" value="${esc(listState.q)}">
       ${opts('project','project')} ${opts('agent_name','agent')}
+      <button class="navbtn ${listState.starredOnly ? 'active' : ''}" id="starFilter" type="button">★ Starred${listState.starredOnly ? ' ✓' : ''}</button>
       <button class="navbtn" id="uploadToggle" type="button">⬆ Upload runs</button>
       <span class="count">${filtered.length} / ${runs.length} runs</span>
     </div>
@@ -143,11 +172,12 @@ async function renderList() {
       <div class="muted" style="font-size:12px;width:100%">Select a single run folder, or an outer runs/ folder to sync every run inside it (auto-detected). Or upload a zip — each top-level folder in the zip becomes one run under data/&lt;project&gt;/.</div>
     </div>
     <table>
-      <thead><tr><th>Time (UTC)</th><th>Run</th><th>Agent</th>
+      <thead><tr><th></th><th>Time (UTC)</th><th>Run</th><th>Agent</th>
       <th>Scenarios</th><th>Primary</th><th>Eval final</th></tr></thead>
       <tbody>
       ${filtered.map(r => `
         <tr class="rowlink" onclick="location.hash='#/run/${encodeURIComponent(r.path)}'">
+          <td class="starcell" data-path="${esc(r.path)}">${starIcon(r.path)}</td>
           <td class="mono muted" style="white-space:nowrap">${esc(r.timestamp || '?')}</td>
           <td class="mono" style="word-break:break-all">${esc(r.run_name)}</td>
           <td>${esc(r.agent_name || '—')}</td>
@@ -166,6 +196,15 @@ async function renderList() {
   const qEl = document.getElementById('q');
   qEl.addEventListener('input', () => { listState.q = qEl.value.toLowerCase(); renderList(); });
   qEl.focus(); qEl.setSelectionRange(qEl.value.length, qEl.value.length);
+  document.getElementById('starFilter').addEventListener('click', () => {
+    listState.starredOnly = !listState.starredOnly;
+    renderList();
+  });
+  $main.querySelectorAll('.starcell').forEach(td =>
+    td.addEventListener('click', ev => {
+      ev.stopPropagation();
+      toggleStar(td.dataset.path, renderList);
+    }));
   $main.querySelectorAll('select[data-k]').forEach(sel =>
     sel.addEventListener('change', () => {
       listState[sel.dataset.k] = sel.value;
@@ -307,7 +346,10 @@ async function renderList() {
 
 /* ---------- run detail ---------- */
 async function renderRun(path) {
-  const d = await getJSON('/api/run?path=' + encodeURIComponent(path));
+  const [d] = await Promise.all([
+    getJSON('/api/run?path=' + encodeURIComponent(path)),
+    loadRuns(),  // ensures STARS is populated on direct page loads
+  ]);
   const res = d.results, ev = d.evaluation;
   const chips = [];
   if (res) {
@@ -320,7 +362,7 @@ async function renderRun(path) {
   $main.innerHTML = `
   <div class="crumbs"><a href="#">All runs</a> / ${esc(path)}</div>
   <div class="card">
-    <h2>${esc(res?.agent_name || path.split('/').pop())}</h2>
+    <h2><span class="starcell" id="runStar">${starIcon(path)}</span> ${esc(res?.agent_name || path.split('/').pop())}</h2>
     <div class="muted mono">${esc(path.split('/').pop())}</div>
     <div class="chips">${chips.map(([k,v]) => `<div class="chip"><div class="k">${k}</div><div class="v">${typeof v === 'number' ? fmtScore(v) : esc(v ?? '—')}</div></div>`).join('')}</div>
     ${res ? '' : '<p class="muted">This run has no results.json (likely errored or interrupted) — scenario directories are still browsable below.</p>'}
@@ -342,6 +384,8 @@ async function renderRun(path) {
   </div>
   ${res ? `<div class="card"><details><summary>Raw results.json</summary><pre>${esc(JSON.stringify(res, null, 2))}</pre></details></div>` : ''}
   ${ev ? `<div class="card"><details><summary>Raw talk_bench_evaluation_result.json</summary><pre>${esc(JSON.stringify(ev, null, 2))}</pre></details></div>` : ''}`;
+
+  document.getElementById('runStar').addEventListener('click', () => toggleStar(path, () => renderRun(path)));
 }
 
 /* ---------- transcript with tool calls merged chronologically ---------- */

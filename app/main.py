@@ -15,6 +15,7 @@ import json
 import re
 import shutil
 import tempfile
+import threading
 import uuid
 import zipfile
 from pathlib import Path
@@ -114,12 +115,39 @@ def build_index() -> list[dict[str, Any]]:
     return runs
 
 
+STARS_FILE = DATA_DIR / ".stars.json"
+_stars_lock = threading.Lock()
+
+
+def _load_stars() -> set[str]:
+    stars = _load_json(STARS_FILE)
+    return set(stars) if isinstance(stars, list) else set()
+
+
+def _save_stars(stars: set[str]) -> None:
+    STARS_FILE.write_text(json.dumps(sorted(stars), indent=1))
+
+
 @app.get("/api/runs")
 def api_runs(refresh: bool = False):
     global _index_cache
     if _index_cache is None or refresh:
         _index_cache = build_index()
-    return {"runs": _index_cache, "data_dir": str(DATA_DIR)}
+    return {"runs": _index_cache, "stars": sorted(_load_stars()), "data_dir": str(DATA_DIR)}
+
+
+@app.post("/api/star")
+def api_star(path: str = Form(...), starred: bool = Form(...)):
+    if not (_safe_path(path)).is_dir():
+        raise HTTPException(status_code=404, detail="run not found")
+    with _stars_lock:
+        stars = _load_stars()
+        if starred:
+            stars.add(path)
+        else:
+            stars.discard(path)
+        _save_stars(stars)
+    return {"path": path, "starred": starred}
 
 
 @app.get("/api/run")
