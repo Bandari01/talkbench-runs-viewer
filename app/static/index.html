@@ -140,7 +140,7 @@ async function renderList() {
       <input type="file" id="upFile" accept=".zip">
       <button class="navbtn" id="upSubmit" type="button">Import zip</button>
       <span id="upStatus" class="muted" style="font-size:12.5px"></span>
-      <div class="muted" style="font-size:12px;width:100%">Select a run folder to sync it directly (uploads all files inside, folder name becomes the run name), or upload a zip — each top-level folder in the zip becomes one run under data/&lt;project&gt;/.</div>
+      <div class="muted" style="font-size:12px;width:100%">Select a single run folder, or an outer runs/ folder to sync every run inside it (auto-detected). Or upload a zip — each top-level folder in the zip becomes one run under data/&lt;project&gt;/.</div>
     </div>
     <table>
       <thead><tr><th>Time (UTC)</th><th>Run</th><th>Agent</th>
@@ -181,7 +181,6 @@ async function renderList() {
     if (!files.length) return;
     const status = document.getElementById('upStatus');
     const project = document.getElementById('upProject').value;
-    const runName = files[0].webkitRelativePath.split('/')[0];
 
     const post = async (url, fd) => {
       const r = await fetch(url, { method: 'POST', body: fd });
@@ -189,47 +188,86 @@ async function renderList() {
       if (!r.ok) { const e = new Error(res.detail || r.status); e.status = r.status; throw e; }
       return res;
     };
-    const beginFd = ow => {
-      const fd = new FormData();
-      fd.append('project', project); fd.append('run_name', runName); fd.append('overwrite', ow);
-      return fd;
-    };
 
-    let uploadId;
-    try {
+    // entries: [{rel: path inside the run dir, file}]
+    const syncOneRun = async (runName, entries, progressPrefix) => {
+      const beginFd = ow => {
+        const fd = new FormData();
+        fd.append('project', project); fd.append('run_name', runName); fd.append('overwrite', ow);
+        return fd;
+      };
+      let uploadId;
       try {
         uploadId = (await post('/api/upload_dir_begin', beginFd(false))).upload_id;
       } catch (e) {
         if (e.status !== 409) throw e;
-        if (!confirm(`Run "${runName}" already exists in ${project}. Replace it?`)) { status.textContent = 'cancelled'; return; }
+        if (!confirm(`Run "${runName}" already exists in ${project}. Replace it?`)) return 'skipped';
         uploadId = (await post('/api/upload_dir_begin', beginFd(true))).upload_id;
       }
-      // upload in batches: at most 40 files or ~200 MB per request
-      let batch = [], batchBytes = 0, sent = 0;
-      const flush = async () => {
-        if (!batch.length) return;
-        const fd = new FormData();
-        fd.append('upload_id', uploadId);
-        for (const f of batch) {
-          fd.append('paths', f.webkitRelativePath.split('/').slice(1).join('/'));
-          fd.append('files', f);
+      try {
+        // upload in batches: at most 40 files or ~200 MB per request
+        let batch = [], batchBytes = 0, sent = 0;
+        const flush = async () => {
+          if (!batch.length) return;
+          const fd = new FormData();
+          fd.append('upload_id', uploadId);
+          for (const e of batch) { fd.append('paths', e.rel); fd.append('files', e.file); }
+          await post('/api/upload_dir_chunk', fd);
+          sent += batch.length;
+          status.textContent = `${progressPrefix}"${runName}": ${sent}/${entries.length} files…`;
+          batch = []; batchBytes = 0;
+        };
+        for (const e of entries) {
+          if (batch.length >= 40 || batchBytes + e.file.size > 200e6) await flush();
+          batch.push(e); batchBytes += e.file.size;
         }
-        await post('/api/upload_dir_chunk', fd);
-        sent += batch.length;
-        status.textContent = `syncing "${runName}": ${sent}/${files.length} files…`;
-        batch = []; batchBytes = 0;
-      };
-      for (const f of files) {
-        if (batch.length >= 40 || batchBytes + f.size > 200e6) await flush();
-        batch.push(f); batchBytes += f.size;
+        await flush();
+        await post('/api/upload_dir_commit', (() => { const fd = new FormData(); fd.append('upload_id', uploadId); return fd; })());
+        return 'synced';
+      } catch (e) {
+        const fd = new FormData(); fd.append('upload_id', uploadId);
+        fetch('/api/upload_dir_abort', { method: 'POST', body: fd });
+        throw e;
       }
-      await flush();
-      const res = await post('/api/upload_dir_commit', (() => { const fd = new FormData(); fd.append('upload_id', uploadId); return fd; })());
-      status.textContent = `synced ${res.run} (${res.files} files)`;
-      RUNS = null; setTimeout(renderList, 1200);
+    };
+
+    // Detect whether the selected folder is a single run or a folder of runs.
+    // A run has results.json / talk_bench_evaluation_result.json at its root,
+    // or scenario dirs (scenario.json / run_meta.json / conversation.json) one level down.
+    const RUN_ROOT_FILES = ['results.json', 'talk_bench_evaluation_result.json'];
+    const SCEN_FILES = ['scenario.json', 'run_meta.json', 'conversation.json'];
+    const inner = files.map(f => ({ parts: f.webkitRelativePath.split('/').slice(1), file: f }));
+    const isSingleRun = inner.some(({ parts }) =>
+      (parts.length === 1 && RUN_ROOT_FILES.includes(parts[0])) ||
+      (parts.length === 2 && SCEN_FILES.includes(parts[1])));
+
+    let runGroups; // Map<runName, entries>
+    if (isSingleRun) {
+      const runName = files[0].webkitRelativePath.split('/')[0];
+      runGroups = new Map([[runName, inner.map(({ parts, file }) => ({ rel: parts.join('/'), file }))]]);
+    } else {
+      runGroups = new Map();
+      for (const { parts, file } of inner) {
+        if (parts.length < 2) continue; // loose files at the container root (.DS_Store etc.)
+        const run = parts[0];
+        if (!runGroups.has(run)) runGroups.set(run, []);
+        runGroups.get(run).push({ rel: parts.slice(1).join('/'), file });
+      }
+      if (!runGroups.size) { status.textContent = 'no run folders found in the selection'; return; }
+    }
+
+    try {
+      const names = [...runGroups.keys()], done = [], skipped = [];
+      for (let i = 0; i < names.length; i++) {
+        const prefix = names.length > 1 ? `run ${i + 1}/${names.length} ` : 'syncing ';
+        const outcome = await syncOneRun(names[i], runGroups.get(names[i]), prefix);
+        (outcome === 'synced' ? done : skipped).push(names[i]);
+      }
+      status.textContent = `synced ${done.length} run${done.length === 1 ? '' : 's'}`
+        + (skipped.length ? ` · skipped: ${skipped.join(', ')}` : '');
+      if (done.length) { RUNS = null; setTimeout(renderList, 1500); }
     } catch (e) {
       status.textContent = 'error: ' + e.message;
-      if (uploadId) { const fd = new FormData(); fd.append('upload_id', uploadId); fetch('/api/upload_dir_abort', { method: 'POST', body: fd }); }
     }
   });
   document.getElementById('upSubmit').addEventListener('click', async () => {
