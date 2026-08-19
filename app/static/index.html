@@ -138,7 +138,6 @@ async function renderList() {
       <label class="navbtn" style="cursor:pointer">📁 Select run folder<input type="file" id="upDir" webkitdirectory hidden></label>
       <span class="muted" style="font-size:12px">or zip:</span>
       <input type="file" id="upFile" accept=".zip">
-      <label style="font-size:13px"><input type="checkbox" id="upOverwrite"> overwrite existing runs</label>
       <button class="navbtn" id="upSubmit" type="button">Import zip</button>
       <span id="upStatus" class="muted" style="font-size:12.5px"></span>
       <div class="muted" style="font-size:12px;width:100%">Select a run folder to sync it directly (uploads all files inside, folder name becomes the run name), or upload a zip — each top-level folder in the zip becomes one run under data/&lt;project&gt;/.</div>
@@ -183,7 +182,6 @@ async function renderList() {
     const status = document.getElementById('upStatus');
     const project = document.getElementById('upProject').value;
     const runName = files[0].webkitRelativePath.split('/')[0];
-    let overwrite = document.getElementById('upOverwrite').checked;
 
     const post = async (url, fd) => {
       const r = await fetch(url, { method: 'POST', body: fd });
@@ -200,7 +198,7 @@ async function renderList() {
     let uploadId;
     try {
       try {
-        uploadId = (await post('/api/upload_dir_begin', beginFd(overwrite))).upload_id;
+        uploadId = (await post('/api/upload_dir_begin', beginFd(false))).upload_id;
       } catch (e) {
         if (e.status !== 409) throw e;
         if (!confirm(`Run "${runName}" already exists in ${project}. Replace it?`)) { status.textContent = 'cancelled'; return; }
@@ -238,18 +236,33 @@ async function renderList() {
     const f = document.getElementById('upFile').files[0];
     const status = document.getElementById('upStatus');
     if (!f) { status.textContent = 'choose a .zip file first'; return; }
-    status.textContent = 'uploading…';
-    const fd = new FormData();
-    fd.append('file', f);
-    fd.append('project', document.getElementById('upProject').value);
-    fd.append('overwrite', document.getElementById('upOverwrite').checked);
-    try {
+    const project = document.getElementById('upProject').value;
+    const send = async overwrite => {
+      const fd = new FormData();
+      fd.append('file', f);
+      fd.append('project', project);
+      fd.append('overwrite', overwrite);
       const r = await fetch('/api/upload_run', { method: 'POST', body: fd });
       const res = await r.json();
       if (!r.ok) throw new Error(res.detail || r.status);
-      status.textContent = `imported: ${res.imported.length ? res.imported.join(', ') : 'none'}`
-        + (res.skipped_existing.length ? ` · skipped (already exist): ${res.skipped_existing.join(', ')}` : '');
-      if (res.imported.length) { RUNS = null; setTimeout(renderList, 1200); }
+      return res;
+    };
+    try {
+      status.textContent = 'uploading…';
+      let res = await send(false);
+      let imported = res.imported;
+      if (res.skipped_existing.length) {
+        if (confirm(`These runs already exist in ${project}:\n\n${res.skipped_existing.join('\n')}\n\nReplace them?`)) {
+          status.textContent = 'replacing…';
+          res = await send(true);
+          imported = res.imported;
+        } else if (!imported.length) {
+          status.textContent = 'nothing imported (all runs already exist)';
+          return;
+        }
+      }
+      status.textContent = `imported: ${imported.length ? imported.join(', ') : 'none'}`;
+      if (imported.length) { RUNS = null; setTimeout(renderList, 1200); }
     } catch (e) { status.textContent = 'error: ' + e.message; }
   });
 }
