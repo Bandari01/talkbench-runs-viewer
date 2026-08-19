@@ -165,6 +165,20 @@ def api_scenario(path: str = Query(...)):
     meta = _load_json(sdir / "run_meta.json") or {}
     # db_state is huge and rarely needed inline; drop it from the payload
     meta.pop("db_state", None)
+
+    # per-scenario scores live in the parent run's result files
+    run_dir = sdir.parent
+    results = _load_json(run_dir / "results.json") or {}
+    scenario_summary = next(
+        (s for s in results.get("per_scenario") or [] if s.get("scenario_id") == sdir.name), None
+    )
+    eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json") or {}
+    session_result = next(
+        (s for s in eval_res.get("session_results") or [] if s.get("session_id") == sdir.name), None
+    )
+    if session_result:
+        # turns duplicate conversation.json; keep the payload lean
+        session_result = {k: v for k, v in session_result.items() if k != "turns"}
     files = []
     for f in sorted(sdir.rglob("*")):
         if f.is_file() and not f.name.startswith("."):
@@ -178,6 +192,8 @@ def api_scenario(path: str = Query(...)):
         "conversation": _load_json(sdir / "conversation.json"),
         "tool_log": _load_json(sdir / "tool_log.json"),
         "run_meta": meta,
+        "scenario_summary": scenario_summary,
+        "session_result": session_result,
         "files": files,
         "audio": {
             name: (sdir / f"{name}.wav").exists()

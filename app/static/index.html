@@ -225,6 +225,42 @@ function renderTimeline(conversation, toolLog) {
   }).join('');
 }
 
+/* ---------- per-scenario scores ---------- */
+function renderScores(summary, sess) {
+  if (!summary && !sess) return '';
+  const tc = sess?.task_completion || {};
+  const tools = summary?.tool_metrics || {};
+  const entries = [
+    ['Goal score', summary?.goal_score],
+    ['tau2 goal', summary?.tau2_goal_score],
+    ['Native goal', summary?.native_goal_score],
+    ['Reward', tc.reward],
+    ['Action', tc.action_score],
+    ['Communicate', tc.communicate_score],
+    ['NL assertions', tc.nl_assertions_score],
+    ['DB state', tc.db_state_score],
+    ['State integrity', tc.state_integrity_score],
+    ['Tool recall', tools.recall],
+    ['Tool precision', tools.precision],
+    ['Tool calls', tools.total_calls],
+  ].filter(([, v]) => v !== null && v !== undefined);
+  const flags = [];
+  if (tc.prohibited_violated) flags.push('prohibited action violated');
+  if (tc.prohibited_communicate_violated) flags.push('prohibited communicate violated');
+  if (tc.judge_failed) flags.push('judge failed');
+  if (summary?.tool_metrics?.prohibited_violations?.length)
+    flags.push('prohibited tool calls: ' + summary.tool_metrics.prohibited_violations.join(', '));
+  if (summary?.breach) flags.push('breach: ' + summary.breach);
+  return `
+  <h3>Scores</h3>
+  <div class="chips">${entries.map(([k, v]) =>
+    `<div class="chip"><div class="k">${k}</div><div class="v">${typeof v === 'number' ? fmtScore(v) : esc(v)}</div></div>`).join('')}
+  </div>
+  ${flags.map(f => `<div><span class="badge fail" style="margin-top:6px">${esc(f)}</span></div>`).join('')}
+  ${summary ? `<details><summary>Raw scenario result (results.json)</summary><pre>${esc(JSON.stringify(summary, null, 2))}</pre></details>` : ''}
+  ${sess ? `<details><summary>Raw session result (talk_bench_evaluation_result.json)</summary><pre>${esc(JSON.stringify(sess, null, 2))}</pre></details>` : ''}`;
+}
+
 /* ---------- scenario detail ---------- */
 const _runCache = {};
 async function getRun(runPath) {
@@ -265,12 +301,14 @@ async function renderScenario(path) {
     ${siblings.length > 1 ? scenarioNav(runPath, siblings, scenIdx) : ''}
   </div>
   <div class="card">
-    <h2>${esc(path.split('/').pop())} <span class="muted" style="font-weight:400">· ${esc(sc.domain || '')}</span></h2>
+    <h2>${esc(path.split('/').pop())} <span class="muted" style="font-weight:400">· ${esc(sc.domain || '')}</span>
+      ${passBadge(d.scenario_summary?.passed ?? d.session_result?.task_completion?.passed)}</h2>
     <div class="chips">
       <div class="chip"><div class="k">End reason</div><div class="v" style="font-size:14px">${esc(meta.end_reason ?? '—')}</div></div>
       <div class="chip"><div class="k">Duration</div><div class="v" style="font-size:14px">${fmtDur(meta.total_duration_ms)}</div></div>
       <div class="chip"><div class="k">Persona</div><div class="v" style="font-size:14px">${esc([persona.age_group, persona.emotion, persona.patience && persona.patience + ' patience'].filter(Boolean).join(', ') || '—')}</div></div>
     </div>
+    ${renderScores(d.scenario_summary, d.session_result)}
     ${sc.goal?.description ? `<h3>Goal</h3><p>${esc(sc.goal.description)}</p>` : ''}
     ${sc.user_scenario ? `<details><summary>Full scenario JSON</summary><pre>${esc(JSON.stringify(sc, null, 2))}</pre></details>`
                        : `<details><summary>Full scenario JSON</summary><pre>${esc(JSON.stringify(sc, null, 2))}</pre></details>`}
