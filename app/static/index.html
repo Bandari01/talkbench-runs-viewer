@@ -137,6 +137,8 @@ function agentGroup(name) {
 }
 
 async function renderList() {
+  const searchHadFocus = document.activeElement?.id === 'q';
+  const scrollY = window.scrollY;
   const runs = await loadRuns();
   document.getElementById('headerSub').textContent = runs.length + ' runs archived';
   const uniq = key => [...new Set(runs.map(r => key === 'agent_name' ? agentGroup(r[key]) : r[key]).filter(Boolean))].sort();
@@ -181,7 +183,8 @@ async function renderList() {
 
   const qEl = document.getElementById('q');
   qEl.addEventListener('input', () => { listState.q = qEl.value.toLowerCase(); renderList(); });
-  qEl.focus(); qEl.setSelectionRange(qEl.value.length, qEl.value.length);
+  if (searchHadFocus) { qEl.focus(); qEl.setSelectionRange(qEl.value.length, qEl.value.length); }
+  window.scrollTo(0, scrollY);
   document.getElementById('starFilter').addEventListener('click', () => {
     listState.starredOnly = !listState.starredOnly;
     renderList();
