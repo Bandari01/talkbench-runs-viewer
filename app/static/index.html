@@ -96,10 +96,18 @@ async function loadRuns() {
 /* ---------- run list ---------- */
 const listState = { q: '', source: '', project: '', agent_name: '' };
 
+// collapse agent variants into families for the filter dropdown
+function agentGroup(name) {
+  if (!name) return name;
+  if (name.startsWith('talkdesk-autopilot')) return 'talkdesk-autopilot*';
+  if (name.startsWith('elevenlabs')) return 'elevenlabs*';
+  return name;
+}
+
 async function renderList() {
   const runs = await loadRuns();
   document.getElementById('headerSub').textContent = runs.length + ' runs archived';
-  const uniq = key => [...new Set(runs.map(r => r[key]).filter(Boolean))].sort();
+  const uniq = key => [...new Set(runs.map(r => key === 'agent_name' ? agentGroup(r[key]) : r[key]).filter(Boolean))].sort();
   const opts = (key, label) =>
     `<select data-k="${key}"><option value="">${label}: all</option>` +
     uniq(key).map(v => `<option ${listState[key]===v?'selected':''} value="${esc(v)}">${esc(v)}</option>`).join('') + '</select>';
@@ -107,7 +115,7 @@ async function renderList() {
   const filtered = runs.filter(r =>
     (!listState.source || r.source === listState.source) &&
     (!listState.project || r.project === listState.project) &&
-    (!listState.agent_name || r.agent_name === listState.agent_name) &&
+    (!listState.agent_name || agentGroup(r.agent_name) === listState.agent_name) &&
     (!listState.q || r.run_name.toLowerCase().includes(listState.q) || (r.agent_name||'').toLowerCase().includes(listState.q)));
 
   $main.innerHTML = `
