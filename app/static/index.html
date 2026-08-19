@@ -94,7 +94,7 @@ async function loadRuns() {
 }
 
 /* ---------- run list ---------- */
-const listState = { q: '', source: '', project: '', agent: '' };
+const listState = { q: '', source: '', project: '', agent_name: '' };
 
 async function renderList() {
   const runs = await loadRuns();
@@ -107,7 +107,7 @@ async function renderList() {
   const filtered = runs.filter(r =>
     (!listState.source || r.source === listState.source) &&
     (!listState.project || r.project === listState.project) &&
-    (!listState.agent || r.agent_name === listState.agent) &&
+    (!listState.agent_name || r.agent_name === listState.agent_name) &&
     (!listState.q || r.run_name.toLowerCase().includes(listState.q) || (r.agent_name||'').toLowerCase().includes(listState.q)));
 
   $main.innerHTML = `
@@ -145,7 +145,7 @@ async function renderList() {
   qEl.focus(); qEl.setSelectionRange(qEl.value.length, qEl.value.length);
   $main.querySelectorAll('select').forEach(sel =>
     sel.addEventListener('change', () => {
-      listState[sel.dataset.k === 'agent_name' ? 'agent' : sel.dataset.k] = sel.value;
+      listState[sel.dataset.k] = sel.value;
       renderList();
     }));
 }
