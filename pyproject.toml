@@ -7,6 +7,10 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "python-multipart>=0.0.9",
+    # >=1.83.0 is a security floor (OIDC cache-key-collision auth bypass fixed
+    # in 1.83.0) — matches the constraint used across the talk-bench projects
+    "litellm>=1.83.0",
+    "python-dotenv>=1.0",
 ]
 
 [tool.uv]

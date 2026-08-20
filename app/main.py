@@ -12,6 +12,7 @@ Data layout (created by the backup step):
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -21,13 +22,20 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# LLM credentials: viewer's own .env wins; fall back to the talk-bench .env
+load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR.parent / "ai-ds-research" / "talk-bench" / ".env", override=False)
+LLM_MODEL = os.environ.get("VIEWER_LLM_MODEL", "azure/gpt-4.1")
 
 TS_RE = re.compile(r"(\d{8}T\d{6}Z)")
 
@@ -379,6 +387,93 @@ async def upload_file(
         shutil.copyfileobj(file.file, out)
     _invalidate_index()
     return {"path": f"{target_dir}/{name}", "replaced": replaced}
+
+
+# ---- scenario Q&A chat ----
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    path: str  # scenario path: <run>/<scenario>
+    messages: list[ChatMessage]
+
+
+def _truncate(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[:limit] + f"\n…[truncated, {len(text)} chars total]"
+
+
+def _scenario_context(sdir: Path) -> str:
+    """Assemble the artifacts an analyst would read to diagnose this scenario."""
+    run_dir = sdir.parent
+    results = _load_json(run_dir / "results.json") or {}
+    summary = next(
+        (s for s in results.get("per_scenario") or [] if s.get("scenario_id") == sdir.name), None
+    )
+    eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json") or {}
+    session = next(
+        (s for s in eval_res.get("session_results") or [] if s.get("session_id") == sdir.name), None
+    )
+    if session:
+        session = {k: v for k, v in session.items() if k != "turns"}
+    scenario = _load_json(sdir / "scenario.json")
+    conversation = _load_json(sdir / "conversation.json")
+    tool_log = _load_json(sdir / "tool_log.json")
+    meta = _load_json(sdir / "run_meta.json") or {}
+
+    parts = [
+        f"Run: {run_dir.name}",
+        f"Scenario: {sdir.name}",
+        f"Agent: {results.get('agent_name', 'unknown')}",
+        f"End reason: {meta.get('end_reason')} · duration: {round((meta.get('total_duration_ms') or 0) / 1000)}s",
+    ]
+    if scenario:
+        parts.append("## Scenario definition (goal, persona, tasks)\n" + _truncate(json.dumps(scenario, indent=1), 8000))
+    if summary:
+        parts.append("## Scenario result (results.json per_scenario entry)\n" + _truncate(json.dumps(summary, indent=1), 4000))
+    if session:
+        parts.append("## Evaluation session result (task_completion judge output)\n" + _truncate(json.dumps(session, indent=1), 6000))
+    if conversation:
+        lines = [f"[turn {t.get('turn_index')}] {t.get('speaker')}: {t.get('text')}" for t in conversation]
+        parts.append("## Transcript\n" + _truncate("\n".join(lines), 20000))
+    if tool_log:
+        calls = [
+            {"tool": c.get("tool_name"), "arguments": c.get("arguments"), "result": c.get("result")}
+            for c in tool_log
+        ]
+        parts.append("## Tool calls\n" + _truncate(json.dumps(calls, indent=1), 15000))
+    return "\n\n".join(parts)
+
+
+@app.post("/api/chat")
+def api_chat(req: ChatRequest):
+    sdir = _safe_path(req.path)
+    if not sdir.is_dir():
+        raise HTTPException(status_code=404, detail="scenario not found")
+    system = (
+        "You are a voice-agent benchmark analyst. The user is investigating one talk-bench "
+        "scenario run. Using the artifacts below, answer questions about what happened and, "
+        "when the scenario failed, diagnose the concrete root cause (agent behavior, tool "
+        "errors, ASR issues, judge/scoring details, user-simulator behavior, timeouts). "
+        "Quote specific turns or tool calls as evidence. Be direct and concise. "
+        "Answer in the same language the user writes in.\n\n"
+        + _scenario_context(sdir)
+    )
+    import litellm  # imported lazily: heavy module, only needed for chat
+
+    try:
+        resp = litellm.completion(
+            model=LLM_MODEL,
+            messages=[{"role": "system", "content": system}]
+            + [{"role": m.role, "content": m.content} for m in req.messages[-20:]],
+            temperature=0.2,
+            timeout=90,
+        )
+        return {"reply": resp.choices[0].message.content, "model": LLM_MODEL}
+    except Exception as e:  # surface provider errors to the UI
+        raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
 
 
 @app.get("/")

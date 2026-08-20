@@ -69,6 +69,15 @@
   .starcell:hover .star { color: #f59e0b; }
   .upload-panel { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px dashed var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; background: #fbfcfe; }
   .upload-panel select { padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 13px; }
+  .chat-log { display: none; max-height: 420px; overflow-y: auto; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: #fbfcfe; }
+  .chat-msg { margin: 8px 0; }
+  .chat-msg .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  .chat-msg .bubble { white-space: pre-wrap; margin: 0; max-width: none; }
+  .chat-msg.user .bubble { background: #dbeafe; }
+  .chat-msg.assistant .bubble { background: #f1f3f6; }
+  .chat-input { display: flex; gap: 8px; }
+  .chat-input input { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13.5px; }
+  .chat-input button:disabled { color: #c3c9d2; pointer-events: none; }
   .tool-call .name { font-weight: 650; }
   .tool-call .err { color: var(--fail); font-size: 12.5px; }
   .filelist { columns: 2; font-size: 12.5px; }
@@ -157,7 +166,8 @@ async function renderList() {
       <input id="q" placeholder="Search run name / agent…" value="${esc(listState.q)}">
       ${opts('agent_name','agent')}
       <button class="navbtn ${listState.starredOnly ? 'active' : ''}" id="starFilter" type="button">★ Starred${listState.starredOnly ? ' ✓' : ''}</button>
-      <span class="count">${filtered.length} / ${runs.length} runs</span>
+      <span id="upStatus" class="muted" style="font-size:12.5px">${esc(lastUploadStatus)}</span>
+      <span class="count">${filtered.length} / ${runs.length} runs — drag run folders or a zip here to import</span>
     </div>
     <table>
       <thead><tr><th></th><th>Time (UTC)</th><th>Run</th><th>Agent</th>
@@ -377,6 +387,16 @@ async function renderScenario(path) {
   </div></div>` : ''}
 
   <div class="card">
+    <h3 style="margin-top:0">🤖 Ask AI about this scenario</h3>
+    <div class="muted" style="font-size:12.5px;margin-bottom:8px">The model sees this scenario's goal, transcript, tool calls, and judge results. Ask why it failed, what a tool error means, etc.</div>
+    <div id="chatLog" class="chat-log"></div>
+    <div class="chat-input">
+      <input id="chatText" placeholder="e.g. 为什么这个场景失败了？ / Why did this scenario fail?">
+      <button class="navbtn" id="chatSend" type="button">Send</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h3 style="margin-top:0">Transcript
       ${d.conversation ? `<span class="muted" style="font-weight:400">(${d.conversation.length} turns · ${d.tool_log?.length || 0} tool calls)</span>` : ''}</h3>
     ${renderTimeline(d.conversation, d.tool_log)}
@@ -390,6 +410,8 @@ async function renderScenario(path) {
       ${d.files.map(f => `<div><a class="mono" target="_blank" href="/data/${encodeURIComponent(path).replace(/%2F/g,'/')}/${esc(f.name)}">${esc(f.name)}</a> <span class="muted">${(f.size/1024).toFixed(0)} KB</span></div>`).join('')}
     </div>
   </div>`;
+
+  initChat(path);
 
   document.getElementById('fileUp').addEventListener('change', async ev => {
     const f = ev.target.files[0];
@@ -423,6 +445,218 @@ async function renderScenario(path) {
     if (e.key === 'ArrowRight' && scenIdx >= 0 && scenIdx < siblings.length - 1)
       location.hash = '#/scenario/' + encodeURIComponent(runPath + '/' + siblings[scenIdx + 1].id);
   };
+}
+
+/* ---------- run import via drag & drop (no button; function kept) ---------- */
+let lastUploadStatus = '';
+const setUpStatus = t => {
+  lastUploadStatus = t;
+  const el = document.getElementById('upStatus');
+  if (el) el.textContent = t;
+};
+
+async function postForm(url, fd) {
+  const r = await fetch(url, { method: 'POST', body: fd });
+  const res = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(res.detail || r.status); e.status = r.status; throw e; }
+  return res;
+}
+
+// entries: [{rel: path inside the run dir, file}]
+async function syncOneRun(runName, entries, progressPrefix) {
+  const beginFd = ow => {
+    const fd = new FormData();
+    fd.append('run_name', runName); fd.append('overwrite', ow);
+    return fd;
+  };
+  let uploadId;
+  try {
+    uploadId = (await postForm('/api/upload_dir_begin', beginFd(false))).upload_id;
+  } catch (e) {
+    if (e.status !== 409) throw e;
+    if (!confirm(`Run "${runName}" already exists. Replace it?`)) return 'skipped';
+    uploadId = (await postForm('/api/upload_dir_begin', beginFd(true))).upload_id;
+  }
+  try {
+    // upload in batches: at most 40 files or ~200 MB per request
+    let batch = [], batchBytes = 0, sent = 0;
+    const flush = async () => {
+      if (!batch.length) return;
+      const fd = new FormData();
+      fd.append('upload_id', uploadId);
+      for (const e of batch) { fd.append('paths', e.rel); fd.append('files', e.file); }
+      await postForm('/api/upload_dir_chunk', fd);
+      sent += batch.length;
+      setUpStatus(`${progressPrefix}"${runName}": ${sent}/${entries.length} files…`);
+      batch = []; batchBytes = 0;
+    };
+    for (const e of entries) {
+      if (batch.length >= 40 || batchBytes + e.file.size > 200e6) await flush();
+      batch.push(e); batchBytes += e.file.size;
+    }
+    await flush();
+    await postForm('/api/upload_dir_commit', (() => { const fd = new FormData(); fd.append('upload_id', uploadId); return fd; })());
+    return 'synced';
+  } catch (e) {
+    const fd = new FormData(); fd.append('upload_id', uploadId);
+    fetch('/api/upload_dir_abort', { method: 'POST', body: fd });
+    throw e;
+  }
+}
+
+// files: [{relpath (starting with the dropped folder name), file}]
+// Detects whether the dropped folder is a single run or a folder of runs:
+// a run has results.json / talk_bench_evaluation_result.json at its root,
+// or scenario dirs (scenario.json / run_meta.json / conversation.json) one level down.
+async function importRunFiles(files) {
+  const RUN_ROOT_FILES = ['results.json', 'talk_bench_evaluation_result.json'];
+  const SCEN_FILES = ['scenario.json', 'run_meta.json', 'conversation.json'];
+  const inner = files.map(f => ({ parts: f.relpath.split('/').slice(1), file: f.file }));
+  const isSingleRun = inner.some(({ parts }) =>
+    (parts.length === 1 && RUN_ROOT_FILES.includes(parts[0])) ||
+    (parts.length === 2 && SCEN_FILES.includes(parts[1])));
+
+  let runGroups; // Map<runName, entries>
+  if (isSingleRun) {
+    const runName = files[0].relpath.split('/')[0];
+    runGroups = new Map([[runName, inner.map(({ parts, file }) => ({ rel: parts.join('/'), file }))]]);
+  } else {
+    runGroups = new Map();
+    for (const { parts, file } of inner) {
+      if (parts.length < 2) continue; // loose files at the container root (.DS_Store etc.)
+      const run = parts[0];
+      if (!runGroups.has(run)) runGroups.set(run, []);
+      runGroups.get(run).push({ rel: parts.slice(1).join('/'), file });
+    }
+    if (!runGroups.size) { setUpStatus('no run folders found in the drop'); return; }
+  }
+
+  const names = [...runGroups.keys()], done = [], skipped = [];
+  for (let i = 0; i < names.length; i++) {
+    const prefix = names.length > 1 ? `run ${i + 1}/${names.length} ` : 'syncing ';
+    const outcome = await syncOneRun(names[i], runGroups.get(names[i]), prefix);
+    (outcome === 'synced' ? done : skipped).push(names[i]);
+  }
+  setUpStatus(`synced ${done.length} run${done.length === 1 ? '' : 's'}`
+    + (skipped.length ? ` · skipped: ${skipped.join(', ')}` : ''));
+  if (done.length) { RUNS = null; setTimeout(() => { if (!location.hash.startsWith('#/')) renderList(); }, 1200); }
+}
+
+async function importZip(f) {
+  const send = async overwrite => {
+    const fd = new FormData();
+    fd.append('file', f);
+    fd.append('overwrite', overwrite);
+    return postForm('/api/upload_run', fd);
+  };
+  setUpStatus(`uploading ${f.name}…`);
+  let res = await send(false);
+  let imported = res.imported;
+  if (res.skipped_existing.length) {
+    if (confirm(`These runs already exist:\n\n${res.skipped_existing.join('\n')}\n\nReplace them?`)) {
+      setUpStatus('replacing…');
+      res = await send(true);
+      imported = res.imported;
+    } else if (!imported.length) {
+      setUpStatus('nothing imported (all runs already exist)');
+      return;
+    }
+  }
+  setUpStatus(`imported: ${imported.length ? imported.join(', ') : 'none'}`);
+  if (imported.length) { RUNS = null; setTimeout(() => { if (!location.hash.startsWith('#/')) renderList(); }, 1200); }
+}
+
+// recursively read a dropped FileSystemEntry into [{relpath, file}]
+async function collectEntry(entry) {
+  if (entry.isFile) {
+    const file = await new Promise((res, rej) => entry.file(res, rej));
+    return [{ relpath: entry.fullPath.replace(/^\//, ''), file }];
+  }
+  if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const out = [];
+    for (;;) {  // readEntries returns results in batches until an empty batch
+      const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+      if (!batch.length) break;
+      for (const child of batch) out.push(...await collectEntry(child));
+    }
+    return out;
+  }
+  return [];
+}
+
+document.addEventListener('dragover', e => {
+  if (!location.hash.startsWith('#/')) e.preventDefault();
+});
+document.addEventListener('drop', async e => {
+  if (location.hash.startsWith('#/')) return;
+  e.preventDefault();
+  const items = [...e.dataTransfer.items];
+  const dirs = [], zips = [];
+  for (const item of items) {
+    const entry = item.webkitGetAsEntry?.();
+    if (!entry) continue;
+    if (entry.isDirectory) dirs.push(entry);
+    else if (entry.isFile && entry.name.toLowerCase().endsWith('.zip')) zips.push(item.getAsFile());
+  }
+  if (!dirs.length && !zips.length) { setUpStatus('drop a run folder or a .zip'); return; }
+  try {
+    for (const z of zips) await importZip(z);
+    for (const dir of dirs) {
+      setUpStatus(`reading "${dir.name}"…`);
+      await importRunFiles(await collectEntry(dir));
+    }
+  } catch (err) {
+    setUpStatus('error: ' + err.message);
+  }
+});
+
+/* ---------- scenario AI chat ---------- */
+const CHATS = {};  // per-scenario message history, kept for the session
+
+function initChat(path) {
+  const log = document.getElementById('chatLog');
+  const input = document.getElementById('chatText');
+  const btn = document.getElementById('chatSend');
+  const history = CHATS[path] ||= [];
+
+  const draw = (thinking = false) => {
+    log.innerHTML = history.map(m => `
+      <div class="chat-msg ${m.role}">
+        <div class="who">${m.role === 'user' ? 'you' : 'AI'}</div>
+        <div class="bubble">${esc(m.content)}</div>
+      </div>`).join('')
+      + (thinking ? '<div class="chat-msg assistant"><div class="who">AI</div><div class="bubble muted">thinking…</div></div>' : '');
+    log.scrollTop = log.scrollHeight;
+    log.style.display = history.length || thinking ? 'block' : 'none';
+  };
+  draw();
+
+  const send = async () => {
+    const text = input.value.trim();
+    if (!text || btn.disabled) return;
+    input.value = '';
+    history.push({ role: 'user', content: text });
+    btn.disabled = true;
+    draw(true);
+    try {
+      const r = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, messages: history }),
+      });
+      const res = await r.json();
+      if (!r.ok) throw new Error(res.detail || r.status);
+      history.push({ role: 'assistant', content: res.reply });
+    } catch (e) {
+      history.push({ role: 'assistant', content: '⚠ ' + e.message });
+    }
+    btn.disabled = false;
+    draw();
+    input.focus();
+  };
+  btn.addEventListener('click', send);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
 }
 
 /* ---------- router ---------- */
