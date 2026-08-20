@@ -32,9 +32,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-# LLM credentials: viewer's own .env wins; fall back to the talk-bench .env
+# LLM credentials and model come from this project's own .env (see .env.example)
 load_dotenv(BASE_DIR / ".env")
-load_dotenv(BASE_DIR.parent / "ai-ds-research" / "talk-bench" / ".env", override=False)
 LLM_MODEL = os.environ.get("VIEWER_LLM_MODEL", "azure/gpt-4.1")
 
 TS_RE = re.compile(r"(\d{8}T\d{6}Z)")

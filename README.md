@@ -34,6 +34,12 @@ uv run uvicorn app.main:app --port 8377
 
 Then open http://localhost:8377
 
+### LLM config (per-scenario "Ask AI" chat)
+
+Copy `.env.example` to `.env` and fill in the model + credentials
+(`VIEWER_LLM_MODEL`, litellm naming, default `azure/gpt-4.1`).
+Restart the server after changes.
+
 Features:
 
 - Run list with search + agent-family filter and starring, sorted by time
