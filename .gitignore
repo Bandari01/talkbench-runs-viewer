@@ -1,6 +1,9 @@
 # Run data backup — too large for git (~49GB)
 data/
 
+# LLM credentials / local config
+.env
+
 .venv/
 __pycache__/
 *.pyc
