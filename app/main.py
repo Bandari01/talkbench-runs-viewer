@@ -170,6 +170,7 @@ def api_run(path: str = Query(...)):
             "id": sdir.name,
             "passed": summary.get("passed"),
             "goal_score": summary.get("goal_score"),
+            "tau2_breakdown": summary.get("tau2_reward_breakdown"),
             "end_reason": summary.get("end_reason") or meta.get("end_reason"),
             "turn_count": summary.get("turn_count"),
             "duration_ms": summary.get("total_duration_ms") or meta.get("total_duration_ms"),

@@ -67,6 +67,9 @@
   .star.on { color: #f59e0b; }
   .starcell { cursor: pointer; user-select: none; }
   .starcell:hover .star { color: #f59e0b; }
+  .subscore { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+  .subscore .ok { color: var(--pass); }
+  .subscore .bad { color: var(--fail); }
   .upload-panel { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px dashed var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; background: #fbfcfe; }
   .upload-panel select { padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 13px; }
   .chat-log { display: none; max-height: 420px; overflow-y: auto; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: #fbfcfe; }
@@ -243,7 +246,10 @@ async function renderRun(path) {
         <tr class="rowlink" onclick="location.hash='#/scenario/${encodeURIComponent(path + '/' + s.id)}'">
           <td class="mono">${esc(s.id)}</td>
           <td>${passBadge(s.passed)}</td>
-          <td>${fmtScore(s.goal_score)}</td>
+          <td>${fmtScore(s.goal_score)}${s.tau2_breakdown ? `<div class="subscore">${
+            Object.entries(s.tau2_breakdown).map(([k, v]) =>
+              `<span class="${v >= 1 ? 'ok' : 'bad'}">${esc(k)} ${fmtScore(v)}</span>`).join(' · ')
+          }</div>` : ''}</td>
           <td>${esc(s.end_reason ?? '—')}</td>
           <td>${s.turn_count ?? '—'}</td>
           <td>${fmtDur(s.duration_ms)}</td>
@@ -299,6 +305,7 @@ function renderScores(summary, sess) {
   const tools = summary?.tool_metrics || {};
   const entries = [
     ['Goal score', summary?.goal_score],
+    ...Object.entries(summary?.tau2_reward_breakdown || {}).map(([k, v]) => ['tau2 ' + k, v]),
     ['tau2 goal', summary?.tau2_goal_score],
     ['Native goal', summary?.native_goal_score],
     ['Reward', tc.reward],
