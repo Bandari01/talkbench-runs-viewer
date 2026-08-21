@@ -398,11 +398,21 @@ _sync_lock = threading.Lock()
 
 
 def _clone_dir(src: Path, dest: Path) -> None:
-    """Copy a run dir; cp -c uses APFS clonefile (fast, no extra disk)."""
+    """Copy a run dir; cp -c uses APFS clonefile (fast, no extra disk).
+    -p preserves mtimes so _dir_signature comparisons stay stable."""
     try:
-        subprocess.run(["cp", "-c", "-R", str(src), str(dest)], check=True, capture_output=True)
+        subprocess.run(["cp", "-c", "-R", "-p", str(src), str(dest)], check=True, capture_output=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         shutil.copytree(src, dest)
+
+
+def _dir_signature(root: Path) -> list[tuple[str, int, int]]:
+    sig = []
+    for p in sorted(root.rglob("*")):
+        if p.is_file():
+            st = p.stat()
+            sig.append((str(p.relative_to(root)), st.st_size, int(st.st_mtime)))
+    return sig
 
 
 @app.post("/api/sync_sources")
@@ -410,7 +420,7 @@ def sync_sources():
     if not _sync_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="a sync is already running")
     try:
-        added, skipped = [], 0
+        added, updated, unchanged = [], [], 0
         for repo in SOURCE_REPOS:
             for proj in SOURCE_PROJECTS:
                 src_root = repo / proj / "data" / "runs"
@@ -420,8 +430,9 @@ def sync_sources():
                     if not run.is_dir():
                         continue
                     target = DATA_DIR / run.name
-                    if target.exists():
-                        skipped += 1
+                    exists = target.exists()
+                    if exists and _dir_signature(run) == _dir_signature(target):
+                        unchanged += 1
                         continue
                     # stage under a temp name so an interrupted copy is never
                     # mistaken for a complete run on the next sync
@@ -429,10 +440,12 @@ def sync_sources():
                     if tmp.exists():
                         shutil.rmtree(tmp)
                     _clone_dir(run, tmp)
+                    if exists:
+                        shutil.rmtree(target)
                     tmp.rename(target)
-                    added.append(run.name)
+                    (updated if exists else added).append(run.name)
         _invalidate_index()
-        return {"added": added, "skipped_existing": skipped}
+        return {"added": added, "updated": updated, "unchanged": unchanged}
     finally:
         _sync_lock.release()
 
