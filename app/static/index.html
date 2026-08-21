@@ -169,6 +169,7 @@ async function renderList() {
       <input id="q" placeholder="Search run name / agent…" value="${esc(listState.q)}">
       ${opts('agent_name','agent')}
       <button class="navbtn ${listState.starredOnly ? 'active' : ''}" id="starFilter" type="button">★ Starred${listState.starredOnly ? ' ✓' : ''}</button>
+      <button class="navbtn" id="syncBtn" type="button">⟳ Sync sources</button>
       <span id="upStatus" class="muted" style="font-size:12.5px">${esc(lastUploadStatus)}</span>
       <span class="count">${filtered.length} / ${runs.length} runs — drag run folders or a zip here to import</span>
     </div>
@@ -201,6 +202,23 @@ async function renderList() {
   document.getElementById('starFilter').addEventListener('click', () => {
     listState.starredOnly = !listState.starredOnly;
     renderList();
+  });
+  const syncBtn = document.getElementById('syncBtn');
+  syncBtn.addEventListener('click', async () => {
+    syncBtn.disabled = true;
+    setUpStatus('syncing from ai-ds-research checkouts…');
+    try {
+      const r = await fetch('/api/sync_sources', { method: 'POST' });
+      const res = await r.json();
+      if (!r.ok) throw new Error(res.detail || r.status);
+      setUpStatus(res.added.length
+        ? `added ${res.added.length} new run${res.added.length === 1 ? '' : 's'}: ${res.added.join(', ')}`
+        : `no new runs (${res.skipped_existing} already archived)`);
+      if (res.added.length) { RUNS = null; renderList(); }
+    } catch (e) {
+      setUpStatus('sync error: ' + e.message);
+    }
+    syncBtn.disabled = false;
   });
   $main.querySelectorAll('.starcell').forEach(td =>
     td.addEventListener('click', ev => {

@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
 import uuid
@@ -84,7 +85,7 @@ def build_index() -> list[dict[str, Any]]:
     if not DATA_DIR.exists():
         return runs
     for run_dir in sorted(DATA_DIR.iterdir()):
-        if not run_dir.is_dir():
+        if not run_dir.is_dir() or run_dir.name.startswith("."):
             continue
         results = _load_json(run_dir / "results.json")
         eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json")
@@ -387,6 +388,53 @@ async def upload_file(
         shutil.copyfileobj(file.file, out)
     _invalidate_index()
     return {"path": f"{target_dir}/{name}", "replaced": replaced}
+
+
+# ---- sync new runs from the local ai-ds-research checkouts ----
+
+SOURCE_REPOS = [Path.home() / "GitHub" / f"ai-ds-research{suffix}" for suffix in ("", "-1", "-2", "-3", "-4")]
+SOURCE_PROJECTS = ("talk-bench", "talk-bench-talkdesk")
+_sync_lock = threading.Lock()
+
+
+def _clone_dir(src: Path, dest: Path) -> None:
+    """Copy a run dir; cp -c uses APFS clonefile (fast, no extra disk)."""
+    try:
+        subprocess.run(["cp", "-c", "-R", str(src), str(dest)], check=True, capture_output=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        shutil.copytree(src, dest)
+
+
+@app.post("/api/sync_sources")
+def sync_sources():
+    if not _sync_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="a sync is already running")
+    try:
+        added, skipped = [], 0
+        for repo in SOURCE_REPOS:
+            for proj in SOURCE_PROJECTS:
+                src_root = repo / proj / "data" / "runs"
+                if not src_root.is_dir():
+                    continue
+                for run in sorted(src_root.iterdir()):
+                    if not run.is_dir():
+                        continue
+                    target = DATA_DIR / run.name
+                    if target.exists():
+                        skipped += 1
+                        continue
+                    # stage under a temp name so an interrupted copy is never
+                    # mistaken for a complete run on the next sync
+                    tmp = DATA_DIR / f".sync-tmp-{run.name}"
+                    if tmp.exists():
+                        shutil.rmtree(tmp)
+                    _clone_dir(run, tmp)
+                    tmp.rename(target)
+                    added.append(run.name)
+        _invalidate_index()
+        return {"added": added, "skipped_existing": skipped}
+    finally:
+        _sync_lock.release()
 
 
 # ---- scenario Q&A chat ----
