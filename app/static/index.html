@@ -419,7 +419,7 @@ async function renderScenario(path) {
     <div class="muted" style="font-size:12.5px;margin-bottom:8px">The model sees this scenario's goal, transcript, tool calls, and judge results. Ask why it failed, what a tool error means, etc.</div>
     <div id="chatLog" class="chat-log"></div>
     <div class="chat-input">
-      <input id="chatText" placeholder="e.g. 为什么这个场景失败了？ / Why did this scenario fail?">
+      <input id="chatText" placeholder="为什么这个场景失败了？（按 Tab 填充）">
       <button class="navbtn" id="chatSend" type="button">Send</button>
     </div>
   </div>
@@ -684,7 +684,14 @@ function initChat(path) {
     input.focus();
   };
   btn.addEventListener('click', send);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Tab' && !input.value.trim()) {
+      e.preventDefault();
+      input.value = '为什么这个场景失败了？';
+      return;
+    }
+    if (e.key === 'Enter') send();
+  });
 }
 
 /* ---------- router ---------- */
