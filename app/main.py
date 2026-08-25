@@ -24,8 +24,9 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -36,12 +37,67 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 # LLM credentials and model come from this project's own .env (see .env.example)
 load_dotenv(BASE_DIR / ".env")
 LLM_MODEL = os.environ.get("VIEWER_LLM_MODEL", "azure/gpt-4.1")
+READ_ONLY = os.environ.get("VIEWER_READ_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}
+CHAT_ENABLED = os.environ.get("VIEWER_DISABLE_CHAT", "").strip().lower() not in {
+    "1", "true", "yes", "on",
+}
+SYNC_ENABLED = not READ_ONLY or os.environ.get("VIEWER_ALLOW_SYNC", "").strip().lower() in {
+    "1", "true", "yes", "on",
+}
 
 TS_RE = re.compile(r"(\d{8}T\d{6}Z)")
 
-app = FastAPI(title="talk-bench runs viewer")
+app = FastAPI(
+    title="talk-bench runs viewer",
+    docs_url=None if READ_ONLY else "/docs",
+    redoc_url=None if READ_ONLY else "/redoc",
+    openapi_url=None if READ_ONLY else "/openapi.json",
+)
+
+
+
+class ApiGZipMiddleware(GZipMiddleware):
+    """Compress only /api/ JSON. Static/audio responses are left alone so
+    Range requests (audio seeking) keep working and wav bytes aren't re-crunched."""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("path", "").startswith("/api/"):
+            await super().__call__(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)
+
+
+app.add_middleware(ApiGZipMiddleware, minimum_size=1024)
 
 _index_cache: list[dict[str, Any]] | None = None
+# Run detail payloads are costly to build; cache a few, cleared on data changes.
+_run_cache: dict[str, dict[str, Any]] = {}
+_RUN_CACHE_MAX = 16
+
+
+@app.middleware("http")
+async def shared_view_guard(request: Request, call_next):
+    # Reject public writes before FastAPI parses a potentially large upload body.
+    chat_request = request.method == "POST" and request.url.path == "/api/chat" and CHAT_ENABLED
+    sync_request = request.method == "POST" and request.url.path == "/api/sync_sources" and SYNC_ENABLED
+    if (
+        READ_ONLY
+        and request.method not in {"GET", "HEAD", "OPTIONS"}
+        and not chat_request
+        and not sync_request
+    ):
+        return JSONResponse(status_code=403, content={"detail": "this shared viewer is read-only"})
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    return response
+
+
+class PublicDataFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        if any(part.startswith(".") for part in Path(path).parts):
+            raise HTTPException(status_code=404, detail="file not found")
+        return await super().get_response(path, scope)
 
 
 def _load_json(path: Path) -> Any | None:
@@ -57,6 +113,31 @@ def _safe_path(rel: str) -> Path:
     if not p.is_relative_to(DATA_DIR.resolve()):
         raise HTTPException(status_code=400, detail="path escapes data dir")
     return p
+
+
+def _data_dir_at_depth(rel: str, depth: int, label: str) -> Path:
+    parts = Path(rel).parts
+    if len(parts) != depth or any(part.startswith(".") or part in {"..", ""} for part in parts):
+        raise HTTPException(status_code=400, detail=f"invalid {label} path")
+    p = _safe_path(rel)
+    if not p.is_dir():
+        raise HTTPException(status_code=404, detail=f"{label} not found")
+    return p
+
+
+def _ensure_writable() -> None:
+    if READ_ONLY:
+        raise HTTPException(status_code=403, detail="this shared viewer is read-only")
+
+
+def _ensure_chat_enabled() -> None:
+    if not CHAT_ENABLED:
+        raise HTTPException(status_code=403, detail="AI chat is disabled on this shared viewer")
+
+
+def _ensure_sync_enabled() -> None:
+    if not SYNC_ENABLED:
+        raise HTTPException(status_code=403, detail="source sync is disabled on this shared viewer")
 
 
 def _natural_key(name: str) -> list:
@@ -121,6 +202,9 @@ def build_index() -> list[dict[str, Any]]:
 
 STARS_FILE = DATA_DIR / ".stars.json"
 _stars_lock = threading.Lock()
+RUN_NOTES_FILE = DATA_DIR / ".run_notes.json"
+MAX_RUN_NOTE_LENGTH = 2000
+_run_notes_lock = threading.Lock()
 
 
 def _load_stars() -> set[str]:
@@ -132,18 +216,54 @@ def _save_stars(stars: set[str]) -> None:
     STARS_FILE.write_text(json.dumps(sorted(stars), indent=1))
 
 
+def _load_run_notes() -> dict[str, str]:
+    notes = _load_json(RUN_NOTES_FILE)
+    if not isinstance(notes, dict):
+        return {}
+    return {
+        path: note
+        for path, note in notes.items()
+        if isinstance(path, str) and isinstance(note, str) and note
+    }
+
+
+def _save_run_notes(notes: dict[str, str]) -> None:
+    temp_file = RUN_NOTES_FILE.with_name(f"{RUN_NOTES_FILE.name}.tmp")
+    temp_file.write_text(
+        json.dumps(dict(sorted(notes.items())), ensure_ascii=False, indent=2) + "\n"
+    )
+    temp_file.replace(RUN_NOTES_FILE)
+
+
 @app.get("/api/runs")
 def api_runs(refresh: bool = False):
     global _index_cache
     if _index_cache is None or refresh:
         _index_cache = build_index()
-    return {"runs": _index_cache, "stars": sorted(_load_stars()), "data_dir": str(DATA_DIR)}
+    payload = {
+        "runs": _index_cache,
+        "stars": sorted(_load_stars()),
+        "notes": _load_run_notes(),
+    }
+    if not READ_ONLY:
+        payload["data_dir"] = str(DATA_DIR)
+    return payload
+
+
+@app.get("/api/config")
+def api_config():
+    return {
+        "read_only": READ_ONLY,
+        "chat_enabled": CHAT_ENABLED,
+        "sync_enabled": SYNC_ENABLED,
+        "llm_model": LLM_MODEL,
+    }
 
 
 @app.post("/api/star")
 def api_star(path: str = Form(...), starred: bool = Form(...)):
-    if not (_safe_path(path)).is_dir():
-        raise HTTPException(status_code=404, detail="run not found")
+    _ensure_writable()
+    _data_dir_at_depth(path, 1, "run")
     with _stars_lock:
         stars = _load_stars()
         if starred:
@@ -154,47 +274,77 @@ def api_star(path: str = Form(...), starred: bool = Form(...)):
     return {"path": path, "starred": starred}
 
 
+@app.post("/api/note")
+def api_note(path: str = Form(...), note: str = Form("")):
+    _ensure_writable()
+    _data_dir_at_depth(path, 1, "run")
+    note = note.strip()
+    if len(note) > MAX_RUN_NOTE_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"note must be at most {MAX_RUN_NOTE_LENGTH} characters",
+        )
+    with _run_notes_lock:
+        notes = _load_run_notes()
+        if note:
+            notes[path] = note
+        else:
+            notes.pop(path, None)
+        _save_run_notes(notes)
+    return {"path": path, "note": note}
+
+
 @app.get("/api/run")
 def api_run(path: str = Query(...)):
-    run_dir = _safe_path(path)
-    if not run_dir.is_dir():
-        raise HTTPException(status_code=404, detail="run not found")
+    run_dir = _data_dir_at_depth(path, 1, "run")
+    cached = _run_cache.get(path)
+    if cached is not None:
+        return cached
     results = _load_json(run_dir / "results.json")
     eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json")
 
     per_scenario = {s.get("scenario_id"): s for s in (results or {}).get("per_scenario") or []}
     scenarios = []
     for sdir in _scenario_dirs(run_dir):
-        meta = _load_json(sdir / "run_meta.json") or {}
         summary = per_scenario.get(sdir.name) or {}
+        end_reason = summary.get("end_reason")
+        duration_ms = summary.get("total_duration_ms")
+        if end_reason is None or duration_ms is None:
+            # run_meta.json embeds the full db_state and is often several MB, so
+            # only fall back to it for scenarios results.json doesn't cover
+            meta = _load_json(sdir / "run_meta.json") or {}
+            end_reason = end_reason or meta.get("end_reason")
+            duration_ms = duration_ms or meta.get("total_duration_ms")
         scenarios.append({
             "id": sdir.name,
             "passed": summary.get("passed"),
             "goal_score": summary.get("goal_score"),
             "tau2_breakdown": summary.get("tau2_reward_breakdown"),
-            "end_reason": summary.get("end_reason") or meta.get("end_reason"),
+            "end_reason": end_reason,
             "turn_count": summary.get("turn_count"),
-            "duration_ms": summary.get("total_duration_ms") or meta.get("total_duration_ms"),
+            "duration_ms": duration_ms,
             "domain": summary.get("domain"),
         })
 
     top_files = sorted(
         f.name for f in run_dir.iterdir() if f.is_file() and not f.name.startswith(".")
     )
-    return {
+    payload = {
         "path": path,
         "results": results,
         "evaluation": eval_res,
         "scenarios": scenarios,
         "top_files": top_files,
     }
+    if len(_run_cache) >= _RUN_CACHE_MAX:
+        _run_cache.pop(next(iter(_run_cache)))
+    _run_cache[path] = payload
+    return payload
 
 
 @app.get("/api/scenario")
 def api_scenario(path: str = Query(...)):
-    sdir = _safe_path(path)
-    if not sdir.is_dir():
-        raise HTTPException(status_code=404, detail="scenario not found")
+    sdir = _data_dir_at_depth(path, 2, "scenario")
     meta = _load_json(sdir / "run_meta.json") or {}
     # db_state is huge and rarely needed inline; drop it from the payload
     meta.pop("db_state", None)
@@ -214,9 +364,10 @@ def api_scenario(path: str = Query(...)):
         session_result = {k: v for k, v in session_result.items() if k != "turns"}
     files = []
     for f in sorted(sdir.rglob("*")):
-        if f.is_file() and not f.name.startswith("."):
+        relative = f.relative_to(sdir)
+        if f.is_file() and not any(part.startswith(".") for part in relative.parts):
             files.append({
-                "name": str(f.relative_to(sdir)),
+                "name": str(relative),
                 "size": f.stat().st_size,
             })
     return {
@@ -238,6 +389,7 @@ def api_scenario(path: str = Query(...)):
 def _invalidate_index() -> None:
     global _index_cache
     _index_cache = None
+    _run_cache.clear()
 
 
 @app.post("/api/upload_run")
@@ -246,6 +398,7 @@ async def upload_run(
     overwrite: bool = Form(False),
 ):
     """Import run directories from a .zip into data/."""
+    _ensure_writable()
     if not (file.filename or "").lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="expected a .zip file")
 
@@ -309,6 +462,7 @@ def upload_dir_begin(
     run_name: str = Form(...),
     overwrite: bool = Form(False),
 ):
+    _ensure_writable()
     run_name = Path(run_name).name
     if not run_name or run_name.startswith("."):
         raise HTTPException(status_code=400, detail="invalid run name")
@@ -330,6 +484,7 @@ async def upload_dir_chunk(
     paths: list[str] = Form(...),
     files: list[UploadFile] = File(...),
 ):
+    _ensure_writable()
     st = _get_staged(upload_id)
     if len(paths) != len(files):
         raise HTTPException(status_code=400, detail="paths/files count mismatch")
@@ -348,6 +503,7 @@ async def upload_dir_chunk(
 
 @app.post("/api/upload_dir_commit")
 def upload_dir_commit(upload_id: str = Form(...)):
+    _ensure_writable()
     st = _staged.pop(upload_id, None)
     if not st:
         raise HTTPException(status_code=404, detail="unknown or expired upload_id")
@@ -361,33 +517,11 @@ def upload_dir_commit(upload_id: str = Form(...)):
 
 @app.post("/api/upload_dir_abort")
 def upload_dir_abort(upload_id: str = Form(...)):
+    _ensure_writable()
     st = _staged.pop(upload_id, None)
     if st:
         shutil.rmtree(st["dir"], ignore_errors=True)
     return {"aborted": bool(st)}
-
-
-@app.post("/api/upload_file")
-async def upload_file(
-    file: UploadFile = File(...),
-    target_dir: str = Form(...),
-    overwrite: bool = Form(False),
-):
-    """Add or replace a single file inside an existing run/scenario directory."""
-    dirp = _safe_path(target_dir)
-    if not dirp.is_dir():
-        raise HTTPException(status_code=404, detail="target directory not found")
-    name = Path(file.filename or "").name
-    if not name:
-        raise HTTPException(status_code=400, detail="missing filename")
-    dest = dirp / name
-    if dest.exists() and not overwrite:
-        raise HTTPException(status_code=409, detail=f"{name} already exists (set overwrite)")
-    replaced = dest.exists()
-    with dest.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
-    _invalidate_index()
-    return {"path": f"{target_dir}/{name}", "replaced": replaced}
 
 
 # ---- sync new runs from the local ai-ds-research checkouts ----
@@ -417,6 +551,7 @@ def _dir_signature(root: Path) -> list[tuple[str, int, int]]:
 
 @app.post("/api/sync_sources")
 def sync_sources():
+    _ensure_sync_enabled()
     if not _sync_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="a sync is already running")
     try:
@@ -510,16 +645,18 @@ def _scenario_context(sdir: Path) -> str:
 
 @app.post("/api/chat")
 def api_chat(req: ChatRequest):
-    sdir = _safe_path(req.path)
-    if not sdir.is_dir():
-        raise HTTPException(status_code=404, detail="scenario not found")
+    _ensure_chat_enabled()
+    sdir = _data_dir_at_depth(req.path, 2, "scenario")
     system = (
         "You are a voice-agent benchmark analyst. The user is investigating one talk-bench "
         "scenario run. Using the artifacts below, answer questions about what happened and, "
         "when the scenario failed, diagnose the concrete root cause (agent behavior, tool "
         "errors, ASR issues, judge/scoring details, user-simulator behavior, timeouts). "
         "Quote specific turns or tool calls as evidence. Be direct and concise. "
-        "Answer in the same language the user writes in.\n\n"
+        "Answer in the same language the user writes in. When answering in Chinese, keep "
+        "benchmark and technical terms such as Agent, User Simulator, tool call, ASR, LLM, "
+        "and API in English; in particular, never translate Agent as '代理'. Preserve product "
+        "names, model names, function names, and field names exactly as written in the artifacts.\n\n"
         + _scenario_context(sdir)
     )
     import litellm  # imported lazily: heavy module, only needed for chat
@@ -529,7 +666,6 @@ def api_chat(req: ChatRequest):
             model=LLM_MODEL,
             messages=[{"role": "system", "content": system}]
             + [{"role": m.role, "content": m.content} for m in req.messages[-20:]],
-            temperature=0.2,
             timeout=90,
         )
         return {"reply": resp.choices[0].message.content, "model": LLM_MODEL}
@@ -542,5 +678,5 @@ def home():
     return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
 
-# raw file access (audio playback, ndjson/json download) — supports Range requests
-app.mount("/data", StaticFiles(directory=DATA_DIR), name="data")
+# Raw file access for audio playback and artifact inspection; supports Range requests.
+app.mount("/data", PublicDataFiles(directory=DATA_DIR), name="data")

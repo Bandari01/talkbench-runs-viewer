@@ -43,6 +43,9 @@
   h3 { font-size: 14px; margin: 18px 0 8px; }
   details > summary { cursor: pointer; color: var(--accent); font-size: 13px; user-select: none; }
   pre { background: #f6f7f9; color: var(--text); border: 1px solid var(--border); padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; max-height: 480px; }
+  .json-preview-toolbar { display: flex; justify-content: flex-end; margin: 8px 0 -4px; }
+  .json-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+  .json-preview.no-wrap pre { white-space: pre; overflow-wrap: normal; word-break: normal; }
   .bubble { padding: 9px 13px; border-radius: 12px; margin: 6px 0; white-space: pre-wrap; }
   .turn { display: flex; }
   .turn > div { max-width: 72%; display: flex; flex-direction: column; align-items: flex-start; }
@@ -67,17 +70,61 @@
   .star.on { color: #f59e0b; }
   .starcell { cursor: pointer; user-select: none; }
   .starcell:hover .star { color: #f59e0b; }
+  .note-cell { min-width: 120px; width: 14%; }
+  .run-note-input, .run-note-detail textarea { width: 100%; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text); font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .run-note-input { display: block; min-width: 100px; min-height: 44px; padding: 5px 7px; resize: vertical; }
+  .run-note-input:hover { border-color: var(--border); background: #fff; }
+  .run-note-input:focus, .run-note-detail textarea:focus { outline: none; border-color: var(--accent); background: #fff; box-shadow: 0 0 0 2px #dbeafe; }
+  .run-note-input.saving { color: var(--muted); }
+  .run-note-input.save-error { border-color: var(--fail); background: var(--fail-bg); }
+  .run-note-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; color: #475467; }
+  .run-note-text.empty { color: #a0a7b1; padding: 0; text-align: left; }
+  .run-note-detail { margin-top: 12px; max-width: 720px; }
+  .run-note-detail label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  .run-note-detail textarea { display: block; min-height: 64px; resize: vertical; padding: 8px 10px; border-color: var(--border); }
+  .note-actions { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+  .copy-run-name { appearance: none; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: copy; overflow-wrap: anywhere; }
+  .copy-run-name:hover { color: var(--accent); }
+  .copy-run-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+  .copy-icon { margin-left: 5px; color: var(--muted); font-size: 11px; }
+  .copy-feedback { margin-left: 5px; color: var(--pass); font-family: -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif; font-size: 11px; font-weight: 600; }
+  .copy-run-name.copy-error .copy-feedback { color: var(--fail); }
   .subscore { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
   .subscore .ok { color: var(--pass); }
   .subscore .bad { color: var(--fail); }
   .upload-panel { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px dashed var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; background: #fbfcfe; }
   .upload-panel select { padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 13px; }
-  .chat-log { display: none; max-height: 420px; overflow-y: auto; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: #fbfcfe; }
-  .chat-msg { margin: 8px 0; }
-  .chat-msg .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
-  .chat-msg .bubble { white-space: pre-wrap; margin: 0; max-width: none; }
-  .chat-msg.user .bubble { background: #dbeafe; }
-  .chat-msg.assistant .bubble { background: #f1f3f6; }
+  .chat-log { display: none; max-height: 560px; overflow-y: auto; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 10px; padding: 14px; background: #f8fafc; }
+  .chat-msg { margin: 14px 0; }
+  .chat-msg:first-child { margin-top: 2px; }
+  .chat-msg:last-child { margin-bottom: 2px; }
+  .chat-msg .who { font-size: 11px; font-weight: 650; color: var(--muted); margin: 0 4px 4px; letter-spacing: .02em; }
+  .chat-msg .bubble { margin: 0; overflow-wrap: anywhere; }
+  .chat-msg.user .who { text-align: right; }
+  .chat-msg.user .bubble { width: fit-content; max-width: 82%; margin-left: auto; padding: 9px 13px; white-space: pre-wrap; background: #dbeafe; border: 1px solid #bfdbfe; }
+  .chat-msg.assistant .bubble { padding: 13px 16px; background: #fff; border: 1px solid #e2e8f0; border-left: 3px solid #60a5fa; border-radius: 4px 10px 10px 4px; box-shadow: 0 1px 2px rgba(16, 24, 40, .04); }
+  .markdown-body { line-height: 1.65; white-space: normal; }
+  .markdown-body > :first-child { margin-top: 0; }
+  .markdown-body > :last-child { margin-bottom: 0; }
+  .markdown-body p { margin: 8px 0; }
+  .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 { margin: 16px 0 6px; color: #172033; line-height: 1.35; }
+  .markdown-body h3 { font-size: 15px; }
+  .markdown-body h4 { font-size: 14px; }
+  .markdown-body h5, .markdown-body h6 { font-size: 13.5px; }
+  .markdown-body ul, .markdown-body ol { margin: 7px 0; padding-left: 24px; }
+  .markdown-body li { margin: 4px 0; padding-left: 2px; }
+  .markdown-body li::marker { color: #64748b; font-weight: 650; }
+  .markdown-body strong { color: #172033; font-weight: 700; }
+  .markdown-body code { padding: 2px 5px; border-radius: 5px; background: #eef2f7; color: #9f1239; font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+  .markdown-body pre { margin: 10px 0; padding: 11px 13px; max-height: 360px; border-color: #263244; background: #172033; color: #e5edf7; white-space: pre; }
+  .markdown-body pre code { padding: 0; background: transparent; color: inherit; font-size: 12px; }
+  .markdown-body blockquote { margin: 10px 0; padding: 8px 12px; border-left: 3px solid #94a3b8; background: #f8fafc; color: #526071; }
+  .markdown-body hr { border: 0; border-top: 1px solid #e2e8f0; margin: 14px 0; }
+  .markdown-body a { overflow-wrap: anywhere; }
+  .markdown-table-wrap { max-width: 100%; margin: 10px 0; overflow-x: auto; }
+  .markdown-body table { width: auto; min-width: 55%; font-size: 12.5px; }
+  .markdown-body th { padding: 6px 9px; background: #f1f5f9; text-transform: none; letter-spacing: 0; }
+  .markdown-body td { padding: 6px 9px; border: 1px solid #e2e8f0; }
   .chat-input { display: flex; gap: 8px; }
   .chat-input input { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13.5px; }
   .chat-input button:disabled { color: #c3c9d2; pointer-events: none; }
@@ -86,6 +133,9 @@
   .filelist { columns: 2; font-size: 12.5px; }
   .filelist div { break-inside: avoid; padding: 2px 0; }
   .empty { color: var(--muted); padding: 24px; text-align: center; }
+  .detail-heading { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .detail-heading h2 { margin-right: auto; }
+  .share-badge { display: inline-block; border: 1px solid #475467; border-radius: 999px; padding: 2px 8px; color: #d0d5dd; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -99,8 +149,28 @@
 const $main = document.getElementById('main');
 let RUNS = null;
 let STARS = new Set();
+let NOTES = {};
+let CONFIG = {
+  read_only: false,
+  chat_enabled: true,
+  sync_enabled: true,
+  llm_model: sessionStorage.getItem('viewer_llm_model') || '',
+};
+let configLoaded = false;
+
+async function loadConfig() {
+  if (!configLoaded) {
+    CONFIG = { ...CONFIG, ...await getJSON('/api/config') };
+    if (CONFIG.llm_model) sessionStorage.setItem('viewer_llm_model', CONFIG.llm_model);
+    configLoaded = true;
+  }
+  return CONFIG;
+}
+
+const dataHref = path => '/data/' + path.split('/').map(encodeURIComponent).join('/');
 
 async function toggleStar(path, rerender) {
+  if (CONFIG.read_only) return;
   const starred = !STARS.has(path);
   starred ? STARS.add(path) : STARS.delete(path);
   rerender();
@@ -117,10 +187,242 @@ async function toggleStar(path, rerender) {
 }
 const starIcon = path => `<span class="star ${STARS.has(path) ? 'on' : ''}">${STARS.has(path) ? '★' : '☆'}</span>`;
 
+async function saveRunNote(path, value) {
+  if (CONFIG.read_only) return NOTES[path] || '';
+  const note = value.trim();
+  const previous = NOTES[path] || '';
+  if (note === previous) return note;
+  note ? NOTES[path] = note : delete NOTES[path];
+  const fd = new FormData();
+  fd.append('path', path);
+  fd.append('note', note);
+  try {
+    const r = await fetch('/api/note', { method: 'POST', body: fd });
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.detail || r.status);
+    return res.note;
+  } catch (e) {
+    previous ? NOTES[path] = previous : delete NOTES[path];
+    throw e;
+  }
+}
+
+const noteText = path => NOTES[path]
+  ? `<span class="run-note-text">${esc(NOTES[path])}</span>`
+  : '<span class="run-note-text empty">—</span>';
+
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const displayModelName = model => {
+  const name = String(model || '').split('/').filter(Boolean).pop() || '';
+  return name.replace(/^gpt(?=$|[-_.])/i, 'GPT');
+};
+
+function renderMarkdownInline(value) {
+  return String(value ?? '').split(/(`[^`\n]*`)/g).map(part => {
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return `<code>${esc(part.slice(1, -1))}</code>`;
+    }
+    return esc(part)
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
+      .replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
+      .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;，。！？：；])/g, '$1<em>$2</em>')
+      .replace(/\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  }).join('');
+}
+
+function renderMarkdown(value) {
+  const lines = String(value ?? '').replace(/\r\n?/g, '\n').split('\n');
+  const html = [];
+  let paragraph = [];
+  let listType = null;
+  let listStart = null;
+  let listItems = [];
+  let quote = [];
+  let code = null;
+  let codeLanguage = '';
+
+  const flushParagraph = () => {
+    if (paragraph.length) html.push(`<p>${paragraph.map(renderMarkdownInline).join('<br>')}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (listType) {
+      const start = listType === 'ol' && listStart !== 1 ? ` start="${listStart}"` : '';
+      html.push(`<${listType}${start}>${listItems.join('')}</${listType}>`);
+    }
+    listType = null;
+    listStart = null;
+    listItems = [];
+  };
+  const flushQuote = () => {
+    if (quote.length) html.push(`<blockquote>${quote.map(renderMarkdownInline).join('<br>')}</blockquote>`);
+    quote = [];
+  };
+  const flushBlocks = () => {
+    flushParagraph();
+    flushList();
+    flushQuote();
+  };
+  const tableCells = line => line.trim().replace(/^\||\|$/g, '').split('|').map(cell => cell.trim());
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (code !== null) {
+      if (/^\s*```\s*$/.test(line)) {
+        const language = codeLanguage ? ` class="language-${esc(codeLanguage)}"` : '';
+        html.push(`<pre><code${language}>${esc(code.join('\n'))}</code></pre>`);
+        code = null;
+        codeLanguage = '';
+      } else {
+        code.push(line);
+      }
+      continue;
+    }
+
+    const fence = line.match(/^\s*```([\w.+-]*)\s*$/);
+    if (fence) {
+      flushBlocks();
+      code = [];
+      codeLanguage = fence[1];
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushBlocks();
+      continue;
+    }
+
+    if (line.includes('|') && i + 1 < lines.length) {
+      const separator = tableCells(lines[i + 1]);
+      if (separator.length > 1 && separator.every(cell => /^:?-{3,}:?$/.test(cell))) {
+        flushBlocks();
+        const headers = tableCells(line);
+        i += 2;
+        const rows = [];
+        while (i < lines.length && lines[i].trim() && lines[i].includes('|')) {
+          rows.push(tableCells(lines[i]));
+          i++;
+        }
+        i--;
+        html.push(`<div class="markdown-table-wrap"><table><thead><tr>${headers.map(cell => `<th>${renderMarkdownInline(cell)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${headers.map((_, index) => `<td>${renderMarkdownInline(row[index] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+        continue;
+      }
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushBlocks();
+      const level = Math.min(6, heading[1].length + 2);
+      html.push(`<h${level}>${renderMarkdownInline(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      flushBlocks();
+      html.push('<hr>');
+      continue;
+    }
+
+    const list = line.match(/^\s*(?:([-+*])|(\d+)[.)])\s+(.+)$/);
+    if (list) {
+      flushParagraph();
+      flushQuote();
+      const nextType = list[2] ? 'ol' : 'ul';
+      if (listType && listType !== nextType) flushList();
+      if (!listType) {
+        listType = nextType;
+        listStart = nextType === 'ol' ? Number(list[2]) : null;
+      }
+      const item = list[3].replace(/^\[([ xX])\]\s+/, (_, checked) => checked === ' ' ? '☐ ' : '☑ ');
+      listItems.push(`<li>${renderMarkdownInline(item)}</li>`);
+      continue;
+    }
+
+    const blockquote = line.match(/^\s*>\s?(.*)$/);
+    if (blockquote) {
+      flushParagraph();
+      flushList();
+      quote.push(blockquote[1]);
+      continue;
+    }
+
+    flushList();
+    flushQuote();
+    paragraph.push(line.trim());
+  }
+
+  if (code !== null) html.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
+  flushBlocks();
+  return html.join('');
+}
+
 const fmtScore = v => (v === null || v === undefined) ? '<span class="muted">—</span>' : Number(v).toFixed(v >= 1 || v === 0 ? 2 : 3).replace(/\.?0+$/,'') || '0';
 const fmtDur = ms => ms == null ? '—' : (ms/1000 < 90 ? (ms/1000).toFixed(1)+'s' : (ms/60000).toFixed(1)+'min');
 const passBadge = p => p === true ? '<span class="badge pass">PASS</span>' : p === false ? '<span class="badge fail">FAIL</span>' : '<span class="badge na">—</span>';
+
+const jsonPreview = (label, value) => `
+  <details class="json-preview">
+    <summary>${esc(label)}</summary>
+    <div class="json-preview-toolbar">
+      <button class="navbtn json-wrap-toggle" type="button" aria-pressed="true">Auto wrap: On</button>
+    </div>
+    <pre>${esc(JSON.stringify(value, null, 2))}</pre>
+  </details>`;
+
+$main.addEventListener('click', event => {
+  const button = event.target.closest('.json-wrap-toggle');
+  if (!button) return;
+  const preview = button.closest('.json-preview');
+  const wrapped = preview.classList.toggle('no-wrap') === false;
+  button.setAttribute('aria-pressed', String(wrapped));
+  button.textContent = `Auto wrap: ${wrapped ? 'On' : 'Off'}`;
+});
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (_) {
+      // Fall through for browsers that block the Clipboard API.
+    }
+  }
+  const input = document.createElement('textarea');
+  input.value = text;
+  input.style.position = 'fixed';
+  input.style.opacity = '0';
+  document.body.appendChild(input);
+  input.focus();
+  input.select();
+  const copied = document.execCommand('copy');
+  input.remove();
+  if (!copied) throw new Error('copy failed');
+}
+
+function initRunNameCopy() {
+  $main.querySelectorAll('.copy-run-name').forEach(button => {
+    button.addEventListener('click', async ev => {
+      ev.stopPropagation();
+      const feedback = button.querySelector('.copy-feedback');
+      clearTimeout(button._copyTimer);
+      button.classList.remove('copy-error');
+      try {
+        await copyText(button.dataset.runName);
+        feedback.textContent = 'Copied';
+      } catch (_) {
+        button.classList.add('copy-error');
+        feedback.textContent = 'Copy failed';
+      }
+      button._copyTimer = setTimeout(() => {
+        feedback.textContent = '';
+        button.classList.remove('copy-error');
+      }, 1600);
+    });
+  });
+}
 
 async function getJSON(url) {
   const r = await fetch(url);
@@ -133,6 +435,7 @@ async function loadRuns() {
     const d = await getJSON('/api/runs');
     RUNS = d.runs;
     STARS = new Set(d.stars || []);
+    NOTES = d.notes || {};
   }
   return RUNS;
 }
@@ -152,7 +455,8 @@ async function renderList() {
   const searchHadFocus = document.activeElement?.id === 'q';
   const scrollY = window.scrollY;
   const runs = await loadRuns();
-  document.getElementById('headerSub').textContent = runs.length + ' runs archived';
+  document.getElementById('headerSub').innerHTML = runs.length + ' runs archived'
+    + (CONFIG.read_only ? ' &nbsp; <span class="share-badge">READ-ONLY SHARED VIEW</span>' : '');
   const uniq = key => [...new Set(runs.map(r => key === 'agent_name' ? agentGroup(r[key]) : r[key]).filter(Boolean))].sort();
   const opts = (key, label) =>
     `<select data-k="${key}"><option value="">${label}: all</option>` +
@@ -161,27 +465,31 @@ async function renderList() {
   const filtered = runs.filter(r =>
     (!listState.starredOnly || STARS.has(r.path)) &&
     (!listState.agent_name || agentGroup(r.agent_name) === listState.agent_name) &&
-    (!listState.q || r.run_name.toLowerCase().includes(listState.q) || (r.agent_name||'').toLowerCase().includes(listState.q)));
+    (!listState.q || r.run_name.toLowerCase().includes(listState.q)
+      || (r.agent_name||'').toLowerCase().includes(listState.q)
+      || (NOTES[r.path]||'').toLowerCase().includes(listState.q)));
 
   $main.innerHTML = `
   <div class="card">
     <div class="toolbar">
-      <input id="q" placeholder="Search run name / agent…" value="${esc(listState.q)}">
+      <input id="q" placeholder="Search run name / agent / note…" value="${esc(listState.q)}">
       ${opts('agent_name','agent')}
-      <button class="navbtn ${listState.starredOnly ? 'active' : ''}" id="starFilter" type="button">★ Starred${listState.starredOnly ? ' ✓' : ''}</button>
-      <button class="navbtn" id="syncBtn" type="button">⟳ Sync sources</button>
-      <span id="upStatus" class="muted" style="font-size:12.5px">${esc(lastUploadStatus)}</span>
-      <span class="count">${filtered.length} / ${runs.length} runs — drag run folders or a zip here to import</span>
+      ${CONFIG.read_only ? '' : `
+        <button class="navbtn ${listState.starredOnly ? 'active' : ''}" id="starFilter" type="button">★ Starred${listState.starredOnly ? ' ✓' : ''}</button>`}
+      ${CONFIG.sync_enabled ? `
+        <button class="navbtn" id="syncBtn" type="button">⟳ Sync sources</button>
+        <span id="upStatus" class="muted" style="font-size:12.5px">${esc(lastUploadStatus)}</span>` : ''}
+      <span class="count">${filtered.length} / ${runs.length} runs${CONFIG.read_only ? ' · open a run to inspect its data' : ' — drag run folders or a zip here to import'}</span>
     </div>
     <table>
       <thead><tr><th></th><th>Time (UTC)</th><th>Run</th><th>Agent</th>
-      <th>Scenarios</th><th>Primary</th><th>Eval final</th></tr></thead>
+      <th>Scenarios</th><th>Primary</th><th>Eval final</th><th>Note</th></tr></thead>
       <tbody>
       ${filtered.map(r => `
         <tr class="rowlink" onclick="location.hash='#/run/${encodeURIComponent(r.path)}'">
-          <td class="starcell" data-path="${esc(r.path)}">${starIcon(r.path)}</td>
+          <td class="${CONFIG.read_only ? '' : 'starcell'}" data-path="${esc(r.path)}">${starIcon(r.path)}</td>
           <td class="mono muted" style="white-space:nowrap">${esc(r.timestamp || '?')}</td>
-          <td class="mono" style="word-break:break-all">${esc(r.run_name)}</td>
+          <td class="mono" style="word-break:break-all"><button class="copy-run-name" type="button" data-run-name="${esc(r.run_name)}" title="Copy run name" aria-label="Copy run name ${esc(r.run_name)}"><span>${esc(r.run_name)}</span><span class="copy-icon" aria-hidden="true">⧉</span><span class="copy-feedback" aria-live="polite"></span></button></td>
           <td>${esc(r.agent_name || '—')}</td>
           <td>${r.has_results
               ? `<span class="${r.scenarios_passed===r.scenarios_total?'badge pass':'badge fail'}">${r.scenarios_passed}/${r.scenarios_total}</span>`
@@ -189,6 +497,9 @@ async function renderList() {
               : `<span class="badge na">no results (${r.scenario_count} dirs)</span>`}</td>
           <td>${fmtScore(r.primary_score)}</td>
           <td>${fmtScore(r.eval_final)}</td>
+          <td class="note-cell" onclick="event.stopPropagation()">${CONFIG.read_only
+            ? noteText(r.path)
+            : `<textarea class="run-note-input" data-path="${esc(r.path)}" rows="2" wrap="soft" maxlength="2000" placeholder="Add a note…" title="Ctrl/⌘ + Enter or click elsewhere to save">${esc(NOTES[r.path] || '')}</textarea>`}</td>
         </tr>`).join('')}
       </tbody>
     </table>
@@ -199,12 +510,12 @@ async function renderList() {
   qEl.addEventListener('input', () => { listState.q = qEl.value.toLowerCase(); renderList(); });
   if (searchHadFocus) { qEl.focus(); qEl.setSelectionRange(qEl.value.length, qEl.value.length); }
   window.scrollTo(0, scrollY);
-  document.getElementById('starFilter').addEventListener('click', () => {
-    listState.starredOnly = !listState.starredOnly;
-    renderList();
-  });
+  document.getElementById('starFilter')?.addEventListener('click', () => {
+      listState.starredOnly = !listState.starredOnly;
+      renderList();
+    });
   const syncBtn = document.getElementById('syncBtn');
-  syncBtn.addEventListener('click', async () => {
+  syncBtn?.addEventListener('click', async () => {
     syncBtn.disabled = true;
     setUpStatus('syncing from ai-ds-research checkouts…');
     try {
@@ -228,11 +539,39 @@ async function renderList() {
       ev.stopPropagation();
       toggleStar(td.dataset.path, renderList);
     }));
+  $main.querySelectorAll('.run-note-input').forEach(input => {
+    input.addEventListener('click', ev => ev.stopPropagation());
+    input.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); input.blur(); }
+      if (ev.key === 'Escape') {
+        input.value = NOTES[input.dataset.path] || '';
+        input.blur();
+      }
+    });
+    input.addEventListener('blur', async () => {
+      const path = input.dataset.path;
+      if (input.value.trim() === (NOTES[path] || '')) return;
+      input.classList.remove('save-error');
+      input.classList.add('saving');
+      input.disabled = true;
+      try {
+        input.value = await saveRunNote(path, input.value);
+      } catch (e) {
+        input.value = NOTES[path] || '';
+        input.classList.add('save-error');
+        input.title = 'Save failed: ' + e.message;
+      } finally {
+        input.disabled = false;
+        input.classList.remove('saving');
+      }
+    });
+  });
   $main.querySelectorAll('select[data-k]').forEach(sel =>
     sel.addEventListener('change', () => {
       listState[sel.dataset.k] = sel.value;
       renderList();
     }));
+  initRunNameCopy();
 
 }
 
@@ -254,8 +593,17 @@ async function renderRun(path) {
   $main.innerHTML = `
   <div class="crumbs"><a href="#">All runs</a> / ${esc(path)}</div>
   <div class="card">
-    <h2><span class="starcell" id="runStar">${starIcon(path)}</span> ${esc(res?.agent_name || path.split('/').pop())}</h2>
-    <div class="muted mono">${esc(path.split('/').pop())}</div>
+    <div class="detail-heading">
+      <h2><span class="${CONFIG.read_only ? '' : 'starcell'}" id="runStar">${starIcon(path)}</span> ${esc(res?.agent_name || path.split('/').pop())}</h2>
+    </div>
+    <div class="muted mono"><button class="copy-run-name" type="button" data-run-name="${esc(path.split('/').pop())}" title="Copy run name" aria-label="Copy run name ${esc(path.split('/').pop())}"><span>${esc(path.split('/').pop())}</span><span class="copy-icon" aria-hidden="true">⧉</span><span class="copy-feedback" aria-live="polite"></span></button></div>
+    <div class="run-note-detail">
+      <label for="runNote">Note</label>
+      ${CONFIG.read_only
+        ? noteText(path)
+        : `<textarea id="runNote" wrap="soft" maxlength="2000" placeholder="Add a note about this run…">${esc(NOTES[path] || '')}</textarea>
+           <div class="note-actions"><button class="navbtn" id="saveRunNoteBtn" type="button">Save note</button><span class="muted" id="runNoteStatus"></span></div>`}
+    </div>
     <div class="chips">${chips.map(([k,v]) => `<div class="chip"><div class="k">${k}</div><div class="v">${typeof v === 'number' ? fmtScore(v) : esc(v ?? '—')}</div></div>`).join('')}</div>
     ${res ? '' : '<p class="muted">This run has no results.json (likely errored or interrupted) — scenario directories are still browsable below.</p>'}
   </div>
@@ -277,10 +625,27 @@ async function renderRun(path) {
         </tr>`).join('')}</tbody>
     </table>
   </div>
-  ${res ? `<div class="card"><details><summary>Raw results.json</summary><pre>${esc(JSON.stringify(res, null, 2))}</pre></details></div>` : ''}
-  ${ev ? `<div class="card"><details><summary>Raw talk_bench_evaluation_result.json</summary><pre>${esc(JSON.stringify(ev, null, 2))}</pre></details></div>` : ''}`;
+  ${res ? `<div class="card">${jsonPreview('Raw results.json', res)}</div>` : ''}
+  ${ev ? `<div class="card">${jsonPreview('Raw talk_bench_evaluation_result.json', ev)}</div>` : ''}`;
 
-  document.getElementById('runStar').addEventListener('click', () => toggleStar(path, () => renderRun(path)));
+  if (!CONFIG.read_only)
+    document.getElementById('runStar').addEventListener('click', () => toggleStar(path, () => renderRun(path)));
+  initRunNameCopy();
+  document.getElementById('saveRunNoteBtn')?.addEventListener('click', async () => {
+    const input = document.getElementById('runNote');
+    const status = document.getElementById('runNoteStatus');
+    const button = document.getElementById('saveRunNoteBtn');
+    button.disabled = true;
+    status.textContent = 'Saving…';
+    try {
+      input.value = await saveRunNote(path, input.value);
+      status.textContent = 'Saved';
+    } catch (e) {
+      status.textContent = 'Save failed: ' + e.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
 
 /* ---------- transcript with tool calls merged chronologically ---------- */
@@ -312,9 +677,7 @@ function renderTimeline(conversation, toolLog) {
       ${c.db_changed ? '<span class="badge pass" style="margin-left:8px">db changed</span>' : ''}
       ${c.result?.error ? `<span class="badge fail" style="margin-left:8px">error</span>` : ''}
       ${c.result?.error ? `<div class="err">${esc(c.result.error.message || JSON.stringify(c.result.error))}</div>` : ''}
-      <details><summary>args & result</summary>
-        <pre>${esc(JSON.stringify({arguments: c.arguments, result: c.result}, null, 2))}</pre>
-      </details>
+      ${jsonPreview('args & result', {arguments: c.arguments, result: c.result})}
     </div>`;
   }).join('');
 }
@@ -352,8 +715,8 @@ function renderScores(summary, sess) {
     `<div class="chip"><div class="k">${k}</div><div class="v">${typeof v === 'number' ? fmtScore(v) : esc(v)}</div></div>`).join('')}
   </div>
   ${flags.map(f => `<div><span class="badge fail" style="margin-top:6px">${esc(f)}</span></div>`).join('')}
-  ${summary ? `<details><summary>Raw scenario result (results.json)</summary><pre>${esc(JSON.stringify(summary, null, 2))}</pre></details>` : ''}
-  ${sess ? `<details><summary>Raw session result (talk_bench_evaluation_result.json)</summary><pre>${esc(JSON.stringify(sess, null, 2))}</pre></details>` : ''}`;
+  ${summary ? jsonPreview('Raw scenario result (results.json)', summary) : ''}
+  ${sess ? jsonPreview('Raw session result (talk_bench_evaluation_result.json)', sess) : ''}`;
 }
 
 /* ---------- scenario detail ---------- */
@@ -396,8 +759,10 @@ async function renderScenario(path) {
     ${siblings.length > 1 ? scenarioNav(runPath, siblings, scenIdx) : ''}
   </div>
   <div class="card">
-    <h2>${esc(path.split('/').pop())} <span class="muted" style="font-weight:400">· ${esc(sc.domain || '')}</span>
-      ${passBadge(d.scenario_summary?.passed ?? d.session_result?.task_completion?.passed)}</h2>
+    <div class="detail-heading">
+      <h2>${esc(path.split('/').pop())} <span class="muted" style="font-weight:400">· ${esc(sc.domain || '')}</span>
+        ${passBadge(d.scenario_summary?.passed ?? d.session_result?.task_completion?.passed)}</h2>
+    </div>
     <div class="chips">
       <div class="chip"><div class="k">End reason</div><div class="v" style="font-size:14px">${esc(meta.end_reason ?? '—')}</div></div>
       <div class="chip"><div class="k">Duration</div><div class="v" style="font-size:14px">${fmtDur(meta.total_duration_ms)}</div></div>
@@ -405,8 +770,7 @@ async function renderScenario(path) {
     </div>
     ${renderScores(d.scenario_summary, d.session_result)}
     ${sc.goal?.description ? `<h3>Goal</h3><p>${esc(sc.goal.description)}</p>` : ''}
-    ${sc.user_scenario ? `<details><summary>Full scenario JSON</summary><pre>${esc(JSON.stringify(sc, null, 2))}</pre></details>`
-                       : `<details><summary>Full scenario JSON</summary><pre>${esc(JSON.stringify(sc, null, 2))}</pre></details>`}
+    ${jsonPreview('Full scenario JSON', sc)}
   </div>
 
   ${audioNames.length ? `<div class="card"><h3 style="margin-top:0">Audio</h3><div class="audio-grid">
@@ -414,7 +778,7 @@ async function renderScenario(path) {
       <audio controls preload="none" src="/data/${encodeURIComponent(path).replace(/%2F/g,'/')}/${n}.wav"></audio></div>`).join('')}
   </div></div>` : ''}
 
-  <div class="card">
+  ${CONFIG.chat_enabled ? `<div class="card">
     <h3 style="margin-top:0">🤖 Ask AI about this scenario</h3>
     <div class="muted" style="font-size:12.5px;margin-bottom:8px">The model sees this scenario's goal, transcript, tool calls, and judge results. Ask why it failed, what a tool error means, etc.</div>
     <div id="chatLog" class="chat-log"></div>
@@ -422,7 +786,7 @@ async function renderScenario(path) {
       <input id="chatText" placeholder="为什么这个场景失败了？（按 Tab 填充）">
       <button class="navbtn" id="chatSend" type="button">Send</button>
     </div>
-  </div>
+  </div>` : ''}
 
   <div class="card">
     <h3 style="margin-top:0">Transcript
@@ -431,37 +795,13 @@ async function renderScenario(path) {
   </div>
 
   <div class="card">
-    <h3 style="margin-top:0">Files (${d.files.length})
-      <label class="navbtn" style="font-weight:400;cursor:pointer;margin-left:10px">⬆ Add / replace file<input type="file" id="fileUp" hidden></label>
-      <span id="fileUpStatus" class="muted" style="font-size:12.5px;margin-left:8px"></span></h3>
+    <h3 style="margin-top:0">Files (${d.files.length})</h3>
     <div class="filelist">
-      ${d.files.map(f => `<div><a class="mono" target="_blank" href="/data/${encodeURIComponent(path).replace(/%2F/g,'/')}/${esc(f.name)}">${esc(f.name)}</a> <span class="muted">${(f.size/1024).toFixed(0)} KB</span></div>`).join('')}
+      ${d.files.map(f => `<div><a class="mono" target="_blank" href="${dataHref(path + '/' + f.name)}">${esc(f.name)}</a> <span class="muted">${(f.size/1024).toFixed(0)} KB</span></div>`).join('')}
     </div>
   </div>`;
 
-  initChat(path);
-
-  document.getElementById('fileUp').addEventListener('change', async ev => {
-    const f = ev.target.files[0];
-    if (!f) return;
-    const status = document.getElementById('fileUpStatus');
-    const exists = d.files.some(x => x.name === f.name);
-    if (exists && !confirm(`"${f.name}" already exists in this scenario. Replace it?`)) {
-      ev.target.value = ''; return;
-    }
-    status.textContent = 'uploading…';
-    const fd = new FormData();
-    fd.append('file', f);
-    fd.append('target_dir', path);
-    fd.append('overwrite', exists);
-    try {
-      const r = await fetch('/api/upload_file', { method: 'POST', body: fd });
-      const res = await r.json();
-      if (!r.ok) throw new Error(res.detail || r.status);
-      status.textContent = (res.replaced ? 'replaced ' : 'added ') + f.name;
-      setTimeout(() => renderScenario(path), 800);
-    } catch (e) { status.textContent = 'error: ' + e.message; }
-  });
+  if (CONFIG.chat_enabled) initChat(path);
 
   const jump = document.getElementById('scenJump');
   if (jump) jump.addEventListener('change', () =>
@@ -614,10 +954,10 @@ async function collectEntry(entry) {
 }
 
 document.addEventListener('dragover', e => {
-  if (!location.hash.startsWith('#/')) e.preventDefault();
+  if (!CONFIG.read_only && !location.hash.startsWith('#/')) e.preventDefault();
 });
 document.addEventListener('drop', async e => {
-  if (location.hash.startsWith('#/')) return;
+  if (CONFIG.read_only || location.hash.startsWith('#/')) return;
   e.preventDefault();
   const items = [...e.dataTransfer.items];
   const dirs = [], zips = [];
@@ -641,20 +981,34 @@ document.addEventListener('drop', async e => {
 
 /* ---------- scenario AI chat ---------- */
 const CHATS = {};  // per-scenario message history, kept for the session
+const CHAT_TAB_PROMPTS = [
+  '为什么这个场景失败了？',
+  '应该如何改进，才能避免这个问题再次发生？',
+];
+const CHAT_TAB_PROMPT_INDEX = {};  // remember usage while navigating between scenarios
 
 function initChat(path) {
   const log = document.getElementById('chatLog');
   const input = document.getElementById('chatText');
   const btn = document.getElementById('chatSend');
   const history = CHATS[path] ||= [];
+  let tabPromptIndex = CHAT_TAB_PROMPT_INDEX[path] || 0;
+
+  const updatePlaceholder = () => {
+    input.placeholder = tabPromptIndex < CHAT_TAB_PROMPTS.length
+      ? `${CHAT_TAB_PROMPTS[tabPromptIndex]}（按 Tab 填充）`
+      : '继续追问…';
+  };
+  updatePlaceholder();
 
   const draw = (thinking = false) => {
+    const configuredModel = esc(displayModelName(CONFIG.llm_model));
     log.innerHTML = history.map(m => `
       <div class="chat-msg ${m.role}">
-        <div class="who">${m.role === 'user' ? 'you' : 'AI'}</div>
-        <div class="bubble">${esc(m.content)}</div>
+        <div class="who">${m.role === 'user' ? 'You' : esc(displayModelName(m.model || CONFIG.llm_model))}</div>
+        <div class="bubble ${m.role === 'assistant' ? 'markdown-body' : ''}">${m.role === 'assistant' ? renderMarkdown(m.content) : esc(m.content)}</div>
       </div>`).join('')
-      + (thinking ? '<div class="chat-msg assistant"><div class="who">AI</div><div class="bubble muted">thinking…</div></div>' : '');
+      + (thinking ? `<div class="chat-msg assistant"><div class="who">${configuredModel}</div><div class="bubble muted">thinking…</div></div>` : '');
     log.scrollTop = log.scrollHeight;
     log.style.display = history.length || thinking ? 'block' : 'none';
   };
@@ -675,7 +1029,11 @@ function initChat(path) {
       });
       const res = await r.json();
       if (!r.ok) throw new Error(res.detail || r.status);
-      history.push({ role: 'assistant', content: res.reply });
+      if (res.model) {
+        CONFIG.llm_model = res.model;
+        sessionStorage.setItem('viewer_llm_model', res.model);
+      }
+      history.push({ role: 'assistant', content: res.reply, model: res.model });
     } catch (e) {
       history.push({ role: 'assistant', content: '⚠ ' + e.message });
     }
@@ -684,10 +1042,18 @@ function initChat(path) {
     input.focus();
   };
   btn.addEventListener('click', send);
+  let isComposing = false;
+  input.addEventListener('compositionstart', () => { isComposing = true; });
+  input.addEventListener('compositionend', () => { isComposing = false; });
   input.addEventListener('keydown', e => {
-    if (e.key === 'Tab' && !input.value.trim()) {
+    // Enter confirms an IME candidate while composing Chinese, Japanese, etc.
+    // Some browsers report keyCode 229 instead of setting isComposing.
+    if (isComposing || e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Tab' && !input.value.trim() && tabPromptIndex < CHAT_TAB_PROMPTS.length) {
       e.preventDefault();
-      input.value = '为什么这个场景失败了？';
+      input.value = CHAT_TAB_PROMPTS[tabPromptIndex++];
+      CHAT_TAB_PROMPT_INDEX[path] = tabPromptIndex;
+      updatePlaceholder();
       return;
     }
     if (e.key === 'Enter') send();
@@ -702,6 +1068,7 @@ async function route() {
   const h = decodeURIComponent(location.hash);
   scenKeyNav = null;
   try {
+    await loadConfig();
     if (h.startsWith('#/scenario/')) await renderScenario(h.slice('#/scenario/'.length));
     else if (h.startsWith('#/run/')) await renderRun(h.slice('#/run/'.length));
     else await renderList();
