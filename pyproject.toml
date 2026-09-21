@@ -11,6 +11,8 @@ dependencies = [
     # in 1.83.0) — matches the constraint used across the talk-bench projects
     "litellm>=1.83.0",
     "python-dotenv>=1.0",
+    # agent configs for the Run test page are talk-bench YAML files
+    "pyyaml>=6.0",
 ]
 
 [tool.uv]
