@@ -4,79 +4,14 @@
     {
       "name": "viewer",
       "runtimeExecutable": "uv",
-      "runtimeArgs": [
-        "run",
-        "uvicorn",
-        "app.main:app",
-        "--port",
-        "8377"
-      ],
+      "runtimeArgs": ["run", "uvicorn", "app.main:app", "--port", "8377"],
       "port": 8377
     },
     {
       "name": "viewer-dev",
       "runtimeExecutable": "uv",
-      "runtimeArgs": [
-        "run",
-        "uvicorn",
-        "app.main:app",
-        "--port",
-        "8390",
-        "--reload"
-      ],
+      "runtimeArgs": ["run", "uvicorn", "app.main:app", "--port", "8390", "--reload"],
       "port": 8390
-    },
-    {
-      "name": "viewer-dev-2",
-      "runtimeExecutable": "uv",
-      "runtimeArgs": [
-        "run",
-        "uvicorn",
-        "app.main:app",
-        "--port",
-        "8391",
-        "--reload"
-      ],
-      "port": 8391
-    },
-    {
-      "name": "viewer-dev-3",
-      "runtimeExecutable": "uv",
-      "runtimeArgs": [
-        "run",
-        "uvicorn",
-        "app.main:app",
-        "--port",
-        "8392",
-        "--reload"
-      ],
-      "port": 8392
-    },
-    {
-      "name": "viewer-dev-4",
-      "runtimeExecutable": "uv",
-      "runtimeArgs": [
-        "run",
-        "uvicorn",
-        "app.main:app",
-        "--port",
-        "8393",
-        "--reload"
-      ],
-      "port": 8393
-    },
-    {
-      "name": "viewer-dev-5",
-      "runtimeExecutable": "uv",
-      "runtimeArgs": [
-        "run",
-        "uvicorn",
-        "app.main:app",
-        "--port",
-        "8394",
-        "--reload"
-      ],
-      "port": 8394
     }
   ]
 }

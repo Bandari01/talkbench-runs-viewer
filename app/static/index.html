@@ -92,7 +92,6 @@
   .side-item.active svg { color: var(--fg); }
   .side-n { margin-left: auto; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
   .side-foot { padding: 12px 10px 4px; border-top: 1px solid var(--border-soft); color: var(--muted); font-size: 12px; }
-  .share-badge { display: inline-block; margin-left: 6px; border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
   .backdrop { display: none; }
 
   /* ---------- frame & topbar ---------- */
@@ -351,8 +350,6 @@
   .run-note-input:focus, .run-note-detail textarea:focus { outline: none; border-color: var(--faint); background: var(--surface); box-shadow: 0 0 0 3px var(--ring); }
   .run-note-input.saving { color: var(--muted); }
   .run-note-input.save-error { border-color: var(--fail); background: var(--fail-bg); }
-  .run-note-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg-soft); }
-  .run-note-text.empty { color: var(--faint); padding: 0; text-align: left; }
   .run-note-detail { margin-top: 12px; max-width: 720px; }
   .run-note-detail label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; font-weight: 500; }
   .run-note-detail textarea { display: block; min-height: 64px; resize: vertical; padding: 8px 10px; border-color: var(--border); }
@@ -432,9 +429,7 @@
   .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
   .field input::placeholder, .field textarea::placeholder { color: var(--faint); }
   .field .help { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
-  .field .err { font-size: 12px; color: var(--fail); }
-  .field .err:empty { display: none; }
-  .field.invalid textarea, .field.invalid input { border-color: var(--fail); }
+  .field.invalid textarea { border-color: var(--fail); }
   .btn.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
   .btn.primary:hover { background: var(--primary); opacity: .88; }
   .actions-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
@@ -448,10 +443,6 @@
   @keyframes pulse { 50% { opacity: .3; } }
   .log-pane { margin: 0; max-height: 520px; padding: 12px 14px; border: 1px solid var(--md-pre-border); border-radius: 10px; background: var(--md-pre-bg); color: var(--md-pre-text); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
   .cmdline { font-size: 12px; color: var(--fg-soft); background: var(--surface-2); border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere; user-select: all; }
-  .saved-list { display: flex; flex-wrap: wrap; gap: 8px; }
-  .saved-item { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 3px 4px 3px 11px; font-size: 12.5px; background: var(--surface); }
-  .saved-item button { border: 0; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; padding: 2px 8px; border-radius: 999px; }
-  .saved-item button:hover { background: var(--surface-2); color: var(--fg); }
   tr.tr-selected td { background: var(--surface-2); }
   .job-actions { display: flex; gap: 4px; flex-wrap: wrap; }
   #jobsTable { min-width: 760px; }
@@ -459,47 +450,6 @@
   .jobs-wrap { overflow-x: auto; }
   .jobs-wrap th { position: static; }  /* sticky inside a scroll container would float mid-table */
   #logConfig { max-height: 320px; margin-top: 8px; }
-  .editor-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
-  .editor-bar .help { font-size: 12px; color: var(--muted); line-height: 1.4; }
-  .agent-form > .form-grid { margin-top: 12px; }
-  .form-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
-  .form-head .muted { font-size: 11.5px; }
-  .lk { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; font-weight: 600; color: var(--fg-soft); }
-  .field > label { display: flex; align-items: center; gap: 5px; min-height: 16px; }
-  .field .req { color: var(--fail); font-weight: 700; line-height: 1; }
-  .fx { margin-left: auto; border: 0; background: none; color: var(--faint); cursor: pointer; font: inherit; font-size: 14px; line-height: 1; padding: 0 4px; border-radius: 4px; }
-  .fx:hover { color: var(--fail); background: var(--surface-2); }
-  .field-bool { justify-content: center; }
-  .field .check, .fgroup legend .check { display: flex; align-items: center; gap: 7px; cursor: pointer; font-size: 13px; color: var(--fg); min-height: 30px; }
-  .check input[type=checkbox] { margin: 0; width: 14px; height: 14px; accent-color: var(--primary); flex: none; }
-  .check .dflt { color: var(--faint); font-size: 11px; font-weight: 400; }
-  .fgroup { border: 1px solid var(--border-soft); border-radius: 10px; padding: 6px 14px 12px; margin: 14px 0 0; min-width: 0; }
-  .fgroup legend { display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 12px; color: var(--muted); }
-  .fgroup legend .muted { font-weight: 400; font-size: 11.5px; }
-  .fgroup legend .fx { margin-left: 2px; }
-  .fgroup legend .check { min-height: 0; }
-  .fgroup > .help { display: block; font-size: 11.5px; color: var(--faint); line-height: 1.4; }
-  .fgroup .form-grid { margin-top: 8px; }
-  .form-grid > .fgroup { grid-column: 1 / -1; margin-top: 2px; }
-  .kv-rows { display: flex; flex-direction: column; gap: 6px; }
-  .kv-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr) 28px; gap: 6px; align-items: center; }
-  .kv-row .fx { margin: 0; justify-self: center; }
-  .add-param { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
-  .add-param input { flex: 1; max-width: 320px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; font-size: 12.5px; }
-  .add-param input:focus { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
-  .field .yaml-mini { min-height: 60px; }
-  .extra-blocks { margin-top: 16px; }
-  .extra-blocks > summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .extra-blocks > summary .muted { font-size: 12px; font-weight: 400; }
-  .extra-blocks > .help { display: block; font-size: 11.5px; color: var(--faint); line-height: 1.4; margin-top: 6px; }
-  .yaml-wrap { margin-top: 16px; }
-  .yaml-wrap > summary { display: flex; align-items: center; gap: 8px; }
-  .yaml-wrap > summary .muted { font-size: 12px; font-weight: 400; }
-  .yaml-wrap.editing > summary { display: none; }
-  .yaml-wrap .form-grid { margin-top: 8px; }
-  .yaml-wrap.editing .form-grid { margin-top: 14px; }
-  #agentYaml[readonly] { background: var(--surface-2); color: var(--fg-soft); min-height: 0; }
-  .yaml-wrap.editing #agentYaml { min-height: 300px; }
   .scen-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .scen-head input { max-width: 260px; }
   .scen-list { max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
@@ -585,28 +535,11 @@ let RUNS = null;
 let STARS = new Set();
 let HIDDEN = new Set();
 let NOTES = {};
-let CONFIG = {
-  read_only: false,
-  chat_enabled: true,
-  sync_enabled: true,
-  test_runs_enabled: false,
-  llm_model: sessionStorage.getItem('viewer_llm_model') || '',
-};
-let configLoaded = false;
-
-async function loadConfig() {
-  if (!configLoaded) {
-    CONFIG = { ...CONFIG, ...await getJSON('/api/config') };
-    if (CONFIG.llm_model) sessionStorage.setItem('viewer_llm_model', CONFIG.llm_model);
-    configLoaded = true;
-  }
-  return CONFIG;
-}
+let LLM_MODEL = '';  // the model behind Ask AI, reported by /api/runs
 
 const dataHref = path => '/data/' + path.split('/').map(encodeURIComponent).join('/');
 
 async function toggleStar(path, rerender) {
-  if (CONFIG.read_only) return;
   const starred = !STARS.has(path);
   starred ? STARS.add(path) : STARS.delete(path);
   rerender();
@@ -649,7 +582,6 @@ const hideIcon = path => HIDDEN.has(path)
   : `<span class="eye" title="Hide this run from the list on this computer">${ICONS.eyeOff}</span>`;
 
 async function saveRunNote(path, value) {
-  if (CONFIG.read_only) return NOTES[path] || '';
   const note = value.trim();
   const previous = NOTES[path] || '';
   if (note === previous) return note;
@@ -667,10 +599,6 @@ async function saveRunNote(path, value) {
     throw e;
   }
 }
-
-const noteText = path => NOTES[path]
-  ? `<span class="run-note-text">${esc(NOTES[path])}</span>`
-  : '<span class="run-note-text empty">—</span>';
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const displayModelName = model => {
@@ -880,6 +808,7 @@ async function loadRuns() {
     RUNS = d.runs;
     STARS = new Set(d.stars || []);
     NOTES = d.notes || {};
+    LLM_MODEL = d.llm_model || '';
   }
   return RUNS;
 }
@@ -957,7 +886,7 @@ const copyNameBtn = name => `<button class="copy-run-name" type="button" data-ru
 function runRowHTML(r) {
   return `
   <tr class="rowlink" data-href="#/run/${encodeURIComponent(r.path)}">
-    <td class="${CONFIG.read_only ? '' : 'starcell'}" data-path="${esc(r.path)}">${starIcon(r.path)}</td>
+    <td class="starcell" data-path="${esc(r.path)}">${starIcon(r.path)}</td>
     <td class="eyecell" data-path="${esc(r.path)}">${hideIcon(r.path)}</td>
     <td class="mono muted nowrap">${esc(r.timestamp || '?')}</td>
     <td class="mono runcell"><span class="run-name">${esc(r.run_name)}</span></td>
@@ -969,9 +898,7 @@ function runRowHTML(r) {
         : `<span class="badge na">no results (${r.scenario_count} dirs)</span>`}</td>
     <td>${fmtScore(r.primary_score)}</td>
     <td>${fmtScore(r.eval_final)}</td>
-    <td class="note-cell">${CONFIG.read_only
-      ? noteText(r.path)
-      : `<textarea class="run-note-input" data-path="${esc(r.path)}" rows="2" wrap="soft" maxlength="2000" placeholder="Add a note…" title="Ctrl/⌘ + Enter or click elsewhere to save">${esc(NOTES[r.path] || '')}</textarea>`}</td>
+    <td class="note-cell"><textarea class="run-note-input" data-path="${esc(r.path)}" rows="2" wrap="soft" maxlength="2000" placeholder="Add a note…" title="Ctrl/⌘ + Enter or click elsewhere to save">${esc(NOTES[r.path] || '')}</textarea></td>
   </tr>`;
 }
 
@@ -1004,8 +931,7 @@ function updateRunRows() {
   document.getElementById('listCount').textContent =
     `${sorted.length} / ${pool.length} ${listState.view === 'hidden' ? 'hidden runs' : 'runs'}`
     + (listState.view !== 'hidden' && hiddenCount ? ` · ${hiddenCount} hidden on this computer` : '');
-  document.getElementById('listHint').textContent =
-    CONFIG.read_only ? 'open a run to inspect its data' : 'drag run folders or a zip anywhere to import';
+  document.getElementById('listHint').textContent = 'drag run folders anywhere to import';
   const empty = document.getElementById('listEmpty');
   empty.hidden = !!sorted.length;
   empty.textContent = listState.view === 'hidden'
@@ -1033,8 +959,7 @@ function modalityCounts() {
 function renderSideNav() {
   const nav = document.getElementById('sideNav');
   if (!nav || !RUNS) return;
-  document.getElementById('headerSub').innerHTML = RUNS.length + ' runs archived'
-    + (CONFIG.read_only ? ' <span class="share-badge">read-only</span>' : '');
+  document.getElementById('headerSub').textContent = RUNS.length + ' runs archived';
   const hiddenN = RUNS.filter(r => HIDDEN.has(r.path)).length;
   const starredN = RUNS.filter(r => STARS.has(r.path) && !HIDDEN.has(r.path)).length;
   const viewItem = (view, icon, label, n) =>
@@ -1042,10 +967,10 @@ function renderSideNav() {
   nav.innerHTML = `
     <div class="side-sec">Views</div>
     ${viewItem('all', ICONS.list, 'All runs', RUNS.length - hiddenN)}
-    ${CONFIG.read_only ? '' : viewItem('starred', ICONS.star, 'Starred', starredN)}
+    ${viewItem('starred', ICONS.star, 'Starred', starredN)}
     ${viewItem('hidden', ICONS.eyeOff, 'Hidden', hiddenN)}
     <button class="side-item" type="button" data-href="#/compare">${ICONS.compare}<span>Compare runs</span></button>
-    ${CONFIG.test_runs_enabled ? `<button class="side-item" type="button" data-href="#/test">${ICONS.play}<span>Run test</span></button>` : ''}
+    <button class="side-item" type="button" data-href="#/test">${ICONS.play}<span>Run test</span></button>
     <div class="side-sec">Modality</div>
     <button class="side-item" type="button" data-modality="">${ICONS.list}<span>All modalities</span><span class="side-n">${RUNS.length}</span></button>
     ${modalityCounts().map(([k, label, n]) =>
@@ -1125,22 +1050,20 @@ async function renderRun(path) {
   <div class="crumbs"><a href="#">All runs</a> / ${esc(path)}</div>
   <div class="card">
     <div class="detail-heading">
-      <h2><span class="${CONFIG.read_only ? '' : 'starcell'}" id="runStar" data-path="${esc(path)}">${starIcon(path)}</span> ${esc(res?.agent_name || path.split('/').pop())}</h2>
-      ${CONFIG.test_runs_enabled && res?.run_context?.agent_config ? `<a class="navbtn" href="#/test?from=${encodeURIComponent(path)}" title="Open the Run test page with this run's agent config and task set filled in">Re-run this agent…</a>` : ''}
+      <h2><span class="starcell" id="runStar" data-path="${esc(path)}">${starIcon(path)}</span> ${esc(res?.agent_name || path)}</h2>
+      ${res?.run_context?.agent_config ? `<a class="navbtn" href="#/test?from=${encodeURIComponent(path)}" title="Open the Run test page with this run's agent config and task set filled in">Re-run this agent…</a>` : ''}
       <a class="navbtn" href="#/compare?a=${encodeURIComponent(path)}">Compare with…</a>
     </div>
-    <div class="muted mono">${copyNameBtn(path.split('/').pop())}</div>
+    <div class="muted mono">${copyNameBtn(path)}</div>
     <div class="run-note-detail">
       <label for="runNote">Note</label>
-      ${CONFIG.read_only
-        ? noteText(path)
-        : `<textarea id="runNote" wrap="soft" maxlength="2000" placeholder="Add a note about this run…">${esc(NOTES[path] || '')}</textarea>
-           <div class="note-actions"><button class="navbtn" id="saveRunNoteBtn" type="button">Save note</button><span class="muted" id="runNoteStatus"></span></div>`}
+      <textarea id="runNote" wrap="soft" maxlength="2000" placeholder="Add a note about this run…">${esc(NOTES[path] || '')}</textarea>
+      <div class="note-actions"><button class="navbtn" id="saveRunNoteBtn" type="button">Save note</button><span class="muted" id="runNoteStatus"></span></div>
     </div>
     <div class="chips">${chips.map(([k, v]) => `<div class="chip"><div class="k">${k}</div><div class="v">${typeof v === 'number' ? fmtScore(v) : esc(v ?? '—')}</div></div>`).join('')}</div>
     ${res ? '' : '<p class="muted">This run has no results.json (likely errored or interrupted) — scenario directories are still browsable below.</p>'}
   </div>
-  ${CONFIG.chat_enabled ? `<div class="card">
+  <div class="card">
     <div class="report-head">
       <h3>✨ AI Run 报告</h3>
       <span class="muted" id="reportStatus" style="font-size:12px" aria-live="polite"></span>
@@ -1148,15 +1071,15 @@ async function renderRun(path) {
     </div>
     <div class="muted" style="font-size:12.5px;margin-top:6px">一键让 AI 生成整个 run 的详细报告：总体结果、按根因分组的失败原因分布（含图）、高频问题详解（引用具体场景）和改进建议。</div>
     <div id="reportBody" class="markdown-body report-body" hidden></div>
-  </div>` : ''}
-  ${CONFIG.chat_enabled ? `<div class="card">
+  </div>
+  <div class="card">
     <h3 style="margin-top:0">🤖 Ask AI about this run</h3>
     <div id="chatLog" class="chat-log"></div>
     <div class="chat-input">
       <input id="chatText" placeholder="自由提问更细节的问题…">
       <button class="navbtn" id="chatSend" type="button">Send</button>
     </div>
-  </div>` : ''}
+  </div>
   <div class="card table-card">
     <div class="card-head"><h3>Scenarios (${d.scenarios.length})</h3></div>
     <div class="table-wrap">
@@ -1170,11 +1093,9 @@ async function renderRun(path) {
   ${ev ? `<div class="card">${jsonPreview('Raw talk_bench_evaluation_result.json', ev)}</div>` : ''}`;
 
   updateScenRows();
-  if (CONFIG.chat_enabled) {
-    initReport(path, '/api/run_report', '生成中…（大 run 可能需要 1–3 分钟）');
-    initChat(path);
-  }
-  document.getElementById('saveRunNoteBtn')?.addEventListener('click', async () => {
+  initReport(path, '/api/run_report', '生成中…（大 run 可能需要 1–3 分钟）');
+  initChat(path);
+  document.getElementById('saveRunNoteBtn').addEventListener('click', async () => {
     const input = document.getElementById('runNote');
     const status = document.getElementById('runNoteStatus');
     const button = document.getElementById('saveRunNoteBtn');
@@ -1698,12 +1619,12 @@ async function renderScenario(path) {
 
   $main.innerHTML = `
   <div class="crumbs" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-    <span><a href="#">All runs</a> / <a href="#/run/${encodeURIComponent(runPath)}">${esc(runPath.split('/').pop())}</a> / ${esc(path.split('/').pop())}</span>
+    <span><a href="#">All runs</a> / <a href="#/run/${encodeURIComponent(runPath)}">${esc(runPath)}</a> / ${esc(scenId)}</span>
     ${siblings.length > 1 ? scenarioNav(runPath, siblings, scenIdx) : ''}
   </div>
   <div class="card">
     <div class="detail-heading">
-      <h2>${esc(path.split('/').pop())} <span class="muted" style="font-weight:400">· ${esc(sc.domain || '')}</span>
+      <h2>${esc(scenId)} <span class="muted" style="font-weight:400">· ${esc(sc.domain || '')}</span>
         ${passBadge(d.scenario_summary?.passed ?? d.session_result?.task_completion?.passed)}</h2>
     </div>
     <div class="chips">
@@ -1721,7 +1642,7 @@ async function renderScenario(path) {
       <audio controls preload="none" src="/data/${encodeURIComponent(path).replace(/%2F/g,'/')}/${n}.wav"></audio></div>`).join('')}
   </div></div>` : ''}
 
-  ${CONFIG.chat_enabled ? `<div class="card">
+  <div class="card">
     <div class="report-head">
       <h3>✨ AI 场景报告</h3>
       <span class="muted" id="reportStatus" style="font-size:12px" aria-live="polite"></span>
@@ -1729,16 +1650,16 @@ async function renderScenario(path) {
     </div>
     <div class="muted" style="font-size:12.5px;margin-top:6px">一键让 AI 总结：这个任务要求什么、Agent 实际怎么做的（逐个 tool call）、做得好不好，并画出流程图。</div>
     <div id="reportBody" class="markdown-body report-body" hidden></div>
-  </div>` : ''}
+  </div>
 
-  ${CONFIG.chat_enabled ? `<div class="card">
+  <div class="card">
     <h3 style="margin-top:0">🤖 Ask AI about this scenario</h3>
     <div id="chatLog" class="chat-log"></div>
     <div class="chat-input">
       <input id="chatText" placeholder="自由提问更细节的问题…">
       <button class="navbtn" id="chatSend" type="button">Send</button>
     </div>
-  </div>` : ''}
+  </div>
 
   <div class="card">
     <h3 style="margin-top:0">Transcript
@@ -1753,10 +1674,8 @@ async function renderScenario(path) {
     </div>
   </div>`;
 
-  if (CONFIG.chat_enabled) {
-    initReport(path);
-    initChat(path);
-  }
+  initReport(path);
+  initChat(path);
 
   const jump = document.getElementById('scenJump');
   if (jump) jump.addEventListener('change', () =>
@@ -1770,11 +1689,9 @@ async function renderScenario(path) {
   };
 }
 
-/* ---------- run import via drag & drop (no button; function kept) ---------- */
-let lastUploadStatus = '';
+/* ---------- run import: drop run folders anywhere on the run list ---------- */
 let upToastTimer;
 const setUpStatus = t => {
-  lastUploadStatus = t;
   let el = document.getElementById('toast');
   if (!t) { el?.remove(); return; }
   if (!el) {
@@ -1886,30 +1803,6 @@ async function importRunFiles(files) {
   if (done.length) { invalidateRuns(); setTimeout(() => { if (!location.hash.startsWith('#/')) renderList(); }, 1200); }
 }
 
-async function importZip(f) {
-  const send = async overwrite => {
-    const fd = new FormData();
-    fd.append('file', f);
-    fd.append('overwrite', overwrite);
-    return postForm('/api/upload_run', fd);
-  };
-  setUpStatus(`uploading ${f.name}…`);
-  let res = await send(false);
-  let imported = res.imported;
-  if (res.skipped_existing.length) {
-    if (confirm(`These runs already exist:\n\n${res.skipped_existing.join('\n')}\n\nReplace them?`)) {
-      setUpStatus('replacing…');
-      res = await send(true);
-      imported = res.imported;
-    } else if (!imported.length) {
-      setUpStatus('nothing imported (all runs already exist)');
-      return;
-    }
-  }
-  setUpStatus(`imported: ${imported.length ? imported.join(', ') : 'none'}`);
-  if (imported.length) { invalidateRuns(); setTimeout(() => { if (!location.hash.startsWith('#/')) renderList(); }, 1200); }
-}
-
 // recursively read a dropped FileSystemEntry into [{relpath, file}]
 async function collectEntry(entry) {
   if (entry.isFile) {
@@ -1930,22 +1823,14 @@ async function collectEntry(entry) {
 }
 
 document.addEventListener('dragover', e => {
-  if (!CONFIG.read_only && !location.hash.startsWith('#/')) e.preventDefault();
+  if (!location.hash.startsWith('#/')) e.preventDefault();
 });
 document.addEventListener('drop', async e => {
-  if (CONFIG.read_only || location.hash.startsWith('#/')) return;
+  if (location.hash.startsWith('#/')) return;
   e.preventDefault();
-  const items = [...e.dataTransfer.items];
-  const dirs = [], zips = [];
-  for (const item of items) {
-    const entry = item.webkitGetAsEntry?.();
-    if (!entry) continue;
-    if (entry.isDirectory) dirs.push(entry);
-    else if (entry.isFile && entry.name.toLowerCase().endsWith('.zip')) zips.push(item.getAsFile());
-  }
-  if (!dirs.length && !zips.length) { setUpStatus('drop a run folder or a .zip'); return; }
+  const dirs = [...e.dataTransfer.items].map(item => item.webkitGetAsEntry?.()).filter(entry => entry?.isDirectory);
+  if (!dirs.length) { setUpStatus('drop a run folder'); return; }
   try {
-    for (const z of zips) await importZip(z);
     for (const dir of dirs) {
       setUpStatus(`reading "${dir.name}"…`);
       await importRunFiles(await collectEntry(dir));
@@ -2043,11 +1928,7 @@ function initReport(path, endpoint = '/api/scenario_report', eta = '生成中…
       const res = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(res.detail || r.status);
       REPORTS[path] = res.report;
-      if (res.model) {
-        CONFIG.llm_model = res.model;
-        sessionStorage.setItem('viewer_llm_model', res.model);
-      }
-      status.textContent = res.model ? `由 ${displayModelName(res.model)} 生成` : '';
+      status.textContent = `由 ${displayModelName(LLM_MODEL)} 生成`;
       show(res.report);
     } catch (e) {
       status.textContent = '⚠ ' + e.message;
@@ -2066,13 +1947,13 @@ function initChat(path) {
   const history = CHATS[path] ||= [];
 
   const draw = (thinking = false) => {
-    const configuredModel = esc(displayModelName(CONFIG.llm_model));
+    const model = esc(displayModelName(LLM_MODEL));
     log.innerHTML = history.map(m => `
       <div class="chat-msg ${m.role}">
-        <div class="who">${m.role === 'user' ? 'You' : esc(displayModelName(m.model || CONFIG.llm_model))}</div>
+        <div class="who">${m.role === 'user' ? 'You' : model}</div>
         <div class="bubble ${m.role === 'assistant' ? 'markdown-body' : ''}">${m.role === 'assistant' ? renderMarkdown(m.content) : esc(m.content)}</div>
       </div>`).join('')
-      + (thinking ? `<div class="chat-msg assistant"><div class="who">${configuredModel}</div><div class="bubble muted">thinking…</div></div>` : '');
+      + (thinking ? `<div class="chat-msg assistant"><div class="who">${model}</div><div class="bubble muted">thinking…</div></div>` : '');
     log.scrollTop = log.scrollHeight;
     log.style.display = history.length || thinking ? 'block' : 'none';
     renderMermaidIn(log);
@@ -2094,11 +1975,7 @@ function initChat(path) {
       });
       const res = await r.json();
       if (!r.ok) throw new Error(res.detail || r.status);
-      if (res.model) {
-        CONFIG.llm_model = res.model;
-        sessionStorage.setItem('viewer_llm_model', res.model);
-      }
-      history.push({ role: 'assistant', content: res.reply, model: res.model });
+      history.push({ role: 'assistant', content: res.reply });
     } catch (e) {
       history.push({ role: 'assistant', content: '⚠ ' + e.message });
     }
@@ -2278,9 +2155,76 @@ $main.addEventListener('focusout', async e => {
 });
 
 /* ---------- run test: edit an agent.yaml and launch talk-bench run ---------- */
-// The page maps onto exactly this command, run inside the chosen checkout:
-//   uv run talk-bench run --config <agent.yaml> --domain X --split Y --source tau2|talk_bench
-// Everything else talk-bench accepts keeps its CLI default.
+// The page maps onto exactly this command, run inside the talk-bench checkout:
+//   uv run talk-bench run --config <agent.yaml> --domain X --split Y --source tau2|talk_bench [--scenario-ids a,b]
+// Everything else talk-bench accepts keeps its CLI default. The agent.yaml is edited as text and
+// written as-is; presets, imported files and archived runs just fill the editor.
+
+// Talkdesk Autopilot lives on one platform per agent: API, websocket and OAuth hosts differ, and
+// each platform has its own OAuth client file (kept in talk-bench-talkdesk/) and account id.
+// talk-bench-talkdesk/.env holds the QA credentials, so QA can fall back to it and STG cannot.
+const TALKDESK_PLATFORMS = {
+  qa: { label: 'QA', api: 'https://api.talkdeskqa.com', ws: 'wss://ai-agent-platform.meza.talkdeskqa.com',
+        token: 'https://virtualagent.talkdeskqaid.com/oauth/token', oauth: 'oauthclient-qa.json',
+        account: '# account_id: not set → TALKDESK_ACCOUNT_ID from talk-bench-talkdesk/.env (the QA account)' },
+  stg: { label: 'STG', api: 'https://api.talkdeskstg.com', ws: 'wss://ai-agent-platform.meza.talkdeskstg.com',
+         token: 'https://virtualagent.talkdeskstgid.com/oauth/token', oauth: 'oauthclient-stg.json',
+         account: 'account_id: "<stg account id>"   # required: .env only holds the QA account' },
+};
+
+function talkdeskPresets(plat) {
+  const P = TALKDESK_PLATFORMS[plat];
+  const auth = `    # auth on ${P.label}: oauth_path is read relative to talk-bench-talkdesk/ (create the client on
+    # that platform's virtualagent "OAuth clients" page if the file is missing)
+    oauth_path: ${P.oauth}
+    token_url: "${P.token}"
+    ${P.account}
+`;
+  return [
+    { id: `talkdesk-${plat}`, label: `Talkdesk Autopilot · ${P.label} (voice)`, modality: 'voice', module: 'talkdesk_agent.agent.TalkdeskAgent',
+      desc: `An AI Agent on the Talkdesk ${P.label} platform (${new URL(P.api).host}) by agent_system_id. Runs in the talk-bench-talkdesk checkout; usually needs the MCP tool server.`,
+      yaml: `# Talkdesk Autopilot on ${P.label}. talkdesk_agent lives in the talk-bench-talkdesk workspace, so this
+# test runs there. Needs the MCP tool server, started from talk-bench-talkdesk/:
+#   uv run talkdesk-mcp-server --source <source> --domain <domain> --ngrok
+agent:
+  name: my-talkdesk-autopilot-${plat}
+  module: talkdesk_agent.agent.TalkdeskAgent
+  agents_max_supported_concurrency: 1
+  mcp:
+    server_url: "https://<your-tunnel>.ngrok-free.dev"
+    identity_transport:
+      type: platform_interaction_id
+  params:
+    agent_system_id: "<agent_system_id of your ${P.label} agent>"
+    api_base_url: "${P.api}"
+    ws_base_url: "${P.ws}"
+    connect_timeout_s: 30.0
+    is_draft: true
+    language: en-US
+    tts_voice: en-US-AvaMultilingualNeural
+    tts_provider: ms_speech
+    prosody_rate: medium
+    silence_timeout_ms: 900
+    caller_id: "123456789"
+    grace_period_s: 0.5
+${auth}` },
+    { id: `talkdesk-text-${plat}`, label: `Talkdesk Autopilot · ${P.label} (text)`, modality: 'text', module: 'talkdesk_agent.text_agent.TalkdeskTextAgent',
+      desc: `The Talkdesk ${P.label} agent over the text channel (${new URL(P.api).host}).`,
+      yaml: `# Talkdesk Autopilot on ${P.label}, text channel. Runs in the talk-bench-talkdesk checkout.
+agent:
+  name: my-talkdesk-text-agent-${plat}
+  module: talkdesk_agent.text_agent.TalkdeskTextAgent
+  params:
+    agent_system_id: "<agent_system_id of your ${P.label} agent>"
+    api_base_url: "${P.api}"
+    ws_base_url: "${P.ws}"
+    connect_timeout_s: 30.0
+    is_draft: true
+    caller_id: "123456789"
+${auth}` },
+  ];
+}
+
 const AGENT_PRESETS = [
   { id: 'cascaded', label: 'Cascaded voice (LLM + TTS + ASR)', modality: 'voice', module: 'voice_agent.cascaded.CascadedAgent',
     desc: 'Your own LLM behind Azure Speech TTS/ASR. Needs the LLM key and AZURE_SPEECH_KEY in the checkout .env.',
@@ -2379,46 +2323,8 @@ agent:
     tool_source: workspace           # client | workspace | mcp
     inject_policy_as_system_prompt: false
 ` },
-  { id: 'talkdesk', label: 'Talkdesk Autopilot (voice)', modality: 'voice', module: 'talkdesk_agent.agent.TalkdeskAgent',
-    desc: 'An AI Agent on the Talkdesk platform by agent_system_id. Needs the talkdesk_agent package and usually the MCP tool server.',
-    yaml: `# Needs the talkdesk_agent package (from the talk-bench-talkdesk workspace) and the
-# MCP tool server: uv run talkdesk-mcp-server --source <source> --domain <domain> --ngrok
-agent:
-  name: my-talkdesk-autopilot
-  module: talkdesk_agent.agent.TalkdeskAgent
-  agents_max_supported_concurrency: 1
-  mcp:
-    server_url: "https://<your-tunnel>.ngrok-free.dev"
-    identity_transport:
-      type: platform_interaction_id
-  params:
-    agent_system_id: "00000000-0000-0000-0000-000000000000"
-    api_base_url: "https://api.talkdeskqa.com"
-    ws_base_url: "wss://ai-agent-platform.meza.talkdeskqa.com"
-    connect_timeout_s: 30.0
-    is_draft: true
-    language: en-US
-    tts_voice: en-US-AvaMultilingualNeural
-    tts_provider: ms_speech
-    prosody_rate: medium
-    silence_timeout_ms: 900
-    caller_id: "123456789"
-    account_id: "<talkdesk account id>"
-    token_url: "https://virtualagent.talkdeskqaid.com/oauth/token"
-    grace_period_s: 0.5
-` },
-  { id: 'talkdesk-text', label: 'Talkdesk Autopilot (text)', modality: 'text', module: 'talkdesk_agent.text_agent.TalkdeskTextAgent',
-    desc: 'The Talkdesk agent over the text channel.',
-    yaml: `# Needs the talkdesk_agent package (from the talk-bench-talkdesk workspace).
-agent:
-  name: my-talkdesk-text-agent
-  module: talkdesk_agent.text_agent.TalkdeskTextAgent
-  params:
-    agent_system_id: "00000000-0000-0000-0000-000000000000"
-    connect_timeout_s: 30.0
-    is_draft: true
-    caller_id: "123456789"
-` },
+  ...talkdeskPresets('qa'),
+  ...talkdeskPresets('stg'),
   { id: 'custom', label: 'Custom module', modality: '', module: 'my_package.my_agent.MyAgent',
     desc: 'Any importable VoiceAgent / TextAgent subclass in the checkout. params are passed to its constructor as keyword arguments.',
     yaml: `# Any VoiceAgent / TextAgent subclass importable in the checkout.
@@ -2430,685 +2336,12 @@ agent:
 ` },
 ];
 
-/* ---------- agent config form: every key of agent.yaml as its own control ---------- */
-// The form and the YAML editor are two views of the same file. In form mode the form is the
-// source of truth and the YAML is generated from it (then validated by the server exactly like
-// typed YAML); in YAML mode the text is written as-is. `params` mirror each agent class's
-// __init__ keyword arguments in the checkout — talk-bench passes them as **kwargs — so the keys
-// below are the keys the constructors accept. Keys a loaded file carries beyond these stay
-// editable as generic fields, typed from their values.
-const AGENT_EDITOR_MODE_KEY = 'viewer_agent_editor_mode';
-const LLM_MODELS = ['azure/gpt-4.1', 'azure/gpt-4o-mini', 'azure/gpt-5.6-luna', 'openai/gpt-4.1', 'openai/gpt-5.4', 'gemini/gemini-2.5-flash'];
-const TTS_MODELS = ['azure-speech-tts/en-US-JennyNeural', 'azure-speech-tts/en-US-DavisNeural', 'elevenlabs/eleven_flash_v2_5', 'identity/', 'openai/tts-1'];
-const ASR_MODELS = ['azure-speech/en-US', 'deepgram/nova-3', 'identity/', 'openai/whisper-1'];
-const EMBEDDING_MODELS = ['azure/text-embedding-3-small', 'openai/text-embedding-3-small'];
-const OPENAI_VOICES = ['alloy', 'ash', 'ballad', 'cedar', 'coral', 'echo', 'marin', 'sage', 'shimmer', 'verse'];
-const GEMINI_VOICES = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir', 'Leda', 'Orus', 'Aoede'];
-const TD_API_URLS = ['https://api.talkdeskqa.com', 'https://api.talkdeskstg.com', 'https://api.talkdeskapp.com'];
-const TD_WS_URLS = ['wss://ai-agent-platform.meza.talkdeskqa.com', 'wss://ai-agent-platform.meza.talkdeskstg.com', 'wss://ai-agent-platform.talkdeskapp.com'];
-const TD_TOKEN_URLS = ['https://virtualagent.talkdeskqaid.com/oauth/token', 'https://virtualagent.talkdeskstgid.com/oauth/token', 'https://virtualagent.talkdeskid.com/oauth/token'];
-const MCP_TRANSPORTS = ['platform_interaction_id', 'dynamic_variable_header', 'direct_header'];
-
-// field: { key (the YAML key, also the label), type, help, placeholder, list (datalist), options
-// (select), unset (label of the select's "not set" choice), default (bool), min/max/step,
-// required, fields (group / agent), when (group subfield shown only when relevant) }
-const CONNECT_TIMEOUT = { key: 'connect_timeout_s', type: 'number', min: 0, step: 0.5, placeholder: '30', help: 'seconds to wait for the connection before the call fails' };
-const GROUNDING_HINTS = { key: 'append_tool_grounding_hints', type: 'bool', default: true, help: 'adds tool-calling discipline hints when the scenario has tools' };
-const TOOL_SOURCE_CLIENT_MCP = { key: 'tool_source', type: 'select', options: ['client', 'mcp'], unset: 'client (default)', help: 'mcp = tools from the MCP server below (needs the mcp block)' };
-
-const CASCADED_PARAMS = [
-  { key: 'llm_model', type: 'text', list: LLM_MODELS, placeholder: 'openai/gpt-4.1', help: 'litellm model id (provider/model); the provider key comes from the checkout .env' },
-  { key: 'tts_model', type: 'text', list: TTS_MODELS, placeholder: 'openai/tts-1', help: 'identity/ carries text instead of audio: no TTS key, no audio metrics' },
-  { key: 'tts_voice', type: 'text', placeholder: 'alloy', help: 'voice id of the TTS provider' },
-  { key: 'tts_sample_rate', type: 'number', min: 8000, step: 1000, placeholder: '24000', help: 'Hz: 24000 for Azure Speech, 16000 with identity/' },
-  { key: 'asr_model', type: 'text', list: ASR_MODELS, placeholder: 'openai/whisper-1', help: 'identity/ pairs with an identity/ TTS' },
-  { key: 'greeting', type: 'text', placeholder: 'Hello, how can I help you?', help: 'the agent speaks first' },
-  { key: 'min_speech_ms', type: 'number', min: 0, step: 10, placeholder: '100', help: 'shortest caller speech that counts as a turn' },
-  { key: 'end_of_turn_silence_ms', type: 'number', min: 0, step: 50, placeholder: '1500', help: 'silence that ends the caller’s turn' },
-];
-const OPENAI_REALTIME_PARAMS = [
-  { key: 'model', type: 'text', list: ['gpt-realtime-2', 'gpt-realtime', 'gpt-realtime-2025-08-28'], placeholder: 'gpt-realtime-2025-08-28', help: 'Realtime model slug (a dated snapshot is reproducible); for Azure, the deployment name' },
-  { key: 'voice', type: 'text', list: OPENAI_VOICES, placeholder: 'marin', help: 'alloy · ash · ballad · cedar · coral · echo · marin · sage · shimmer · verse' },
-  { key: 'greeting_text', type: 'text', placeholder: 'Hello, thanks for calling. How can I help?', help: 'the model generates its first utterance from this' },
-  { key: 'reasoning_effort', type: 'select', options: ['minimal', 'low', 'medium', 'high', 'xhigh'], unset: 'API default (low)', help: 'gpt-realtime-2 and later only' },
-  { key: 'turn_detection', type: 'group', help: 'server-side voice activity detection, passed verbatim to the session', fields: [
-    { key: 'type', type: 'select', options: ['server_vad', 'semantic_vad'], unset: 'server_vad (default)', help: 'energy / silence based, or the model decides by meaning' },
-    { key: 'threshold', type: 'number', min: 0, max: 1, step: 0.05, placeholder: '0.5', help: 'higher needs louder speech' },
-    { key: 'prefix_padding_ms', type: 'number', min: 0, step: 50, placeholder: '300', help: 'audio kept before detected speech' },
-    { key: 'silence_duration_ms', type: 'number', min: 0, step: 50, placeholder: '500', help: 'trailing silence that ends the caller’s turn' },
-    { key: 'create_response', type: 'bool', default: true, help: 'the server creates the reply when the turn ends' },
-    { key: 'interrupt_response', type: 'bool', default: true, help: 'new caller speech interrupts the agent (barge-in)' },
-  ] },
-  { key: 'instructions', type: 'textarea', help: 'extra system instructions appended to the scenario prompt' },
-  CONNECT_TIMEOUT,
-  { key: 'base_url', type: 'text', placeholder: 'https://<resource>.openai.azure.com/openai/v1', help: 'OpenAI-compatible endpoint (Azure …/openai/v1 or a proxy); empty = api.openai.com' },
-  { key: 'azure_endpoint', type: 'text', placeholder: 'https://<resource>.openai.azure.com', help: 'selects Azure api-key auth; not together with base_url' },
-  { key: 'api_version', type: 'text', placeholder: '2026-07-07-preview', help: 'Azure API version, with azure_endpoint' },
-  GROUNDING_HINTS,
-  TOOL_SOURCE_CLIENT_MCP,
-];
-const GEMINI_LIVE_PARAMS = [
-  { key: 'model', type: 'text', list: ['gemini-3.1-flash-live-preview', 'models/gemini-2.5-flash-native-audio-latest'], placeholder: 'models/gemini-2.5-flash-native-audio-latest', help: 'Gemini Live model' },
-  { key: 'voice', type: 'text', list: GEMINI_VOICES, placeholder: 'Zephyr', help: 'prebuilt Gemini voice' },
-  { key: 'language', type: 'text', placeholder: 'en-US', help: 'BCP-47 speech language' },
-  { key: 'greeting_text', type: 'text', placeholder: 'Hello', help: 'the model generates its first utterance from this' },
-  { key: 'temperature', type: 'number', min: 0, max: 2, step: 0.1, placeholder: 'model default', help: 'sampling temperature' },
-  { key: 'thinking_level', type: 'select', options: ['minimal', 'low', 'medium', 'high'], unset: 'unset', help: 'gemini-3.1 live models; not together with thinking_budget' },
-  { key: 'thinking_budget', type: 'number', min: 0, step: 128, placeholder: 'unset', help: 'thinking tokens, gemini-2.5 models; not together with thinking_level' },
-  { key: 'tool_behavior', type: 'text', list: ['blocking', 'non_blocking'], placeholder: 'blocking', help: 'non_blocking falls back to blocking on gemini-3.1 live models' },
-  { key: 'max_resumptions', type: 'number', min: 0, step: 1, placeholder: '3', help: 'reconnects on GoAway before the call ends; 0 disables' },
-  GROUNDING_HINTS,
-  TOOL_SOURCE_CLIENT_MCP,
-  CONNECT_TIMEOUT,
-  { key: 'realtime_input_config', type: 'yaml', help: 'passed verbatim, e.g. automatic_activity_detection: {silence_duration_ms: 1200}' },
-];
-const ELEVENLABS_PARAMS = [
-  { key: 'agent_id', type: 'text', required: true, placeholder: 'agent_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', help: 'the hosted Conversational AI agent' },
-  { key: 'language', type: 'text', placeholder: 'en', help: 'conversation language code' },
-  { key: 'tool_source', type: 'select', options: ['client', 'workspace', 'mcp'], unset: 'client (default)', help: 'client = this runner registers tools · workspace = provisioned tools by name · mcp = the MCP server below' },
-  { key: 'inject_policy_as_system_prompt', type: 'bool', default: true, help: 'PATCHes the live agent’s prompt with the scenario policy; off for provisioned workflows' },
-  { key: 'requires_auth', type: 'bool', default: true, help: 'the agent needs a signed URL (ELEVENLABS_API_KEY)' },
-  { key: 'first_message_override', type: 'text', placeholder: 'agent default', help: 'replaces the agent’s first message' },
-  CONNECT_TIMEOUT,
-  { key: 'dynamic_variables', type: 'kv', help: 'dynamic variables sent at session start' },
-  { key: 'custom_llm_extra_body', type: 'kv', help: 'extra request body for a custom LLM, e.g. reasoning_effort: low' },
-  { key: 'tool_mock_config', type: 'group', help: 'lets ElevenLabs resolve client tool calls from each tool’s response_mocks', fields: [
-    { key: 'mocking_strategy', type: 'select', options: ['all', 'selected', 'none'], unset: 'unset', help: 'which tools are mocked' },
-    { key: 'fallback_strategy', type: 'select', options: ['call_real_tool', 'raise_error'], unset: 'unset', help: 'when a tool has no mock' },
-    { key: 'mocked_tool_names', type: 'list', placeholder: 'tool_a, tool_b', help: 'comma-separated, with mocking_strategy: selected' },
-  ] },
-];
-const TALKDESK_AUTH = [
-  { key: 'account_id', type: 'text', placeholder: 'TALKDESK_ACCOUNT_ID from .env', help: 'Talkdesk account id' },
-  { key: 'oauth_path', type: 'text', placeholder: 'TALKDESK_OAUTH_PATH from .env', help: 'oauthclient.json, relative to the checkout' },
-  { key: 'token_url', type: 'text', list: TD_TOKEN_URLS, placeholder: 'TALKDESK_TOKEN_URL from .env', help: 'OAuth token endpoint' },
-];
-const TALKDESK_LANG_LOCK = { key: 'language_lock_settings', type: 'group', help: 'language-lock observability', fields: [
-  { key: 'turns_until_lang_lock', type: 'number', min: 0, step: 1, placeholder: '3', help: 'turns before the language locks' },
-  { key: 'language_selection_mechanism', type: 'select', options: ['MAJORITY', 'FIRST_DETECTED', 'LAST_DETECTED'], unset: 'unset', help: 'how the locked language is chosen' },
-] };
-const TALKDESK_CORE = [
-  { key: 'agent_system_id', type: 'text', required: true, placeholder: '00000000-0000-0000-0000-000000000000', help: 'the AI Agent (agent system) to call' },
-  { key: 'is_draft', type: 'bool', default: true, help: 'call the draft version of the agent system' },
-  { key: 'api_base_url', type: 'text', list: TD_API_URLS, placeholder: 'https://api.talkdeskqa.com', help: 'REST base: qa / stg / prd' },
-  { key: 'ws_base_url', type: 'text', list: TD_WS_URLS, placeholder: 'wss://ai-agent-platform.meza.talkdeskqa.com', help: 'audio-stream WebSocket base' },
-];
-const TALKDESK_VOICE_PARAMS = [
-  ...TALKDESK_CORE,
-  { key: 'language', type: 'text', placeholder: 'en-US', help: 'ASR / session language' },
-  { key: 'tts_voice', type: 'text', placeholder: 'en-US-AvaMultilingualNeural', help: 'TTS voice for the language' },
-  { key: 'tts_provider', type: 'text', list: ['ms_speech'], placeholder: 'ms_speech', help: 'platform TTS provider' },
-  { key: 'prosody_rate', type: 'text', list: ['x-slow', 'slow', 'medium', 'fast', 'x-fast'], placeholder: 'medium', help: 'TTS speech rate' },
-  { key: 'silence_timeout_ms', type: 'number', min: 0, step: 50, placeholder: '900', help: 'ASR silence-to-final threshold' },
-  { key: 'grace_period_s', type: 'number', min: 0, step: 0.1, placeholder: '0.5', help: 'extra wait for late audio after input ends' },
-  { key: 'caller_id', type: 'text', placeholder: '123456789', help: 'simulated caller number' },
-  CONNECT_TIMEOUT,
-  ...TALKDESK_AUTH,
-  TALKDESK_LANG_LOCK,
-];
-const TALKDESK_TEXT_PARAMS = [
-  ...TALKDESK_CORE,
-  { key: 'caller_id', type: 'text', placeholder: '123456789', help: 'simulated caller number' },
-  CONNECT_TIMEOUT,
-  ...TALKDESK_AUTH,
-  TALKDESK_LANG_LOCK,
-];
-const ELEVENLABS_SCHEMA = { params: ELEVENLABS_PARAMS, mcpTransport: 'dynamic_variable_header', mcpVariable: 'secret__talk_bench_conversation_id' };
-const MODULE_SCHEMAS = {
-  'voice_agent.cascaded.CascadedAgent': { params: CASCADED_PARAMS },
-  'voice_agent.text_bridge.VoiceAgentTextBridge': { params: [
-    { key: 'agent', type: 'agent', required: true, help: 'the voice agent driven over text; keep tts_model / asr_model at identity/ and tts_sample_rate at 16000 so the bridge stays lossless' },
-  ] },
-  'voice_agent.openai_realtime.OpenAIRealtimeAgent': { params: OPENAI_REALTIME_PARAMS, mcpTransport: 'direct_header' },
-  'voice_agent.gemini_live.GeminiLiveAgent': { params: GEMINI_LIVE_PARAMS, mcpTransport: 'direct_header' },
-  'voice_agent.elevenlabs_sdk.ElevenLabsSdkAgent': ELEVENLABS_SCHEMA,
-  'voice_agent.elevenlabs_sdk.ElevenLabsSdkTextAgent': ELEVENLABS_SCHEMA,
-  'talkdesk_agent.agent.TalkdeskAgent': { params: TALKDESK_VOICE_PARAMS, mcpTransport: 'platform_interaction_id' },
-  'talkdesk_agent.text_agent.TalkdeskTextAgent': { params: TALKDESK_TEXT_PARAMS, mcpTransport: 'platform_interaction_id' },
-};
-// top-level blocks talk-bench reads next to `agent:` (they override the checkout's talkbench.yaml
-// for this run); a block's bools are tri-state since "unset" keeps the project value
-const BOOL3 = { type: 'select', options: [{ value: true, label: 'true' }, { value: false, label: 'false' }], unset: 'project default' };
-const EXTRA_BLOCKS = [
-  { key: 'simulator', help: 'the simulated caller', fields: [
-    { key: 'llm_model', type: 'text', list: LLM_MODELS, help: 'litellm id of the caller LLM' },
-    { key: 'llm_temperature', type: 'number', min: 0, max: 2, step: 0.1, help: 'caller LLM temperature' },
-    { key: 'tts_model', type: 'text', list: TTS_MODELS, help: 'caller voice; must be a streaming provider' },
-    { key: 'tts_voice', type: 'text', help: 'voice id; the persona gender mapping may override it per scenario' },
-    { key: 'asr_model', type: 'text', list: ASR_MODELS, help: 'how the caller hears the agent; streaming provider' },
-    { key: 'language', type: 'text', placeholder: 'en-US', help: 'caller speech language' },
-    { key: 'loop_detection_embedding_model', type: 'text', list: EMBEDDING_MODELS, help: 'embedding model of the live repetition detector' },
-  ] },
-  { key: 'evaluation', help: 'the LLM judge', fields: [
-    { key: 'judge_model', type: 'text', list: LLM_MODELS, help: 'falls back to simulator.llm_model' },
-    { key: 'temperature', type: 'number', min: 0, max: 2, step: 0.1, help: 'judge temperature (1 for reasoning deployments)' },
-    { key: 'reference_asr_model', type: 'text', list: ASR_MODELS, help: 'ASR for the reference transcript' },
-  ] },
-  { key: 'simulator_gate', help: 'retries a conversation the gate rejects', fields: [
-    { key: 'enabled', ...BOOL3, help: 'gate each finished conversation' },
-    { key: 'max_retries', type: 'number', min: 0, max: 10, step: 1, help: '0 to 10' },
-    { key: 'evaluate_rejected_attempts', ...BOOL3, help: 'score rejected attempts too' },
-  ] },
-  { key: 'mid_turn_speak_gate', help: 'checks caller utterances before TTS', fields: [
-    { key: 'enabled', ...BOOL3, help: 'off by default' },
-    { key: 'model', type: 'text', list: LLM_MODELS, help: 'falls back to simulator.llm_model' },
-    { key: 'timeout_s', type: 'number', min: 0, step: 0.5, placeholder: '3', help: 'seconds' },
-  ] },
-  { key: 'terminal_hangup_gate', help: 'checks hangup / resolved actions', fields: [
-    { key: 'enabled', ...BOOL3, help: 'off by default' },
-    { key: 'model', type: 'text', list: LLM_MODELS, help: 'falls back to simulator.llm_model' },
-    { key: 'timeout_s', type: 'number', min: 0, step: 0.5, placeholder: '3', help: 'seconds' },
-  ] },
-];
-
-/* yaml-emit-start */
-// A small YAML writer for the form's config. Plain (unquoted) scalars are limited to strings no
-// YAML 1.1 parser can read as anything else; everything else is double-quoted with JSON escapes
-// (a valid YAML double-quoted scalar). The server re-parses the result with PyYAML.
-const isPlainObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
-const YAML_RESERVED = new Set(['true', 'false', 'yes', 'no', 'on', 'off', 'y', 'n', 'null', '~']);
-const yamlPlainOk = s => /^[A-Za-z_][A-Za-z0-9_.\/@+=:\-]*$/.test(s) && !s.endsWith(':') && !YAML_RESERVED.has(s.toLowerCase());
-function yamlScalar(v) {
-  if (v === null || v === undefined) return 'null';
-  if (typeof v === 'boolean') return v ? 'true' : 'false';
-  if (typeof v === 'number') {
-    if (!Number.isFinite(v)) return Number.isNaN(v) ? '.nan' : v > 0 ? '.inf' : '-.inf';
-    const s = String(v);  // PyYAML reads "1e-7" as a string: spell exponents out
-    return /e/i.test(s) ? v.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: 20 }) : s;
-  }
-  const s = String(v);
-  return yamlPlainOk(s) ? s : JSON.stringify(s);
-}
-const yamlEmpty = v => (isPlainObj(v) && !Object.keys(v).length) || (Array.isArray(v) && !v.length);
-const yamlIsBlock = v => (isPlainObj(v) || Array.isArray(v)) && !yamlEmpty(v);
-// literal block style (|-) for multi-line text whose lines can all be written verbatim; text
-// ending in a newline is quoted instead, since keeping that newline would depend on what follows
-const yamlLiteralOk = s => s.includes('\n') && !s.endsWith('\n') && !/^[ \t]/m.test(s) && !/[\x00-\x08\x0b-\x1f\x7f]/.test(s) && !/^\s*$/.test(s);
-function yamlLines(v, indent) {
-  const pad = ' '.repeat(indent), out = [];
-  const leaf = x => yamlEmpty(x) ? (Array.isArray(x) ? '[]' : '{}') : yamlScalar(x);
-  if (Array.isArray(v)) {
-    for (const item of v) {
-      if (yamlIsBlock(item)) {
-        const inner = yamlLines(item, indent + 2);
-        inner[0] = pad + '- ' + inner[0].slice(indent + 2);
-        out.push(...inner);
-      } else out.push(pad + '- ' + leaf(item));
-    }
-    return out;
-  }
-  for (const [k, val] of Object.entries(v)) {
-    if (val === undefined) continue;
-    const key = pad + yamlScalar(String(k)) + ':';
-    if (yamlIsBlock(val)) out.push(key, ...yamlLines(val, indent + 2));
-    else if (typeof val === 'string' && yamlLiteralOk(val)) {
-      out.push(key + ' |-');
-      for (const line of val.split('\n')) out.push(line ? pad + '  ' + line : '');
-    } else out.push(key + ' ' + leaf(val));
-  }
-  return out;
-}
-const toYamlText = v => yamlIsBlock(v) ? yamlLines(v, 0).join('\n') : yamlEmpty(v) ? (Array.isArray(v) ? '[]' : '{}') : yamlScalar(v);
-/* yaml-emit-end */
-
-const emptyCfg = () => ({ agent: { name: '', module: '', params: {} }, extra: {} });
-const cfgIsEmpty = c => !c || (!c.agent.name && !c.agent.module && !Object.keys(c.agent.params || {}).length
-  && !c.agent.mcp && c.agent.agents_max_supported_concurrency == null && !Object.keys(c.extra || {}).length);
-// the agent.yaml text for a form state: agent block first, in talk-bench's documented key order,
-// then whichever override blocks are set
-function emitConfigYaml(cfg) {
-  const a = cfg.agent || {}, agent = { name: a.name ?? '', module: a.module ?? '' };
-  if (a.agents_max_supported_concurrency != null) agent.agents_max_supported_concurrency = a.agents_max_supported_concurrency;
-  if (isPlainObj(a.mcp)) agent.mcp = a.mcp;
-  agent.params = isPlainObj(a.params) ? a.params : {};
-  if (a.cost !== undefined) agent.cost = a.cost;
-  for (const [k, v] of Object.entries(a)) if (!(k in agent) && v !== undefined) agent[k] = v;
-  const doc = { agent };
-  for (const b of EXTRA_BLOCKS) if (isPlainObj(cfg.extra?.[b.key]) && Object.keys(cfg.extra[b.key]).length) doc[b.key] = cfg.extra[b.key];
-  return yamlLines(doc, 0).join('\n') + '\n';
-}
-
-const fieldId = path => 'f_' + path.map(p => String(p).replace(/[^\w-]/g, '_')).join('__');
-const pathAttr = path => esc(JSON.stringify(path));
-const isScalar = v => v === null || ['string', 'number', 'boolean'].includes(typeof v);
-const displayScalar = v => v === undefined || v === null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
-const normalizeOptions = opts => (opts || []).map(o => isPlainObj(o) ? o : { value: o, label: String(o) });
-const getAt = (o, path) => path.reduce((acc, k) => (acc == null ? undefined : acc[k]), o);
-function setAt(o, path, v) {
-  let cur = o;
-  for (const k of path.slice(0, -1)) { if (!isPlainObj(cur[k])) cur[k] = {}; cur = cur[k]; }
-  cur[path[path.length - 1]] = v;
-}
-// delete a key; containers this empties are dropped too, down to a path `stopLen` long (a group
-// or an override block is removed once its last key goes, `params` and the roots never are)
-function delAt(o, path, stopLen = Infinity) {
-  const parentPath = path.slice(0, -1), parent = getAt(o, parentPath);
-  if (!isPlainObj(parent)) return;
-  delete parent[path[path.length - 1]];
-  if (parentPath.length >= stopLen && parentPath.length > 1 && !Object.keys(parent).length) delAt(o, parentPath, stopLen);
-}
-// "typed as YAML": true / false, canonical numbers and null convert, anything else stays text
-const parseScalarAuto = s => {
-  const t = s.trim();
-  if (t === '') return undefined;
-  if (/^(true|false)$/i.test(t)) return t.toLowerCase() === 'true';
-  if (t === 'null' || t === '~') return null;
-  if (/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(t) && String(Number(t)) === t.replace(/^\+/, '')) return Number(t);
-  return t;
-};
-const presetForModule = module => AGENT_PRESETS.find(p => p.id !== 'custom' && p.module === module) || null;
-
-// values archived runs used, per key, offered as datalist suggestions
-const SUGGEST = new Map();
-function collectSuggestions(archived) {
-  SUGGEST.clear();
-  const add = (k, v) => {
-    if (typeof v !== 'string' || !v || v.length > 120) return;
-    const s = SUGGEST.get(k) || new Set();
-    if (s.size < 12) s.add(v);
-    SUGGEST.set(k, s);
-  };
-  const walk = params => { for (const [k, v] of Object.entries(params || {})) { if (isPlainObj(v)) { if (k === 'agent') walk(v.params); } else add(k, v); } };
-  for (const a of archived || []) { walk(a.agent?.params); add('server_url', a.agent?.mcp?.server_url); }
-}
-function datalistHTML(id, f) {
-  const vals = new Set(f.list || []);
-  for (const v of SUGGEST.get(f.key) || []) vals.add(v);
-  return vals.size ? `<datalist id="${id}_dl">${[...vals].map(v => `<option value="${esc(v)}"></option>`).join('')}</datalist>` : '';
-}
-
-// a key the schema does not know, typed from its value (or "auto" when the user just added it)
-function inferField(key, v, path) {
-  if (testState.autoKeys.has(JSON.stringify(path))) return { key, type: 'auto', help: 'typed as YAML: true / false, numbers and null convert, anything else stays text' };
-  if (typeof v === 'boolean') return { key, type: 'bool' };
-  if (typeof v === 'number') return { key, type: 'number', step: 'any' };
-  if (typeof v === 'string') return { key, type: v.includes('\n') || v.length > 70 ? 'textarea' : 'str' };
-  if (v === null) return { key, type: 'auto', placeholder: 'null' };
-  if (Array.isArray(v)) return v.every(x => typeof x === 'string') ? { key, type: 'list' } : { key, type: 'yaml' };
-  if (isPlainObj(v)) return Object.values(v).every(isScalar) ? { key, type: 'kv' } : { key, type: 'yaml' };
-  return { key, type: 'yaml' };
-}
-const genericFieldsHTML = (obj, known, base, opts) => {
-  const seen = new Set(known.map(f => f.key));
-  return Object.entries(obj || {}).filter(([k]) => !seen.has(k))
-    .map(([k, v]) => renderFieldHTML(inferField(k, v, [...base, k]), [...base, k], v, opts)).join('');
-};
-const kvRowHTML = (k, v) => `<div class="kv-row"><input type="text" data-kv-key value="${esc(k)}" placeholder="key" autocomplete="off" spellcheck="false"><input type="text" data-kv-val data-vtype="${typeof v === 'string' ? 'str' : 'auto'}" value="${esc(displayScalar(v))}" placeholder="value" autocomplete="off" spellcheck="false"><button type="button" class="fx" data-kv-del title="Remove this entry" aria-label="Remove entry">×</button></div>`;
-const addParamHTML = base => `<div class="add-param"><input type="text" data-add-key="${pathAttr(base)}" placeholder="another constructor argument…" autocomplete="off" spellcheck="false"><button type="button" class="navbtn" data-add-param="${pathAttr(base)}">Add parameter</button></div>`;
-
-function renderFieldHTML(f, path, value, opts = {}) {
-  const id = fieldId(path), present = value !== undefined;
-  const pruneAttr = opts.prune ? ` data-prune="${opts.prune}"` : '';
-  const attrs = `id="${id}" data-path="${pathAttr(path)}"${pruneAttr}${f.required ? ' data-req="1"' : ''}`;
-  const del = present && !f.required
-    ? `<button type="button" class="fx" data-rm="${pathAttr(path)}"${pruneAttr} title="Remove ${esc(f.key)} from the YAML" aria-label="Remove ${esc(f.key)}">×</button>` : '';
-  const label = `<label for="${id}"><span class="lk">${esc(f.key)}</span>${f.required ? '<span class="req" title="required">*</span>' : ''}${del}</label>`;
-  const help = f.help ? `<span class="help">${esc(f.help)}</span>` : '';
-  const ph = `placeholder="${esc(f.placeholder || '')}"`;
-  let type = f.type;
-  if (present) {  // a loaded value the typed control cannot show is edited as text instead
-    if (type === 'number' && typeof value !== 'number') type = 'auto';
-    else if (type === 'bool' && typeof value !== 'boolean') type = 'auto';
-    else if ((type === 'group' || type === 'agent') && !isPlainObj(value)) type = 'yaml';
-    else if (type === 'kv' && !(isPlainObj(value) && Object.values(value).every(isScalar))) type = 'yaml';
-    else if (type === 'list' && !(Array.isArray(value) && value.every(x => typeof x === 'string'))) type = 'yaml';
-    else if (['text', 'str', 'select', 'textarea'].includes(type) && !isScalar(value)) type = 'yaml';
-  }
-  const invalid = f.required && (!present || value === '') ? ' invalid' : '';
-  switch (type) {
-    case 'text': case 'str': case 'auto': {
-      const dl = datalistHTML(id, f);
-      return `<div class="field${invalid}">${label}<input type="text" ${attrs} data-type="${type}"${dl ? ` list="${id}_dl"` : ''} value="${esc(displayScalar(value))}" ${ph} autocomplete="off" spellcheck="false">${help}${dl}</div>`;
-    }
-    case 'textarea':
-      return `<div class="field wide${invalid}">${label}<textarea ${attrs} data-type="str" rows="3" ${ph} spellcheck="false">${esc(displayScalar(value))}</textarea>${help}</div>`;
-    case 'number':
-      return `<div class="field${invalid}">${label}<input type="number" ${attrs} data-type="number" value="${present ? value : ''}"${f.min != null ? ` min="${f.min}"` : ''}${f.max != null ? ` max="${f.max}"` : ''} step="${f.step ?? 'any'}" ${ph}>${help}</div>`;
-    case 'bool': {
-      const on = present ? value : !!f.default;
-      return `<div class="field field-bool"><label class="check" for="${id}"><input type="checkbox" ${attrs} data-type="bool"${on ? ' checked' : ''}><span class="lk">${esc(f.key)}</span>${present ? '' : `<span class="dflt">default: ${on}</span>`}${del}</label>${help}</div>`;
-    }
-    case 'select': {
-      const options = normalizeOptions(f.options), cur = present ? JSON.stringify(value) : null;
-      const known = options.some(o => JSON.stringify(o.value) === cur);
-      return `<div class="field${invalid}">${label}<select ${attrs} data-type="select"${f.restructure ? ' data-restructure="1"' : ''}>`
-        + `<option value=""${present ? '' : ' selected'}>${esc(f.unset || 'unset')}</option>`
-        + (present && !known ? `<option value="${esc(displayScalar(value))}" data-json="${esc(cur)}" selected>${esc(displayScalar(value))} (as loaded)</option>` : '')
-        + options.map(o => `<option value="${esc(String(o.value))}" data-json="${esc(JSON.stringify(o.value))}"${JSON.stringify(o.value) === cur ? ' selected' : ''}>${esc(o.label)}</option>`).join('')
-        + `</select>${help}</div>`;
-    }
-    case 'list':
-      return `<div class="field wide${invalid}">${label}<input type="text" ${attrs} data-type="list" value="${esc((value || []).join(', '))}" ${ph} autocomplete="off" spellcheck="false">${help}</div>`;
-    case 'kv': {
-      const rows = Object.entries(isPlainObj(value) ? value : {});
-      return `<div class="field wide">${label}<div class="kv-rows" data-kv="${pathAttr(path)}"${pruneAttr}>${rows.map(([k, v]) => kvRowHTML(k, v)).join('')}</div>`
-        + `<div class="add-param"><button type="button" class="navbtn" data-kv-add>+ Add entry</button></div>${help}</div>`;
-    }
-    case 'yaml': {
-      const text = present ? toYamlText(value) : '';
-      return `<div class="field wide">${label}<textarea ${attrs} data-type="yaml" class="yaml-mini" rows="${Math.min(12, Math.max(3, text.split('\n').length + 1))}" placeholder="key: value" spellcheck="false">${esc(text)}</textarea><span class="err"></span>${help}</div>`;
-    }
-    case 'group': {
-      const v = isPlainObj(value) ? value : {}, prune = path.length;
-      const fields = (f.fields || []).filter(sf => !sf.when || sf.when(v) || v[sf.key] !== undefined);
-      return `<fieldset class="fgroup"><legend><span class="lk">${esc(f.key)}</span>${del}</legend>${help}`
-        + `<div class="form-grid">${fields.map(sf => renderFieldHTML(sf, [...path, sf.key], v[sf.key], { prune })).join('')}${genericFieldsHTML(v, f.fields || [], path, { prune })}</div></fieldset>`;
-    }
-    case 'agent': return nestedAgentHTML(f, path, value, del, help);
-  }
-  return '';
-}
-
-function moduleSelectHTML(path, current, voiceOnly) {
-  const id = fieldId(path);
-  const list = AGENT_PRESETS.filter(p => p.id !== 'custom' && (!voiceOnly || p.modality === 'voice'));
-  const known = list.some(p => p.module === current);
-  const custom = testState.customModule.has(JSON.stringify(path)) || (!!current && !known);
-  const group = (mod, label) => {
-    const items = list.filter(p => p.modality === mod);
-    return items.length ? `<optgroup label="${label}">${items.map(p => `<option value="${esc(p.module)}"${!custom && p.module === current ? ' selected' : ''}>${esc(p.label)} — ${esc(shortModule(p.module))}</option>`).join('')}</optgroup>` : '';
-  };
-  return `<select id="${id}" data-path="${pathAttr(path)}" data-type="module"><option value=""${!current && !custom ? ' selected' : ''}>— choose the agent class —</option>${group('voice', 'Voice agents')}${group('text', 'Text agents')}<option value="__custom__"${custom ? ' selected' : ''}>Custom: any importable VoiceAgent / TextAgent subclass…</option></select>`
-    + (custom ? `<input type="text" class="mono" id="${id}_text" data-path="${pathAttr(path)}" data-type="module-text" value="${esc(current)}" placeholder="my_package.my_agent.MyAgent" autocomplete="off" spellcheck="false">` : '');
-}
-
-function nestedAgentHTML(f, path, value, del, help) {
-  const a = isPlainObj(value) ? value : {};
-  const mod = typeof a.module === 'string' ? a.module : '', schema = MODULE_SCHEMAS[mod];
-  const params = isPlainObj(a.params) ? a.params : {}, paramsPath = [...path, 'params'];
-  return `<fieldset class="fgroup"><legend><span class="lk">${esc(f.key)}</span>${del}</legend>${help}
-    <div class="form-grid">
-      <div class="field wide${mod ? '' : ' invalid'}"><label for="${fieldId([...path, 'module'])}"><span class="lk">module</span><span class="req" title="required">*</span></label>${moduleSelectHTML([...path, 'module'], mod, true)}</div>
-      ${schema ? schema.params.map(sf => renderFieldHTML(sf, [...paramsPath, sf.key], params[sf.key])).join('') : ''}
-      ${genericFieldsHTML(params, schema ? schema.params : [], paramsPath)}
-    </div>${mod ? addParamHTML(paramsPath) : ''}</fieldset>`;
-}
-
-const MCP_FIELDS = [
-  { key: 'server_url', type: 'text', required: true, list: ['${MCP_URL}'], placeholder: 'https://<your-tunnel>.ngrok-free.dev', help: 'URL the platform reaches the tool server at; ${VAR} is expanded from the checkout .env when the config loads' },
-  { key: 'identity_transport', type: 'group', help: 'how the per-call identity reaches the server', fields: [
-    { key: 'type', type: 'select', options: MCP_TRANSPORTS, unset: 'none', restructure: true, help: 'platform_interaction_id (Talkdesk) · dynamic_variable_header (ElevenLabs) · direct_header (OpenAI, Gemini)' },
-    { key: 'variable_name', type: 'text', placeholder: 'secret__talk_bench_conversation_id', help: 'the dynamic variable the server’s X-Ext-Request-Id header is mapped to', when: v => v.type === 'dynamic_variable_header' },
-  ] },
-];
-function mcpHTML(a) {
-  const m = isPlainObj(a.mcp) ? a.mcp : null;
-  return `<fieldset class="fgroup"><legend><label class="check"><input type="checkbox" id="mcpOn"${m ? ' checked' : ''}><span class="lk">mcp</span><span class="muted">tools served by an MCP server</span></label></legend>
-    ${m ? `<div class="form-grid">${MCP_FIELDS.map(f => renderFieldHTML(f, ['agent', 'mcp', f.key], m[f.key])).join('')}${genericFieldsHTML(m, MCP_FIELDS, ['agent', 'mcp'])}</div>`
-    : '<span class="help">Off: tools come from the in-process domain toolkit or the agent’s own platform. Turn on to point the agent at a talkdesk-mcp-server, started with the same source and domain as the run.</span>'}
-  </fieldset>`;
-}
-const mcpFor = (module, url) => {
-  const s = MODULE_SCHEMAS[module], m = { server_url: url };
-  if (s?.mcpTransport) {
-    m.identity_transport = { type: s.mcpTransport };
-    if (s.mcpVariable) m.identity_transport.variable_name = s.mcpVariable;
-  }
-  return m;
-};
-
-const extraSummaryText = extra => {
-  const count = EXTRA_BLOCKS.reduce((n, b) => n + Object.keys(isPlainObj(extra?.[b.key]) ? extra[b.key] : {}).length, 0);
-  return count ? `${count} override${count === 1 ? '' : 's'} set for this run` : 'none set: the checkout’s talkbench.yaml applies';
-};
-function extraBlocksHTML(extra) {
-  const defaults = currentProject()?.defaults || {};
-  return `<details class="extra-blocks" id="extraBlocks"${testState.extraOpen ? ' open' : ''}>
-    <summary><span class="lk">simulator · evaluation · gates</span><span class="muted" id="extraSummary">${extraSummaryText(extra)}</span></summary>
-    <span class="help">Top-level blocks written next to <code>agent:</code>. A key set here overrides the checkout’s talkbench.yaml for this run only; everything left empty keeps its project value.</span>
-    ${EXTRA_BLOCKS.map(b => {
-      const v = isPlainObj(extra?.[b.key]) ? extra[b.key] : {}, base = ['extra', b.key];
-      const withDefault = f => b.key === 'simulator' && isScalar(defaults[f.key]) && defaults[f.key] !== null && !f.placeholder ? { ...f, placeholder: `project: ${defaults[f.key]}` } : f;
-      return `<fieldset class="fgroup"><legend><span class="lk">${esc(b.key)}</span><span class="muted">${esc(b.help)}</span></legend>
-        <div class="form-grid">${b.fields.map(f => renderFieldHTML(withDefault(f), [...base, f.key], v[f.key], { prune: 2 })).join('')}${genericFieldsHTML(v, b.fields, base, { prune: 2 })}</div></fieldset>`;
-    }).join('')}</details>`;
-}
-
-function renderAgentForm() {
-  const box = document.getElementById('agentForm');
-  if (!box) return;
-  const cfg = testState.cfg || (testState.cfg = emptyCfg());
-  const a = cfg.agent, mod = typeof a.module === 'string' ? a.module : '';
-  const schema = MODULE_SCHEMAS[mod], preset = presetForModule(mod);
-  const params = isPlainObj(a.params) ? a.params : {};
-  testState.preset = preset ? preset.id : mod ? 'custom' : null;
-  document.querySelectorAll('#agentSource .preset').forEach(b => b.classList.toggle('active', b.dataset.preset === testState.preset));
-  box.innerHTML = `
-    <div class="form-grid">
-      ${renderFieldHTML({ key: 'name', type: 'text', required: true, placeholder: 'my-agent', help: 'names the run: shown in the run list and used in the run directory name' }, ['agent', 'name'], typeof a.name === 'string' ? a.name : undefined)}
-      <div class="field${mod ? '' : ' invalid'}"><label for="${fieldId(['agent', 'module'])}"><span class="lk">module</span><span class="req" title="required">*</span></label>${moduleSelectHTML(['agent', 'module'], mod, false)}<span class="help">${esc(preset ? preset.desc : 'dotted path of the VoiceAgent / TextAgent subclass talk-bench instantiates')}</span></div>
-      ${renderFieldHTML({ key: 'agents_max_supported_concurrency', type: 'number', min: 1, step: 1, placeholder: 'unbounded', help: 'caps parallel calls to this agent; talk-bench clamps --max-concurrency to it' }, ['agent', 'agents_max_supported_concurrency'], a.agents_max_supported_concurrency ?? undefined)}
-    </div>
-    <div class="form-head"><span class="lk">params</span><span class="muted">${esc(schema ? `keyword arguments of ${shortModule(mod)}; an empty field is left out and takes the constructor default` : mod ? 'passed to the constructor as keyword arguments, as typed' : 'choose a module first')}</span></div>
-    <div class="form-grid">
-      ${schema ? schema.params.map(f => renderFieldHTML(f, ['agent', 'params', f.key], params[f.key])).join('') : ''}
-      ${genericFieldsHTML(params, schema ? schema.params : [], ['agent', 'params'])}
-    </div>
-    ${mod ? addParamHTML(['agent', 'params']) : ''}
-    ${mcpHTML(a)}
-    ${a.cost !== undefined ? `<div class="form-grid">${renderFieldHTML({ key: 'cost', type: 'yaml', help: 'cost rates, for reporting only' }, ['agent', 'cost'], a.cost)}</div>` : ''}
-    ${extraBlocksHTML(cfg.extra)}`;
-}
-
-/* form edits: update the config, regenerate the YAML, re-render when the structure changed */
-function syncYamlFromForm() {
-  const ta = document.getElementById('agentYaml');
-  if (!ta) return;
-  ta.value = cfgIsEmpty(testState.cfg) ? '' : emitConfigYaml(testState.cfg);
-  const summary = document.getElementById('extraSummary');
-  if (summary) summary.textContent = extraSummaryText(testState.cfg.extra);
-  sizeYamlPreview();
-  parseAgentYaml();  // validates what will be written, like typed YAML
-}
-function afterFormEdit(structural) {
-  syncYamlFromForm();
-  if (structural) renderAgentForm();
-}
-function applyControl(el) {
-  const path = JSON.parse(el.dataset.path), type = el.dataset.type;
-  const stop = el.dataset.prune ? Number(el.dataset.prune) : Infinity, req = !!el.dataset.req;
-  let v;
-  switch (type) {
-    case 'text': case 'str': v = el.value; if (v === '' && !req) v = undefined; break;
-    case 'module-text': v = el.value.trim(); break;
-    case 'auto': v = parseScalarAuto(el.value); break;
-    case 'number': v = el.value === '' ? undefined : Number(el.value); if (Number.isNaN(v)) v = undefined; break;
-    case 'bool': v = el.checked; break;
-    case 'select': { const o = el.selectedOptions[0]; v = o && o.dataset.json !== undefined ? JSON.parse(o.dataset.json) : undefined; break; }
-    case 'list': v = el.value.split(',').map(s => s.trim()).filter(Boolean); if (!v.length) v = undefined; break;
-    default: return;
-  }
-  if (v === undefined) delAt(testState.cfg, path, stop); else setAt(testState.cfg, path, v);
-}
-function rebuildKv(rows) {
-  const path = JSON.parse(rows.dataset.kv), out = {};
-  let n = 0;
-  for (const row of rows.querySelectorAll('.kv-row')) {
-    n++;
-    const k = row.querySelector('[data-kv-key]').value.trim(), vEl = row.querySelector('[data-kv-val]');
-    if (!k) continue;
-    const v = vEl.dataset.vtype === 'str' ? vEl.value : parseScalarAuto(vEl.value);
-    out[k] = v === undefined ? '' : v;
-  }
-  if (!n) delAt(testState.cfg, path, rows.dataset.prune ? Number(rows.dataset.prune) : Infinity);
-  else setAt(testState.cfg, path, out);
-}
-const yamlFieldTimers = new WeakMap();
-function parseYamlField(el) {  // free-form nested value, parsed by the server like the rest of the file
-  clearTimeout(yamlFieldTimers.get(el));
-  yamlFieldTimers.set(el, setTimeout(async () => {
-    const text = el.value, path = JSON.parse(el.dataset.path), field = el.closest('.field'), err = field.querySelector('.err');
-    try {
-      const r = text.trim() ? await postJSON('/api/test/parse_yaml', { text }) : { value: undefined };
-      if (el.value !== text) return;
-      if (r.value === undefined || r.value === null) delAt(testState.cfg, path, el.dataset.prune ? Number(el.dataset.prune) : Infinity);
-      else setAt(testState.cfg, path, r.value);
-      err.textContent = '';
-      field.classList.remove('invalid');
-      afterFormEdit(false);
-    } catch (e) {
-      if (el.value !== text) return;
-      err.textContent = e.message;
-      field.classList.add('invalid');
-    }
-  }, 400));
-}
-function addParam(baseJSON, input) {
-  const base = JSON.parse(baseJSON), key = (input?.value || '').trim();
-  if (!/^[A-Za-z_]\w*$/.test(key)) { setAgentStatus('⚠ a parameter name is a Python identifier, like connect_timeout_s'); input?.focus(); return; }
-  const path = [...base, key];
-  if (getAt(testState.cfg, path) === undefined) {
-    setAt(testState.cfg, path, '');
-    testState.autoKeys.add(JSON.stringify(path));
-    afterFormEdit(true);
-  }
-  document.getElementById(fieldId(path))?.focus();
-}
-const presetCache = new Map();
-async function presetAgent(preset) {  // a preset's YAML parsed by the server, cached
-  if (!presetCache.has(preset.id)) presetCache.set(preset.id, postJSON('/api/test/parse_config', { text: preset.yaml }));
-  try { return await presetCache.get(preset.id); } catch (e) { presetCache.delete(preset.id); throw e; }
-}
-// switching the module loads that module's preset params, keeping the values that still apply
-async function onModuleChange(sel) {
-  const path = JSON.parse(sel.dataset.path), val = sel.value, pk = JSON.stringify(path);
-  const holderPath = path.slice(0, -1), top = holderPath.length === 1;
-  if (val === '__custom__') {
-    testState.customModule.add(pk);
-    afterFormEdit(true);
-    document.getElementById(fieldId(path) + '_text')?.focus();
-    return;
-  }
-  testState.customModule.delete(pk);
-  if (!val) { setAt(testState.cfg, path, ''); afterFormEdit(true); return; }
-  const preset = presetForModule(val);
-  let parsed = null;
-  if (preset) {
-    try { parsed = await presetAgent(preset); } catch (e) { setAgentStatus('⚠ ' + e.message); }
-  }
-  if (sel.value !== val) return;  // changed again meanwhile
-  const cur = getAt(testState.cfg, holderPath) || {};
-  if (parsed) {
-    const keep = new Set([...Object.keys(parsed.agent.params || {}), ...(MODULE_SCHEMAS[val]?.params || []).map(f => f.key)]);
-    const params = { ...(parsed.agent.params || {}) };
-    for (const [k, v] of Object.entries(isPlainObj(cur.params) ? cur.params : {})) if (keep.has(k)) params[k] = v;
-    const next = top ? { name: cur.name || parsed.agent.name, module: val, params } : { module: val, params };
-    if (top) {
-      const conc = parsed.agent.agents_max_supported_concurrency ?? cur.agents_max_supported_concurrency;
-      if (conc != null) next.agents_max_supported_concurrency = conc;
-      if (cur.mcp?.server_url) next.mcp = mcpFor(val, cur.mcp.server_url);
-      else if (parsed.agent.mcp) next.mcp = parsed.agent.mcp;
-      if (cur.cost !== undefined) next.cost = cur.cost;
-      const ts = (MODULE_SCHEMAS[val]?.params || []).find(f => f.key === 'tool_source');
-      if (next.mcp && ts && normalizeOptions(ts.options).some(o => o.value === 'mcp')) params.tool_source = 'mcp';
-    }
-    setAt(testState.cfg, holderPath, next);
-  } else setAt(testState.cfg, path, val);
-  afterFormEdit(true);
-  setAgentStatus(preset ? `${preset.label}: preset values loaded, matching fields kept` : `module set to ${val}`);
-}
-function toggleMcp(on) {
-  const a = testState.cfg.agent, schema = MODULE_SCHEMAS[a.module];
-  const ts = schema?.params.find(f => f.key === 'tool_source');
-  if (!isPlainObj(a.params)) a.params = {};
-  if (on) {
-    a.mcp = mcpFor(a.module, a.mcp?.server_url || '');
-    if (ts && normalizeOptions(ts.options).some(o => o.value === 'mcp') && a.params.tool_source !== 'mcp') {
-      a.params.tool_source = 'mcp';
-      setAgentStatus('mcp block added; params.tool_source set to mcp');
-    }
-  } else {
-    delete a.mcp;
-    if (a.params.tool_source === 'mcp') { delete a.params.tool_source; setAgentStatus('mcp block removed; params.tool_source back to its default'); }
-  }
-  afterFormEdit(true);
-}
-function wireAgentForm() {
-  const form = document.getElementById('agentForm');
-  form.addEventListener('input', e => {
-    const el = e.target;
-    if (el.matches('[data-kv-key], [data-kv-val]')) { rebuildKv(el.closest('.kv-rows')); afterFormEdit(false); return; }
-    const type = el.dataset.type;
-    if (!type || !el.dataset.path) return;
-    if (type === 'yaml') { parseYamlField(el); return; }
-    if (['select', 'bool', 'module'].includes(type)) return;  // change events
-    applyControl(el);
-    afterFormEdit(false);
-  });
-  form.addEventListener('change', e => {
-    const el = e.target;
-    if (el.id === 'mcpOn') { toggleMcp(el.checked); return; }
-    if (el.dataset.type === 'module') { onModuleChange(el); return; }
-    if (el.dataset.type === 'select' || el.dataset.type === 'bool') { applyControl(el); afterFormEdit(!!el.dataset.restructure); }
-  });
-  form.addEventListener('click', e => {
-    const rm = e.target.closest('[data-rm]');
-    if (rm) { delAt(testState.cfg, JSON.parse(rm.dataset.rm), rm.dataset.prune ? Number(rm.dataset.prune) : Infinity); afterFormEdit(true); return; }
-    const add = e.target.closest('[data-add-param]');
-    if (add) { addParam(add.dataset.addParam, add.parentElement.querySelector('[data-add-key]')); return; }
-    const kvAdd = e.target.closest('[data-kv-add]');
-    if (kvAdd) {
-      const rows = kvAdd.closest('.field').querySelector('.kv-rows');
-      rows.insertAdjacentHTML('beforeend', kvRowHTML('', ''));
-      rows.lastElementChild.querySelector('[data-kv-key]').focus();
-      return;
-    }
-    const kvDel = e.target.closest('[data-kv-del]');
-    if (kvDel) { const rows = kvDel.closest('.kv-rows'); kvDel.closest('.kv-row').remove(); rebuildKv(rows); afterFormEdit(false); }
-  });
-  form.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && e.target.matches('[data-add-key]')) { e.preventDefault(); addParam(e.target.dataset.addKey, e.target); }
-  });
-  form.addEventListener('toggle', e => { if (e.target.id === 'extraBlocks') testState.extraOpen = e.target.open; }, true);
-}
-
-/* form ↔ YAML modes */
-async function setEditorMode(mode) {
-  if (mode === testState.mode) return;
-  if (mode === 'form') {
-    const had = document.getElementById('agentYaml').value.trim();
-    testState.mode = 'form';
-    const ok = await parseAgentYamlNow(true);  // YAML → form; comments are not kept
-    if (!ok) { testState.mode = 'yaml'; applyEditorMode(); setAgentStatus('⚠ fix the YAML before switching to the form'); return; }
-    if (had) setAgentStatus('YAML loaded into the form (comments are not kept)');
-  } else testState.mode = 'yaml';
-  localStorage.setItem(AGENT_EDITOR_MODE_KEY, testState.mode);
-  applyEditorMode();
-}
-function applyEditorMode() {
-  const isForm = testState.mode === 'form';
-  const form = document.getElementById('agentForm'), wrap = document.getElementById('yamlWrap'), ta = document.getElementById('agentYaml');
-  if (!form || !wrap || !ta) return;
-  form.hidden = !isForm;
-  wrap.classList.toggle('editing', !isForm);
-  wrap.open = isForm ? testState.yamlOpen : true;
-  ta.readOnly = isForm;
-  document.getElementById('agentYamlLabel').innerHTML = isForm
-    ? 'agent.yaml, generated from the form: written as shown and passed to talk-bench with <code>--config</code>'
-    : 'agent.yaml, written as-is and passed to talk-bench with <code>--config</code>';
-  document.querySelectorAll('#editorMode button').forEach(b => b.classList.toggle('active', b.dataset.mode === testState.mode));
-  if (isForm) renderAgentForm();
-  sizeYamlPreview();
-}
-function sizeYamlPreview() {
-  const ta = document.getElementById('agentYaml'), meta = document.getElementById('yamlMeta');
-  if (!ta) return;
-  const lines = ta.value ? ta.value.replace(/\n$/, '').split('\n').length : 0;
-  ta.rows = testState.mode === 'form' ? Math.min(30, Math.max(3, lines + 1)) : Math.max(16, Math.min(40, lines + 2));
-  if (meta) meta.textContent = lines ? `${lines} line${lines === 1 ? '' : 's'}` : 'empty';
-}
-
 const testState = {
   options: null,       // /api/test/options payload
-  tab: 'presets',      // presets | import | archived | saved
-  preset: null,
+  tab: 'presets',      // presets | import | archived
+  preset: null,        // id of the preset the editor was last filled from
   parsed: null,        // agent block of the editor's YAML, as the server parsed it
-  mode: localStorage.getItem(AGENT_EDITOR_MODE_KEY) === 'yaml' ? 'yaml' : 'form',  // how the agent is edited
-  cfg: null,           // form state { agent, extra }: the source of agent.yaml in form mode
-  customModule: new Set(),  // module selects switched to "custom" (JSON paths)
-  autoKeys: new Set(), // params added from the form, typed as YAML while edited (JSON paths)
-  extraOpen: false,    // the simulator / evaluation / gates section is expanded
-  yamlOpen: false,     // the generated agent.yaml is expanded in form mode
+  project: null,       // the checkout the server routes that module to (parse_config's `project`)
   jobs: [],
   jobsJSON: '',
   selected: null,      // job id whose log is on screen
@@ -3119,7 +2352,8 @@ const testState = {
   picked: new Set(),   // scenario ids chosen for --scenario-ids (empty = the whole split)
 };
 let testPollTimer = null;
-const jobScenarioIds = j => Array.isArray(j.scenario_ids) ? j.scenario_ids : j.scenario_ids ? String(j.scenario_ids).split(',') : [];
+const jobScenarioIds = j => j.scenario_ids || [];
+
 const pickedScenarioIds = () => testState.catalog.filter(s => testState.picked.has(s.id)).map(s => s.id);
 
 const shortModule = m => String(m || '').split('.').pop();
@@ -3146,95 +2380,93 @@ async function postJSON(url, body) {
 }
 
 const setAgentStatus = t => { const el = document.getElementById('agentStatus'); if (el) el.textContent = t; };
-// the checkout every test runs in (talk-bench), as described by /api/test/options
+// the default checkout (talk-bench) as described by /api/test/options; a module another checkout's
+// workspace provides (talkdesk_agent → talk-bench-talkdesk) is routed there by the server instead
 const currentProject = () => testState.options?.project || null;
+const testProject = () => testState.project || currentProject();  // where the editor's agent would run
 
-/* agent.yaml editor: the text talk-bench gets. In form mode it is generated from the form. */
-function fillAgentYaml(text) {
+/* agent.yaml editor: the text talk-bench gets, validated by the server as it is typed */
+function fillAgentYaml(text, presetId = null) {
   const el = document.getElementById('agentYaml');
-  if (!el) return Promise.resolve(false);
+  if (!el) return;
   el.value = text || '';
-  return parseAgentYamlNow(testState.mode === 'form');
+  testState.preset = presetId;
+  parseAgentYamlNow();
 }
 
-// server-side validation of the editor text (the checks talk-bench's AgentConfig makes); with
-// applyToForm the parsed config also becomes the form state and the text is regenerated from it
-async function parseAgentYamlNow(applyToForm) {
+// server-side validation of the editor text (the checks talk-bench's AgentConfig makes)
+async function parseAgentYamlNow() {
   const el = document.getElementById('agentYaml'), info = document.getElementById('agentInfo');
-  if (!el || !info) return false;
-  const text = el.value, field = el.closest('.field');
-  const resetForm = () => { testState.customModule.clear(); testState.autoKeys.clear(); renderAgentForm(); };
-  if (!text.trim()) {
-    testState.parsed = null;
-    if (applyToForm) { testState.cfg = emptyCfg(); resetForm(); }
-    info.className = 'help';
-    info.textContent = testState.mode === 'form'
-      ? 'Pick a preset above, import a file, or choose a module and fill in the fields.'
-      : 'Pick a preset, import a file, or paste an agent YAML here.';
-    field.classList.remove('invalid');
-    sizeYamlPreview();
+  if (!el || !info) return;
+  const text = el.value;
+  const settle = (parsed, cls, html, project = null) => {
+    if (document.getElementById('agentYaml')?.value !== text) return;  // edited meanwhile
+    testState.parsed = parsed;
+    testState.project = project;
+    info.className = cls;
+    info.innerHTML = html;
+    el.closest('.field').classList.toggle('invalid', cls === 'err');
     updateAgentNotices();
-    return true;
-  }
-  let r;
+  };
+  if (!text.trim()) { settle(null, 'help', 'Pick a preset, import a file, or paste an agent YAML here.'); return; }
   try {
-    r = await postJSON('/api/test/parse_config', { text });
+    const r = await postJSON('/api/test/parse_config', { text });
+    const mod = moduleModality(r.agent.module), extra = Object.keys(r.extra_blocks || {});
+    settle(r.agent, 'help', `Agent <b>${esc(r.agent.name)}</b> · <span class="mono">${esc(r.agent.module)}</span>`
+      + (mod ? ` · ${mod} agent` : '') + (r.agent.mcp ? ' · tools via MCP' : '')
+      + (extra.length ? ` · also sets ${esc(extra.join(', '))}` : '')
+      + (r.project ? ` · runs in <b>${esc(r.project.name)}</b>` : ''), r.project || null);
   } catch (e) {
-    if (document.getElementById('agentYaml')?.value !== text) return false;
-    testState.parsed = null;
-    info.className = 'err';
-    info.textContent = e.message;
-    field.classList.add('invalid');
-    sizeYamlPreview();
-    updateAgentNotices();
-    return false;
+    settle(null, 'err', esc(e.message));
   }
-  if (document.getElementById('agentYaml')?.value !== text) return false;  // edited meanwhile
-  testState.parsed = r.agent;
-  if (applyToForm) {
-    testState.cfg = { agent: r.agent, extra: r.extra_blocks || {} };
-    resetForm();
-    el.value = emitConfigYaml(testState.cfg);  // what the form will write; comments are not kept
-    parseAgentYaml();
-  }
-  const mod = moduleModality(r.agent.module), extra = Object.keys(r.extra_blocks || {});
-  info.className = 'help';
-  info.innerHTML = `Agent <b>${esc(r.agent.name)}</b> · <span class="mono">${esc(r.agent.module)}</span>`
-    + (mod ? ` · ${mod} agent` : '') + (r.agent.mcp ? ' · tools via MCP' : '')
-    + (extra.length ? ` · also sets ${esc(extra.join(', '))}` : '');
-  field.classList.remove('invalid');
-  sizeYamlPreview();
-  updateAgentNotices();
-  return true;
 }
-const parseAgentYaml = debounce(() => parseAgentYamlNow(false), 350);
-const onAgentYamlChange = () => parseAgentYaml();
+const parseAgentYaml = debounce(parseAgentYamlNow, 350);
+
+// "<like this>" values a preset left for the user to fill in (params and mcp, any depth)
+function placeholderPaths(a) {
+  const out = [];
+  const walk = (v, path) => {
+    if (typeof v === 'string') { if (/<[^<>]+>/.test(v)) out.push(path); }
+    else if (v && typeof v === 'object') Object.entries(v).forEach(([k, x]) => walk(x, `${path}.${k}`));
+  };
+  if (a) { walk(a.params, 'params'); walk(a.mcp, 'mcp'); }
+  return out;
+}
 
 function updateAgentNotices() {
   const box = document.getElementById('agentNotices');
   if (!box) return;
-  const a = testState.parsed;
-  const notes = [];
-  if (a?.module?.startsWith('talkdesk_agent.')) {
-    notes.push('<b>talkdesk_agent</b> modules belong to the <b>talk-bench-talkdesk</b> workspace and are not part of the <b>talk-bench</b> checkout, where every test runs — the run fails at import unless that package is installed there.');
+  const a = testState.parsed, p = testProject(), dflt = currentProject();
+  const help = document.getElementById('checkoutHelp');
+  if (help) help.innerHTML = checkoutHelpHTML(p);
+  const notes = [];  // [extra class, html]
+  const holes = placeholderPaths(a);
+  if (holes.length) {
+    notes.push(['warn', `Placeholders still to fill in: <code>${holes.map(esc).join('</code>, <code>')}</code> — a left-over placeholder is sent as-is and overrides the matching value from <code>.env</code>.`]);
+  }
+  const pkg = a?.module ? a.module.split('.')[0] : '';
+  if (pkg && p && !(p.packages || []).includes(pkg)) {
+    notes.push(['warn', `No local checkout's workspace provides the <b>${esc(pkg)}</b> package, so the test runs in <b>${esc(p.name)}</b> and fails at import unless that package is installed in <span class="mono">${esc(p.id)}/.venv</span>.`]);
+  } else if (pkg && p && dflt && p.id !== dflt.id) {
+    notes.push(['', `<b>${esc(pkg)}</b> is provided by the <b>${esc(p.name)}</b> workspace, so this test runs in <span class="mono">${esc(p.id)}</span> and that checkout's <code>talkbench.yaml</code> applies.`]);
   }
   if (a?.mcp?.server_url) {
-    notes.push(`This agent reaches its tools through an MCP server at <code>${esc(a.mcp.server_url)}</code>. Start it before the test — for Talkdesk: <code>uv run talkdesk-mcp-server --source &lt;source&gt; --domain &lt;domain&gt; --ngrok</code> — with the <b>same source and domain</b> as this run, and make sure the platform can reach that URL.`);
+    notes.push(['warn', `This agent reaches its tools through an MCP server at <code>${esc(a.mcp.server_url)}</code>. Start it before the test — for Talkdesk, from <code>talk-bench-talkdesk/</code>: <code>uv run talkdesk-mcp-server --source &lt;source&gt; --domain &lt;domain&gt; --ngrok</code> — with the <b>same source and domain</b> as this run, and make sure the platform can reach that URL.`]);
   }
-  box.innerHTML = notes.map(n => `<div class="notice warn">${n}</div>`).join('');
+  box.innerHTML = notes.map(([cls, n]) => `<div class="notice${cls ? ' ' + cls : ''}">${n}</div>`).join('');
 }
 
-/* run settings: --source / --domain / --split — the command always runs in the talk-bench checkout */
+/* run settings: --source / --domain / --split — the command runs in the checkout that provides the agent module */
 function checkoutHelpHTML(p) {
   if (!p) return '';
   return `Runs in <span class="mono">${esc(p.id)}</span>`
-    + (p.has_env ? '' : ' · <span style="color:var(--fail)">no .env in this checkout — talk-bench refuses to start without one</span>')
+    + (p.has_env ? '' : ' · <span style="color:var(--fail)">no .env in the talk-bench checkout — talk-bench refuses to start without one</span>')
     + (p.launcher ? '' : ' · <span style="color:var(--fail)">neither uv nor .venv/bin/talk-bench found</span>');
 }
 
 function settingsFormHTML(project) {
   return `
-  <p class="muted" style="font-size:12px;margin:6px 0 0">${checkoutHelpHTML(project)}</p>
+  <p class="muted" id="checkoutHelp" style="font-size:12px;margin:6px 0 0">${checkoutHelpHTML(project)}</p>
   <div class="form-grid">
     <div class="field"><label for="sSource">--source</label><select id="sSource">
       <option value="talk_bench">talk_bench — native scenarios</option><option value="tau2">tau2 — τ²-bench tasks</option></select></div>
@@ -3367,7 +2599,6 @@ function updateCmdPreview() {
 /* where the YAML comes from */
 function renderAgentSource() {
   const box = document.getElementById('agentSource');
-  const opts = testState.options;
   document.querySelectorAll('#agentTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === testState.tab));
   if (testState.tab === 'presets') {
     box.innerHTML = `<div class="preset-grid">${AGENT_PRESETS.map(p => `
@@ -3377,64 +2608,59 @@ function renderAgentSource() {
         <div class="p-mod" title="${esc(p.module)}">${esc(p.module)}</div>
       </button>`).join('')}</div>`;
   } else if (testState.tab === 'import') {
-    const p = currentProject();
     box.innerHTML = `
       <div class="actions-row" style="margin-top:0">
         <label class="navbtn" style="cursor:pointer">Choose a YAML / JSON file…<input type="file" id="impFile" accept=".yaml,.yml,.json" hidden></label>
         <select id="impSample" style="max-width:420px;padding:5px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px">
-          <option value="">…or load a sample from ${esc(p?.name || 'the checkout')}/samples</option>
-          ${(p?.samples || []).map(s => `<option value="${esc(s.file)}">${esc(s.file)} — ${esc(s.name || '')} (${esc(shortModule(s.module))})</option>`).join('')}
+          <option value="">…or load a sample from a checkout's samples/</option>
+          ${(currentProject()?.projects || []).map(p => {
+            const list = (currentProject()?.samples || []).filter(s => s.project === p.name);
+            return list.length ? `<optgroup label="${esc(p.name)}/samples">${list.map(s =>
+              `<option value="${esc(s.file)}" data-project="${esc(p.name)}">${esc(s.file)} — ${esc(s.name || '')} (${esc(shortModule(s.module))})</option>`).join('')}</optgroup>` : '';
+          }).join('')}
         </select>
-        <span class="muted" style="font-size:12px" id="impStatus">or paste YAML into the editor (in YAML mode)</span>
+        <span class="muted" style="font-size:12px" id="impStatus">or paste YAML into the editor below</span>
       </div>`;
-  } else if (testState.tab === 'archived') {
-    const list = opts.archived || [];
+  } else {
+    const list = testState.options.archived || [];
     box.innerHTML = `<div class="form-grid" style="margin-top:0"><div class="field wide">
       <label for="archSel">Agent configs recorded in archived runs — newest first (${list.length})</label>
       <select id="archSel"><option value="">pick a run's agent…</option>${list.map((a, i) =>
-        `<option value="${i}">${esc(a.agent.name)} · ${esc(shortModule(a.agent.module))}${agentKeyParam(a.agent) ? ` · ${esc(agentKeyParam(a.agent))}` : ''} · ${esc(a.domain || '?')}/${esc(a.split || '?')} · ${esc((a.timestamp || '').slice(0, 10))} · ${a.runs} run${a.runs === 1 ? '' : 's'}</option>`).join('')}</select>
+        `<option value="${i}">${esc(a.agent.name)} · ${esc(shortModule(a.agent.module))}${agentKeyParam(a.agent) ? ` · ${esc(agentKeyParam(a.agent))}` : ''} · ${esc(a.domain || '?')}/${esc(a.split || '?')} · ${esc((a.timestamp || '').slice(0, 10))} · ${a.run_paths.length} run${a.run_paths.length === 1 ? '' : 's'}</option>`).join('')}</select>
       <span class="help">Fills the editor with that run's agent config and selects its source, domain and split — or open a run and press “Re-run this agent…”.</span>
     </div></div>`;
-  } else {
-    const saved = opts.saved || [];
-    box.innerHTML = saved.length
-      ? `<div class="saved-list">${saved.map(c => `<span class="saved-item"><span title="${esc(c.module || '')}">${esc(c.label || c.name)}</span>
-          <button type="button" data-load="${esc(c.id)}">Load</button><button type="button" data-del="${esc(c.id)}" aria-label="Delete ${esc(c.label || c.name)}" title="Delete">×</button></span>`).join('')}</div>`
-      : '<p class="muted" style="font-size:12.5px;margin:0">No saved agent configs yet — configure an agent and press <b>Save agent config</b>. Saved configs live in the data directory, so everyone using this viewer shares them.</p>';
   }
 }
 
 function applyPreset(id) {
   const p = AGENT_PRESETS.find(x => x.id === id);
   if (!p) return;
-  testState.preset = id;
-  fillAgentYaml(p.yaml);
+  fillAgentYaml(p.yaml, id);
   renderAgentSource();
-  setAgentStatus(`preset “${p.label}” loaded — ${testState.mode === 'form' ? 'adjust the fields' : 'edit the YAML'}, then start`);
+  setAgentStatus(`preset “${p.label}” loaded — edit the YAML, then start`);
 }
 
 async function prefillFromRun(runPath) {
   const d = await getRun(runPath);
   const rc = d.results?.run_context || {};
-  if (!rc.agent_config) { setAgentStatus(`run ${runPath} recorded no agent config`); return; }
-  const r = await postJSON('/api/test/render_config', { agent: rc.agent_config });
-  fillAgentYaml(r.yaml);
+  const archived = testState.options.archived || [];
+  const idx = archived.findIndex(a => a.run_paths.includes(runPath));
+  if (idx < 0) { setAgentStatus(`run ${runPath} recorded no usable agent config`); return; }
+  fillAgentYaml(archived[idx].yaml);
   applySettings({
     source: (d.scenarios || []).some(s => /-tau2-/.test(s.id)) ? 'tau2' : 'talk_bench',
     domain: rc.domain, split: rc.split,
   });
   // tick exactly the scenarios that run covered when it was a subset of the split
-  const ran = (d.scenarios || []).map(s => s.id);
-  await loadScenarioCatalog(ran);
+  await loadScenarioCatalog((d.scenarios || []).map(s => s.id));
   if (testState.picked.size === testState.catalog.length) { testState.picked = new Set(); renderScenarioList(); }
   testState.tab = 'archived';
   renderAgentSource();
-  const idx = (testState.options.archived || []).findIndex(a => a.run_path === runPath);
-  if (idx >= 0) document.getElementById('archSel').value = String(idx);
+  document.getElementById('archSel').value = String(idx);
   setAgentStatus(`loaded the agent of ${runPath}`);
 }
 
-async function loadJobIntoForm(id) {
+async function loadJobIntoEditor(id) {
   const d = await getJSON(`/api/test/jobs/${encodeURIComponent(id)}?offset=0`);
   const j = d.job;
   fillAgentYaml(d.config_yaml || '');
@@ -3466,7 +2692,7 @@ function jobRowHTML(j) {
     j.run_path ? `<a class="navbtn" href="#/run/${encodeURIComponent(j.run_path)}">Open run</a>` : '',
     j.run_dir && (running || !j.run_path) ? `<button class="navbtn" type="button" data-job-sync="${j.id}" title="Copy the run directory into this archive now">${j.run_path ? 'Sync now' : 'Import'}</button>` : '',
     !running && j.run_dir && j.status !== 'done' ? `<button class="navbtn" type="button" data-job-resume="${j.id}" title="talk-bench run --resume: redo unfinished scenarios">Resume</button>` : '',
-    `<button class="navbtn" type="button" data-job-again="${j.id}" title="Load this agent.yaml and these settings into the form">Run again…</button>`,
+    `<button class="navbtn" type="button" data-job-again="${j.id}" title="Load this agent.yaml and these settings into the editor">Run again…</button>`,
     !running ? `<button class="navbtn" type="button" data-job-del="${j.id}" title="Remove from this list (the run itself is kept)" aria-label="Remove">×</button>` : '',
   ].filter(Boolean).join('');
   return `
@@ -3600,10 +2826,8 @@ async function renderTest(params) {
   testState.options = opts;
   testState.selected = null;
   testState.parsed = null;
-  testState.cfg = emptyCfg();
-  testState.customModule = new Set();
-  testState.autoKeys = new Set();
-  collectSuggestions(opts.archived);
+  testState.project = null;
+  testState.preset = null;
   testState.jobsJSON = '';
   testState.catalog = [];
   testState.catalogKey = '';
@@ -3613,8 +2837,8 @@ async function renderTest(params) {
   <div class="crumbs"><a href="#">All runs</a> / Run test</div>
   <div class="card">
     <h2 style="margin-top:0">Run a test</h2>
-    <p class="muted" style="font-size:12.5px;margin:-4px 0 0">Describe the agent — its <code>agent.yaml</code>, as a form or as text, from a preset, an imported file, or an archived run — pick the scenarios, and the viewer runs
-      <code>talk-bench run --config agent.yaml --domain … --split … --source … [--scenario-ids …]</code> in the local <code>talk-bench</code> checkout. The run is copied into this archive as it progresses.</p>
+    <p class="muted" style="font-size:12.5px;margin:-4px 0 0">Write the agent's <code>agent.yaml</code> — from a preset, an imported file, or an archived run — pick the scenarios, and the viewer runs
+      <code>talk-bench run --config agent.yaml --domain … --split … --source … [--scenario-ids …]</code> in the local <code>talk-bench</code> checkout — or in <code>talk-bench-talkdesk</code> for <code>talkdesk_agent</code> modules, the only venv they import from. The run is copied into this archive as it progresses.</p>
     ${project ? '' : `<div class="notice warn">No <b>talk-bench</b> checkout was found
       (looked for <code>talk-bench/</code> under <code>VIEWER_SOURCE_REPOS</code>, <code>~/GitHub/ai-ds-research</code> and <code>~/Documents/tau2-bench-fork/ai-ds-research</code>). Clone one to run tests.</div>`}
   </div>
@@ -3625,29 +2849,18 @@ async function renderTest(params) {
         <button type="button" data-tab="presets">Presets</button>
         <button type="button" data-tab="import">Import YAML / JSON</button>
         <button type="button" data-tab="archived">From archived run</button>
-        <button type="button" data-tab="saved" id="savedTab">Saved${opts.saved?.length ? ` (${opts.saved.length})` : ''}</button>
       </div>
     </div>
     <div id="agentSource"></div>
-    <div class="editor-bar">
-      <div class="seg" id="editorMode" aria-label="How the agent is edited"><button type="button" data-mode="form" title="One control per key of agent.yaml">Form</button><button type="button" data-mode="yaml" title="Edit the agent.yaml text directly">YAML</button></div>
-      <span class="help" id="agentInfo">Pick a preset above, import a file, or choose a module and fill in the fields.</span>
-    </div>
-    <div id="agentForm" class="agent-form" hidden></div>
-    <details class="yaml-wrap" id="yamlWrap">
-      <summary>agent.yaml as it will be written <span class="muted" id="yamlMeta"></span></summary>
-      <div class="form-grid">
-        <div class="field wide">
-          <label for="agentYaml" id="agentYamlLabel"></label>
-          <textarea id="agentYaml" spellcheck="false" placeholder="agent:&#10;  name: my-agent&#10;  module: voice_agent.cascaded.CascadedAgent&#10;  params:&#10;    llm_model: azure/gpt-4.1"></textarea>
-        </div>
+    <div class="form-grid">
+      <div class="field wide">
+        <label for="agentYaml">agent.yaml — written as-is and passed to talk-bench with <code>--config</code></label>
+        <textarea id="agentYaml" rows="18" spellcheck="false" placeholder="agent:&#10;  name: my-agent&#10;  module: voice_agent.cascaded.CascadedAgent&#10;  params:&#10;    llm_model: azure/gpt-4.1"></textarea>
+        <span class="help" id="agentInfo">Pick a preset, import a file, or paste an agent YAML here.</span>
       </div>
-    </details>
-    <div id="agentNotices"></div>
-    <div class="actions-row">
-      <button class="navbtn" type="button" id="saveAgentBtn">Save agent config</button>
-      <span class="muted" id="agentStatus" style="font-size:12px" aria-live="polite"></span>
     </div>
+    <div id="agentNotices"></div>
+    <div class="muted" id="agentStatus" style="font-size:12px;margin-top:10px" aria-live="polite"></div>
   </div>
   <div class="card">
     <h3 style="margin:0">2 · Scenarios — <span class="mono" style="font-weight:500">--source · --domain · --split · --scenario-ids</span></h3>
@@ -3680,34 +2893,14 @@ async function renderTest(params) {
   </div>`;
 
   renderAgentSource();
-  applyEditorMode();
   refreshDomainOptions();
 
   const agentCard = document.getElementById('agentCard');
-  agentCard.addEventListener('click', async e => {
+  agentCard.addEventListener('click', e => {
     const tab = e.target.closest('#agentTabs button');
     if (tab) { testState.tab = tab.dataset.tab; renderAgentSource(); return; }
     const preset = e.target.closest('.preset');
-    if (preset) { applyPreset(preset.dataset.preset); return; }
-    const load = e.target.closest('[data-load]');
-    if (load) {
-      const c = (testState.options.saved || []).find(x => x.id === load.dataset.load);
-      if (c) { fillAgentYaml(c.text); setAgentStatus(`loaded “${c.label || c.name}”`); }
-      return;
-    }
-    const del = e.target.closest('[data-del]');
-    if (del) {
-      const c = (testState.options.saved || []).find(x => x.id === del.dataset.del);
-      if (!c || !confirm(`Delete the saved config “${c.label || c.name}”?`)) return;
-      try {
-        const r = await fetch(`/api/test/agent_configs/${encodeURIComponent(c.id)}`, { method: 'DELETE' });
-        const res = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(apiDetail(res) || r.status);
-        testState.options.saved = res.configs;
-        document.getElementById('savedTab').textContent = `Saved${res.configs.length ? ` (${res.configs.length})` : ''}`;
-        renderAgentSource();
-      } catch (err) { setAgentStatus('⚠ ' + err.message); }
-    }
+    if (preset) applyPreset(preset.dataset.preset);
   });
   agentCard.addEventListener('change', async e => {
     if (e.target.id === 'impFile') {
@@ -3717,12 +2910,12 @@ async function renderTest(params) {
       document.getElementById('impStatus').textContent = `loaded ${f.name}`;
       setAgentStatus(`imported ${f.name}`);
     } else if (e.target.id === 'impSample') {
-      const file = e.target.value;
+      const file = e.target.value, project = e.target.selectedOptions[0]?.dataset.project || 'talk-bench';
       if (!file) return;
       try {
-        const r = await getJSON(`/api/test/sample?file=${encodeURIComponent(file)}`);
+        const r = await getJSON(`/api/test/sample?file=${encodeURIComponent(file)}&project=${encodeURIComponent(project)}`);
         fillAgentYaml(r.text);
-        setAgentStatus(`loaded samples/${file}`);
+        setAgentStatus(`loaded ${project}/samples/${file}`);
       } catch (e2) { setAgentStatus('⚠ ' + e2.message); }
     } else if (e.target.id === 'archSel') {
       const a = (testState.options.archived || [])[Number(e.target.value)];
@@ -3732,26 +2925,7 @@ async function renderTest(params) {
       setAgentStatus(`loaded the agent of ${a.run_path}`);
     }
   });
-  document.getElementById('agentYaml').addEventListener('input', onAgentYamlChange);
-  document.getElementById('editorMode').addEventListener('click', e => {
-    const b = e.target.closest('button[data-mode]');
-    if (b) setEditorMode(b.dataset.mode);
-  });
-  document.getElementById('yamlWrap').addEventListener('toggle', e => { if (testState.mode === 'form') testState.yamlOpen = e.target.open; });
-  wireAgentForm();
-  document.getElementById('saveAgentBtn').addEventListener('click', async () => {
-    const text = document.getElementById('agentYaml').value;
-    if (!text.trim()) { setAgentStatus('The agent.yaml editor is empty.'); return; }
-    const label = prompt('Save this agent config as', testState.parsed?.name || testState.cfg?.agent?.name || '');
-    if (label === null) return;
-    try {
-      const r = await postJSON('/api/test/agent_configs', { label: label.trim() || null, text });
-      testState.options.saved = r.configs;
-      document.getElementById('savedTab').textContent = `Saved (${r.configs.length})`;
-      if (testState.tab === 'saved') renderAgentSource();
-      setAgentStatus(`saved “${r.config.label}”`);
-    } catch (e) { setAgentStatus('⚠ ' + e.message); }
-  });
+  document.getElementById('agentYaml').addEventListener('input', parseAgentYaml);
 
   const settings = document.getElementById('sSource').closest('.card');
   settings.addEventListener('change', e => {
@@ -3791,7 +2965,7 @@ async function renderTest(params) {
         selectJob(r.job.id);
         return;
       } else if (ds.jobAgain) {
-        await loadJobIntoForm(ds.jobAgain);
+        await loadJobIntoEditor(ds.jobAgain);
         return;
       } else if (ds.jobDel) {
         if (!confirm('Remove this test from the list? The run directory and the archived run are kept.')) return;
@@ -3837,14 +3011,13 @@ async function route() {
   closeNav();
   $main.innerHTML = SKELETON;
   try {
-    await loadConfig();
     // Sidebar data is best-effort here: a failing /api/runs must not block scenario
     // deep links (renderList still surfaces the error because it awaits loadRuns itself).
     await loadRuns().catch(() => {});
     renderSideNav();
     const onList = !h.startsWith('#/');
     document.getElementById('searchWrap').hidden = !onList;
-    document.getElementById('syncBtn').hidden = !(onList && CONFIG.sync_enabled);
+    document.getElementById('syncBtn').hidden = !onList;
     if (h.startsWith('#/compare')) {
       setTopTitle('Compare');
       const raw = location.hash;
@@ -3859,7 +3032,7 @@ async function route() {
       await renderScenario(p);
     } else if (h.startsWith('#/run/')) {
       const p = h.slice('#/run/'.length);
-      setTopTitle(p.split('/').pop());
+      setTopTitle(p);
       await renderRun(p);
     } else {
       setTopTitle('Runs');

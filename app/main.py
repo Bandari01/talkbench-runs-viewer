@@ -1,7 +1,7 @@
 """FastAPI backend for browsing archived talk-bench run data.
 
-Data layout (created by the backup step):
-    data/<source-repo>/<project>/<run-dir>/
+Data layout:
+    data/<run-dir>/
         results.json                        (may be missing for errored runs)
         talk_bench_evaluation_result.json   (may be missing)
         <scenario-id>/
@@ -22,16 +22,15 @@ import tempfile
 import threading
 import time
 import uuid
-import zipfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -48,23 +47,10 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 _BASE_ENV = dict(os.environ)
 load_dotenv(BASE_DIR / ".env")
 LLM_MODEL = os.environ.get("VIEWER_LLM_MODEL", "azure/gpt-4.1")
-READ_ONLY = os.environ.get("VIEWER_READ_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}
-CHAT_ENABLED = os.environ.get("VIEWER_DISABLE_CHAT", "").strip().lower() not in {
-    "1", "true", "yes", "on",
-}
-SYNC_ENABLED = not READ_ONLY or os.environ.get("VIEWER_ALLOW_SYNC", "").strip().lower() in {
-    "1", "true", "yes", "on",
-}
 
 TS_RE = re.compile(r"(\d{8}T\d{6}Z)")
 
-app = FastAPI(
-    title="talk-bench runs viewer",
-    docs_url=None if READ_ONLY else "/docs",
-    redoc_url=None if READ_ONLY else "/redoc",
-    openapi_url=None if READ_ONLY else "/openapi.json",
-)
-
+app = FastAPI(title="talk-bench runs viewer")
 
 
 class ApiGZipMiddleware(GZipMiddleware):
@@ -87,28 +73,6 @@ _archived_run_context: dict[str, dict[str, Any]] = {}
 # Run detail payloads are costly to build; cache a few, cleared on data changes.
 _run_cache: dict[str, dict[str, Any]] = {}
 _RUN_CACHE_MAX = 16
-
-
-@app.middleware("http")
-async def shared_view_guard(request: Request, call_next):
-    # Reject public writes before FastAPI parses a potentially large upload body.
-    chat_request = (
-        request.method == "POST"
-        and request.url.path in {"/api/chat", "/api/scenario_report", "/api/run_report"}
-        and CHAT_ENABLED
-    )
-    sync_request = request.method == "POST" and request.url.path == "/api/sync_sources" and SYNC_ENABLED
-    if (
-        READ_ONLY
-        and request.method not in {"GET", "HEAD", "OPTIONS"}
-        and not chat_request
-        and not sync_request
-    ):
-        return JSONResponse(status_code=403, content={"detail": "this shared viewer is read-only"})
-    response = await call_next(request)
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("Referrer-Policy", "same-origin")
-    return response
 
 
 class PublicDataFiles(StaticFiles):
@@ -141,21 +105,6 @@ def _data_dir_at_depth(rel: str, depth: int, label: str) -> Path:
     if not p.is_dir():
         raise HTTPException(status_code=404, detail=f"{label} not found")
     return p
-
-
-def _ensure_writable() -> None:
-    if READ_ONLY:
-        raise HTTPException(status_code=403, detail="this shared viewer is read-only")
-
-
-def _ensure_chat_enabled() -> None:
-    if not CHAT_ENABLED:
-        raise HTTPException(status_code=403, detail="AI chat is disabled on this shared viewer")
-
-
-def _ensure_sync_enabled() -> None:
-    if not SYNC_ENABLED:
-        raise HTTPException(status_code=403, detail="source sync is disabled on this shared viewer")
 
 
 def _natural_key(name: str) -> list:
@@ -220,7 +169,6 @@ def build_index() -> list[dict[str, Any]]:
         if results:
             entry.update(
                 agent_name=results.get("agent_name"),
-                run_id=results.get("run_id"),
                 primary_score=results.get("primary_score"),
                 scenarios_passed=results.get("scenarios_passed"),
                 scenarios_total=results.get("scenarios_total"),
@@ -239,7 +187,7 @@ def build_index() -> list[dict[str, Any]]:
                 }
         else:
             # fall back to parsing the agent name out of the directory name
-            entry["agent_name"] = run_dir.name.split("-1trials-")[0].rsplit("-", 0)[0]
+            entry["agent_name"] = run_dir.name.split("-1trials-")[0]
         if eval_res:
             entry["eval_final"] = eval_res.get("final")
             entry["eval_resolution"] = eval_res.get("resolution")
@@ -290,34 +238,20 @@ def _save_run_notes(notes: dict[str, str]) -> None:
 
 
 @app.get("/api/runs")
-def api_runs(refresh: bool = False):
+def api_runs():
     global _index_cache
-    if _index_cache is None or refresh:
+    if _index_cache is None:
         _index_cache = build_index()
-    payload = {
+    return {
         "runs": _index_cache,
         "stars": sorted(_load_stars()),
         "notes": _load_run_notes(),
-    }
-    if not READ_ONLY:
-        payload["data_dir"] = str(DATA_DIR)
-    return payload
-
-
-@app.get("/api/config")
-def api_config():
-    return {
-        "read_only": READ_ONLY,
-        "chat_enabled": CHAT_ENABLED,
-        "sync_enabled": SYNC_ENABLED,
-        "test_runs_enabled": TEST_RUNS_ENABLED,
         "llm_model": LLM_MODEL,
     }
 
 
 @app.post("/api/star")
 def api_star(path: str = Form(...), starred: bool = Form(...)):
-    _ensure_writable()
     _data_dir_at_depth(path, 1, "run")
     with _stars_lock:
         stars = _load_stars()
@@ -331,7 +265,6 @@ def api_star(path: str = Form(...), starred: bool = Form(...)):
 
 @app.post("/api/note")
 def api_note(path: str = Form(...), note: str = Form("")):
-    _ensure_writable()
     _data_dir_at_depth(path, 1, "run")
     note = note.strip()
     if len(note) > MAX_RUN_NOTE_LENGTH:
@@ -381,16 +314,7 @@ def api_run(path: str = Query(...)):
             "domain": summary.get("domain"),
         })
 
-    top_files = sorted(
-        f.name for f in run_dir.iterdir() if f.is_file() and not f.name.startswith(".")
-    )
-    payload = {
-        "path": path,
-        "results": results,
-        "evaluation": eval_res,
-        "scenarios": scenarios,
-        "top_files": top_files,
-    }
+    payload = {"path": path, "results": results, "evaluation": eval_res, "scenarios": scenarios}
     if len(_run_cache) >= _RUN_CACHE_MAX:
         _run_cache.pop(next(iter(_run_cache)))
     _run_cache[path] = payload
@@ -542,59 +466,6 @@ def _invalidate_index() -> None:
     _run_cache.clear()
 
 
-@app.post("/api/upload_run")
-async def upload_run(
-    file: UploadFile = File(...),
-    overwrite: bool = Form(False),
-):
-    """Import run directories from a .zip into data/."""
-    _ensure_writable()
-    if not (file.filename or "").lower().endswith(".zip"):
-        raise HTTPException(status_code=400, detail="expected a .zip file")
-
-    with tempfile.TemporaryDirectory(dir=_staging_dir()) as tmp:
-        zip_path = Path(tmp) / "upload.zip"
-        with zip_path.open("wb") as out:
-            shutil.copyfileobj(file.file, out)
-        try:
-            zf = zipfile.ZipFile(zip_path)
-        except zipfile.BadZipFile:
-            raise HTTPException(status_code=400, detail="not a valid zip file")
-        with zf:
-            entries = [n for n in zf.namelist() if n.strip("/") and "__MACOSX" not in n]
-            for n in entries:
-                if n.startswith("/") or ".." in Path(n).parts:
-                    raise HTTPException(status_code=400, detail=f"unsafe path in zip: {n}")
-            root_files = [n for n in entries if "/" not in n.strip("/") and not n.endswith("/")]
-            top_dirs = sorted({n.split("/")[0] for n in entries if "/" in n})
-
-            extract_root = Path(tmp) / "extracted"
-            zf.extractall(extract_root)
-
-        # zip of loose files (no directories) -> treat as one run named after the zip
-        if root_files and not top_dirs:
-            run_name = Path(file.filename).stem
-            src_runs = {run_name: extract_root}
-        else:
-            # each top-level directory in the zip is treated as one run
-            src_runs = {d: extract_root / d for d in top_dirs}
-
-        imported, skipped = [], []
-        for name, src in src_runs.items():
-            target = DATA_DIR / name
-            if target.exists():
-                if not overwrite:
-                    skipped.append(name)
-                    continue
-                shutil.rmtree(target)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(src), str(target))
-            imported.append(name)
-
-    _invalidate_index()
-    return {"imported": imported, "skipped_existing": skipped}
-
-
 # ---- folder sync: begin -> chunk (repeated) -> commit ----
 # staged uploads live in a temp dir until committed atomically into data/
 _staged: dict[str, dict[str, Any]] = {}
@@ -621,7 +492,6 @@ def upload_dir_begin(
     run_name: str = Form(...),
     overwrite: bool = Form(False),
 ):
-    _ensure_writable()
     run_name = Path(run_name).name
     if not run_name or run_name.startswith("."):
         raise HTTPException(status_code=400, detail="invalid run name")
@@ -643,7 +513,6 @@ async def upload_dir_chunk(
     paths: list[str] = Form(...),
     files: list[UploadFile] = File(...),
 ):
-    _ensure_writable()
     st = _get_staged(upload_id)
     if len(paths) != len(files):
         raise HTTPException(status_code=400, detail="paths/files count mismatch")
@@ -662,7 +531,6 @@ async def upload_dir_chunk(
 
 @app.post("/api/upload_dir_commit")
 def upload_dir_commit(upload_id: str = Form(...)):
-    _ensure_writable()
     st = _staged.pop(upload_id, None)
     if not st:
         raise HTTPException(status_code=404, detail="unknown or expired upload_id")
@@ -676,7 +544,6 @@ def upload_dir_commit(upload_id: str = Form(...)):
 
 @app.post("/api/upload_dir_abort")
 def upload_dir_abort(upload_id: str = Form(...)):
-    _ensure_writable()
     st = _staged.pop(upload_id, None)
     if st:
         shutil.rmtree(st["dir"], ignore_errors=True)
@@ -693,8 +560,10 @@ SOURCE_REPO_CANDIDATES = (
     Path.home() / "Documents" / "tau2-bench-fork" / "ai-ds-research",
 )
 SOURCE_PROJECTS = ("talk-bench", "talk-bench-talkdesk")
-# Tests started from the Run test page always run in this project, so its .env and
-# talkbench.yaml apply; the first checkout in _source_repos() order is used.
+# Tests started from the Run test page run in the first checkout _source_repos() finds,
+# inside the project whose uv workspace provides the agent module's top-level package:
+# talkdesk_agent.* is importable only from talk-bench-talkdesk's venv; everything else
+# (and any package no checkout provides) runs in talk-bench, whose talkbench.yaml applies.
 TEST_PROJECT = "talk-bench"
 _sync_lock = threading.Lock()
 
@@ -739,7 +608,6 @@ def _source_repos() -> list[Path]:
 
 @app.post("/api/sync_sources")
 def sync_sources():
-    _ensure_sync_enabled()
     if not _sync_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="a sync is already running")
     try:
@@ -1175,9 +1043,20 @@ _CHAT_STYLE_RULES = (
 )
 
 
+def _complete(system: str, messages: list[dict[str, str]], timeout: int) -> str:
+    import litellm  # imported lazily: heavy module, only needed for the AI features
+
+    try:
+        resp = litellm.completion(
+            model=LLM_MODEL, messages=[{"role": "system", "content": system}, *messages], timeout=timeout
+        )
+        return resp.choices[0].message.content
+    except Exception as e:  # surface provider errors to the UI
+        raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
+
+
 @app.post("/api/chat")
 def api_chat(req: ChatRequest):
-    _ensure_chat_enabled()
     is_run = len(Path(req.path).parts) == 1
     if is_run:
         run_dir = _data_dir_at_depth(req.path, 1, "run")
@@ -1210,18 +1089,8 @@ def api_chat(req: ChatRequest):
             "Quote specific turns or tool calls as evidence. "
             + _CHAT_STYLE_RULES + "\n\n" + _modality_brief(modality) + _scenario_context(sdir, modality)
         )
-    import litellm  # imported lazily: heavy module, only needed for chat
-
-    try:
-        resp = litellm.completion(
-            model=LLM_MODEL,
-            messages=[{"role": "system", "content": system}]
-            + [{"role": m.role, "content": m.content} for m in req.messages[-20:]],
-            timeout=180 if is_run else 90,  # run summaries read far more context
-        )
-        return {"reply": resp.choices[0].message.content, "model": LLM_MODEL}
-    except Exception as e:  # surface provider errors to the UI
-        raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
+    messages = [{"role": m.role, "content": m.content} for m in req.messages[-20:]]
+    return {"reply": _complete(system, messages, timeout=180 if is_run else 90)}  # run summaries read far more context
 
 
 # ---- one-click AI reports (scenario: task summary + actions + verdict + flowchart;
@@ -1257,7 +1126,6 @@ _SCENARIO_REPORT_PROMPT = """\
 
 @app.post("/api/scenario_report")
 def api_scenario_report(req: ReportRequest):
-    _ensure_chat_enabled()
     sdir = _data_dir_at_depth(req.path, 2, "scenario")
     modality = _run_dir_modality(sdir.parent)
     system = (
@@ -1267,20 +1135,7 @@ def api_scenario_report(req: ReportRequest):
         "is not in the context, say so instead of guessing. "
         + _CHAT_STYLE_RULES + "\n\n" + _modality_brief(modality) + _scenario_context(sdir, modality)
     )
-    import litellm  # imported lazily: heavy module, only needed for LLM features
-
-    try:
-        resp = litellm.completion(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": _SCENARIO_REPORT_PROMPT},
-            ],
-            timeout=120,
-        )
-        return {"report": resp.choices[0].message.content, "model": LLM_MODEL}
-    except Exception as e:  # surface provider errors to the UI
-        raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
+    return {"report": _complete(system, [{"role": "user", "content": _SCENARIO_REPORT_PROMPT}], timeout=120)}
 
 
 _RUN_REPORT_PROMPT = """\
@@ -1335,7 +1190,6 @@ def _run_report_prompt(modality: str | None) -> str:
 
 @app.post("/api/run_report")
 def api_run_report(req: ReportRequest):
-    _ensure_chat_enabled()
     run_dir = _data_dir_at_depth(req.path, 1, "run")
     modality = _run_dir_modality(run_dir)
     system = (
@@ -1347,20 +1201,8 @@ def api_run_report(req: ReportRequest):
         "guessing. "
         + _CHAT_STYLE_RULES + "\n\n" + _modality_brief(modality) + _run_context(run_dir, modality)
     )
-    import litellm  # imported lazily: heavy module, only needed for LLM features
-
-    try:
-        resp = litellm.completion(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": _run_report_prompt(modality)},
-            ],
-            timeout=300,  # large runs: big context and a long structured answer
-        )
-        return {"report": resp.choices[0].message.content, "model": LLM_MODEL}
-    except Exception as e:  # surface provider errors to the UI
-        raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
+    prompt = [{"role": "user", "content": _run_report_prompt(modality)}]
+    return {"report": _complete(system, prompt, timeout=300)}  # large runs: big context and a long structured answer
 
 
 # ---- run test: launch talk-bench runs with a user-configured agent ----
@@ -1369,17 +1211,16 @@ def api_run_report(req: ReportRequest):
 #     uv run talk-bench run --config <agent.yaml> --domain X --split Y --source S [--scenario-ids a,b]
 # started as a child process inside one of the local ai-ds-research checkouts;
 # every other CLI option keeps its default. The working directory matters: the
-# CLI loads the checkout's .env and talkbench.yaml from there and writes the run
-# to its data/runs. The agent YAML the user edited or imported is written
+# CLI finds the checkout's talkbench.yaml from there and writes the run to its
+# data/runs. Two .env files load: litellm's import-time load_dotenv() walks up from
+# the .venv in use (so talk-bench-talkdesk/.env supplies the TALKDESK_* credentials
+# there), then the CLI's own load_dotenv() adds talk-bench/.env, found next to its
+# module from either cwd, without overriding. The agent YAML the user edited or imported is written
 # verbatim under <data dir>/.test_jobs/<job>/ next to the log, and the run
 # directory is cloned into the archive while it grows and when it ends, so the
 # run shows up in the list like any other.
 
-TEST_RUNS_ENABLED = not READ_ONLY and os.environ.get(
-    "VIEWER_DISABLE_TEST_RUNS", ""
-).strip().lower() not in {"1", "true", "yes", "on"}
 JOBS_DIR = DATA_DIR / ".test_jobs"
-AGENT_CONFIGS_FILE = DATA_DIR / ".agent_configs.json"
 MAX_RUNNING_TESTS = 4
 _LOG_CHUNK = 512_000  # bytes of log returned per poll
 _SNAPSHOT_INTERVAL_S = 90  # re-clone a running job's partial run dir into the archive this often
@@ -1387,7 +1228,6 @@ _SNAPSHOT_INTERVAL_S = 90  # re-clone a running job's partial run dir into the a
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
 _job_procs: dict[str, subprocess.Popen] = {}
-_agent_configs_lock = threading.Lock()
 _job_sync_lock = threading.Lock()
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -1401,11 +1241,6 @@ _LOADED_RE = re.compile(r"Loaded (\d+) scenarios")
 _SCORE_RE = re.compile(r"^Score:\s*([\d.]+)%\s*\((\d+)/(\d+)\s*passed\)")
 _RESULTS_RE = re.compile(r"^Results:\s*(.+?)[/\\]results\.json\s*$")
 _TOKEN_RE = re.compile(r"^[\w.:,/=+@%\-]+$")
-
-
-def _ensure_test_runs_enabled() -> None:
-    if not TEST_RUNS_ENABLED:
-        raise HTTPException(status_code=403, detail="running tests is disabled on this viewer")
 
 
 def _slug(text: str) -> str:
@@ -1491,10 +1326,6 @@ MAX_SCENARIO_ID_LEN = 300
 MAX_SCENARIO_IDS = 2000
 
 
-def _clip_summary(text: Any, limit: int = 160) -> str:
-    return _clip(text or "", limit)
-
-
 def _scenario_catalog(root: Path, source: str, domain: str, split: str) -> list[dict[str, Any]]:
     """The scenario ids `--domain/--split/--source` select, read from the same data files
     the CLI uses, each with a one-line summary for the picker. Comma-joined splits are
@@ -1526,7 +1357,7 @@ def _scenario_catalog(root: Path, source: str, domain: str, split: str) -> list[
                     desc = task.get("description") if isinstance(task.get("description"), dict) else {}
                     instr = ((task.get("user_scenario") or {}).get("instructions") or {}) if isinstance(task.get("user_scenario"), dict) else {}
                     summary = desc.get("purpose") or instr.get("reason_for_call") or ""
-                    add(f"{dom}-tau2-{tid}", dom, _clip_summary(summary), {})
+                    add(f"{dom}-tau2-{tid}", dom, _clip(summary, 160), {})
         return out
 
     base = lib / "libs" / "talk_bench_domains" / "src" / "talk_bench_domains"
@@ -1549,7 +1380,7 @@ def _scenario_catalog(root: Path, source: str, domain: str, split: str) -> list[
             scenario = task.get("user_scenario") if isinstance(task.get("user_scenario"), dict) else {}
             summary = task.get("description") or scenario.get("reason_for_call") or ""
             extra = {k: task[k] for k in ("difficulty", "tags") if task.get(k)}
-            add(str(sid), dom, _clip_summary(summary), extra)
+            add(str(sid), dom, _clip(summary, 160), extra)
     return out
 
 
@@ -1583,36 +1414,67 @@ def _sample_configs(root: Path) -> list[dict[str, Any]]:
     return out
 
 
-def _test_project_root() -> Path:
-    """The talk-bench checkout every test runs in: the first one _source_repos() finds."""
+def _test_repo() -> Path:
+    """The ai-ds-research checkout tests run in: the first one _source_repos() finds
+    that has a talk-bench project."""
     for repo in _source_repos():
-        root = repo / TEST_PROJECT
-        if (root / "pyproject.toml").is_file():
-            return root
+        if (repo / TEST_PROJECT / "pyproject.toml").is_file():
+            return repo
     raise HTTPException(status_code=404, detail="no talk-bench checkout was found to run the test in")
 
 
-def _test_project() -> dict[str, Any] | None:
-    """That checkout described for the Run test page: launcher, .env, samples, and the
-    domains / splits its data files define."""
-    try:
-        root = _test_project_root()
-    except HTTPException:
-        return None
+def _project_packages(root: Path) -> set[str]:
+    """Top-level Python packages a checkout's own uv workspace members provide
+    (libs/*/src/<pkg>, apps/*/src/<pkg>) — the ones importable only from its venv."""
+    return {
+        p.name for p in (*root.glob("libs/*/src/*"), *root.glob("apps/*/src/*"))
+        if p.is_dir() and (p / "__init__.py").is_file()
+    }
+
+
+def _test_project_root(module: str | None = None) -> Path:
+    """The checkout a test runs in: the project whose workspace provides the agent
+    module's top-level package (talk-bench-talkdesk for talkdesk_agent.*), else talk-bench."""
+    repo = _test_repo()
+    pkg = module.split(".", 1)[0] if module else ""
+    if pkg:
+        for name in SOURCE_PROJECTS:
+            root = repo / name
+            if (root / "pyproject.toml").is_file() and pkg in _project_packages(root):
+                return root
+    return repo / TEST_PROJECT
+
+
+def _describe_project(root: Path) -> dict[str, Any]:
+    """One checkout as the Run test page shows it. has_env is talk-bench/.env: the CLI
+    refuses to start without that one wherever the test runs (the checkout's own .env
+    loads on top of it, see the section comment above)."""
     launcher = _launcher(root)
-    manifest = _project_manifest(root)
-    simulator = manifest.get("simulator")
+    env_root = _talk_bench_lib_root(root) or root
     return {
         "id": str(root),
-        "name": TEST_PROJECT,
-        "repo": str(root.parent),
-        "has_env": (root / ".env").is_file(),
+        "name": root.name,
+        "packages": sorted(_project_packages(root)),
+        "has_env": (env_root / ".env").is_file(),
         "launcher": " ".join([Path(launcher[0]).name, *launcher[1:]]) if launcher else None,
-        "output_dir": str((manifest.get("defaults") or {}).get("output_dir") or "data/runs"),
-        "samples": _sample_configs(root),
-        "defaults": simulator if isinstance(simulator, dict) else {},
-        "domains": _scan_domains(root),
     }
+
+
+def _test_project() -> dict[str, Any] | None:
+    """The checkouts described for the Run test page: the default one (talk-bench) plus
+    every project a test can be routed to with the packages that send it there, the
+    samples of all of them, and the domains / splits the data files define."""
+    try:
+        repo = _test_repo()
+    except HTTPException:
+        return None
+    root = repo / TEST_PROJECT
+    projects = [
+        _describe_project(repo / name)
+        for name in SOURCE_PROJECTS if (repo / name / "pyproject.toml").is_file()
+    ]
+    samples = [{**s, "project": p["name"]} for p in projects for s in _sample_configs(Path(p["id"]))]
+    return {**_describe_project(root), "projects": projects, "samples": samples, "domains": _scan_domains(root)}
 
 
 def _normalize_agent(raw: Any) -> dict[str, Any]:
@@ -1712,88 +1574,19 @@ def _archived_agents() -> list[dict[str, Any]]:
         }
         g = groups.get(key)
         if g is None:
-            groups[key] = {"agent": agent, "yaml": _dump_yaml({"agent": agent}), "runs": 1, **latest}
+            groups[key] = {"agent": agent, "yaml": _dump_yaml({"agent": agent}), "run_paths": [run_name], **latest}
         else:
-            g["runs"] += 1
+            g["run_paths"].append(run_name)
             if stamp > g["timestamp"]:
                 g.update(latest)
     return sorted(groups.values(), key=lambda g: g["timestamp"], reverse=True)
-
-
-# ---- saved agent configs ----
-
-def _load_agent_configs() -> list[dict[str, Any]]:
-    data = _load_json(AGENT_CONFIGS_FILE)
-    if not isinstance(data, list):
-        return []
-    return [c for c in data if isinstance(c, dict) and c.get("id") and isinstance(c.get("text"), str)]
-
-
-def _save_agent_configs(configs: list[dict[str, Any]]) -> None:
-    tmp = AGENT_CONFIGS_FILE.with_name(AGENT_CONFIGS_FILE.name + ".tmp")
-    tmp.write_text(json.dumps(configs, ensure_ascii=False, indent=1) + "\n")
-    tmp.replace(AGENT_CONFIGS_FILE)
-
-
-class AgentConfigBody(BaseModel):
-    id: str | None = None
-    label: str | None = None
-    text: str  # the agent YAML as typed
-
-
-@app.get("/api/test/agent_configs")
-def api_agent_configs():
-    _ensure_test_runs_enabled()
-    return {"configs": _load_agent_configs()}
-
-
-@app.post("/api/test/agent_configs")
-def api_save_agent_config(body: AgentConfigBody):
-    _ensure_test_runs_enabled()
-    if len(body.text) > 200_000:
-        raise HTTPException(status_code=413, detail="agent config is too large")
-    agent, _extra = _parse_config_text(body.text)
-    label = (body.label or agent["name"]).strip()[:80] or agent["name"]
-    with _agent_configs_lock:
-        configs = _load_agent_configs()
-        entry = next((c for c in configs if c["id"] == body.id), None) if body.id else None
-        if entry is None:  # same label → update in place rather than piling up copies
-            entry = next((c for c in configs if c.get("label") == label), None)
-        if entry is None:
-            entry = {"id": uuid.uuid4().hex[:12], "created": _now_iso()}
-            configs.append(entry)
-        entry.update(
-            label=label, text=body.text.rstrip() + "\n", name=agent["name"], module=agent["module"],
-            updated=_now_iso(),
-        )
-        _save_agent_configs(configs)
-    return {"config": entry, "configs": configs}
-
-
-@app.delete("/api/test/agent_configs/{config_id}")
-def api_delete_agent_config(config_id: str):
-    _ensure_test_runs_enabled()
-    with _agent_configs_lock:
-        configs = _load_agent_configs()
-        kept = [c for c in configs if c["id"] != config_id]
-        if len(kept) == len(configs):
-            raise HTTPException(status_code=404, detail="no such saved config")
-        _save_agent_configs(kept)
-    return {"configs": kept}
 
 
 # ---- options, import helpers ----
 
 @app.get("/api/test/options")
 def api_test_options():
-    _ensure_test_runs_enabled()
-    return {
-        "project": _test_project(),
-        "archived": _archived_agents(),
-        "saved": _load_agent_configs(),
-        "uv": _uv_bin() is not None,
-        "limits": {"max_running": MAX_RUNNING_TESTS},
-    }
+    return {"project": _test_project(), "archived": _archived_agents()}
 
 
 @app.get("/api/test/scenarios")
@@ -1801,7 +1594,6 @@ def api_test_scenarios(
     source: str = Query("talk_bench"), domain: str = Query(...), split: str = Query("base"),
 ):
     """What `--domain/--split/--source` resolve to, for the scenario picker (--scenario-ids)."""
-    _ensure_test_runs_enabled()
     root = _test_project_root()
     if source not in ("tau2", "talk_bench"):
         raise HTTPException(status_code=400, detail="source must be tau2 or talk_bench")
@@ -1812,17 +1604,16 @@ def api_test_scenarios(
 
 
 @app.get("/api/test/sample")
-def api_test_sample(file: str = Query(...)):
-    _ensure_test_runs_enabled()
-    root = _test_project_root()
+def api_test_sample(file: str = Query(...), project: str = Query(TEST_PROJECT)):
+    if project not in SOURCE_PROJECTS:
+        raise HTTPException(status_code=400, detail="unknown project")
+    root = _test_repo() / project
     if Path(file).name != file or Path(file).suffix not in (".yaml", ".yml"):
         raise HTTPException(status_code=400, detail="invalid sample file name")
     path = root / "samples" / file
     if not path.is_file():
         raise HTTPException(status_code=404, detail="sample not found")
-    text = path.read_text()
-    agent, extra = _parse_config_text(text)
-    return {"agent": agent, "extra_blocks": extra, "text": text, "file": file}
+    return {"text": path.read_text()}
 
 
 class ConfigTextBody(BaseModel):
@@ -1831,38 +1622,14 @@ class ConfigTextBody(BaseModel):
 
 @app.post("/api/test/parse_config")
 def api_parse_config(body: ConfigTextBody):
-    _ensure_test_runs_enabled()
     if len(body.text) > 200_000:
         raise HTTPException(status_code=413, detail="config text is too large")
     agent, extra = _parse_config_text(body.text)
-    return {"agent": agent, "extra_blocks": extra}
-
-
-@app.post("/api/test/parse_yaml")
-def api_parse_yaml(body: ConfigTextBody):
-    """Any YAML fragment -> its value. The form's free-form fields (nested mappings it has no
-    typed control for) are typed as YAML and parsed here, so they read exactly as talk-bench
-    will read them."""
-    _ensure_test_runs_enabled()
-    if len(body.text) > 50_000:
-        raise HTTPException(status_code=413, detail="fragment is too large")
     try:
-        value = _yaml().safe_load(body.text)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"invalid YAML: {e}")
-    return {"value": value}
-
-
-class RenderConfigBody(BaseModel):
-    agent: dict[str, Any]
-
-
-@app.post("/api/test/render_config")
-def api_render_config(body: RenderConfigBody):
-    """The agent_config recorded in a run's results.json -> the agent.yaml text talk-bench reads."""
-    _ensure_test_runs_enabled()
-    agent = _normalize_agent(body.agent)
-    return {"yaml": _dump_yaml({"agent": agent}), "agent": agent}
+        project = _describe_project(_test_project_root(agent["module"]))
+    except HTTPException:
+        project = None  # no checkout at all: the page already says tests cannot start
+    return {"agent": agent, "extra_blocks": extra, "project": project}
 
 
 # ---- jobs ----
@@ -2135,8 +1902,7 @@ def _recover_jobs() -> None:
             threading.Thread(target=_sync_job_run, args=(job,), daemon=True).start()
 
 
-if TEST_RUNS_ENABLED:
-    _recover_jobs()
+_recover_jobs()
 
 
 def _check_token(value: str, label: str, pattern: re.Pattern[str] = _TOKEN_RE, max_len: int = 200) -> str:
@@ -2156,7 +1922,6 @@ class TestJobBody(BaseModel):
 
 @app.get("/api/test/jobs")
 def api_test_jobs():
-    _ensure_test_runs_enabled()
     jobs = sorted(list(_jobs.values()), key=lambda j: j.get("started") or 0, reverse=True)
     return {"jobs": [_public_job(j) for j in jobs[:200]]}
 
@@ -2164,15 +1929,14 @@ def api_test_jobs():
 @app.post("/api/test/jobs")
 def api_start_test(body: TestJobBody):
     """Start `talk-bench run --config <agent.yaml> --domain X --split Y --source S
-    [--scenario-ids a,b]` in the talk-bench checkout."""
-    _ensure_test_runs_enabled()
-    root = _test_project_root()
-    launcher = _launcher(root)
-    if launcher is None:
-        raise HTTPException(status_code=500, detail="neither uv nor .venv/bin/talk-bench was found for this checkout")
+    [--scenario-ids a,b]` in the checkout whose workspace provides the agent module."""
     if len(body.config_text) > 200_000:
         raise HTTPException(status_code=413, detail="agent config is too large")
     agent, _extra = _parse_config_text(body.config_text)  # same checks talk-bench's AgentConfig makes
+    root = _test_project_root(agent["module"])
+    launcher = _launcher(root)
+    if launcher is None:
+        raise HTTPException(status_code=500, detail="neither uv nor .venv/bin/talk-bench was found for this checkout")
     if body.source not in ("tau2", "talk_bench"):
         raise HTTPException(status_code=400, detail="source must be tau2 or talk_bench")
     domain = _check_token(body.domain, "domain", re.compile(r"^[a-z0-9_\-]+$"))
@@ -2213,7 +1977,6 @@ def api_start_test(body: TestJobBody):
 
 @app.get("/api/test/jobs/{job_id}")
 def api_test_job(job_id: str, offset: int = 0):
-    _ensure_test_runs_enabled()
     job = _get_job(job_id)
     log_path = _job_dir(job_id) / "log.txt"
     text, size, more = "", 0, False
@@ -2238,7 +2001,6 @@ def api_test_job(job_id: str, offset: int = 0):
 
 @app.post("/api/test/jobs/{job_id}/cancel")
 def api_cancel_test(job_id: str):
-    _ensure_test_runs_enabled()
     job = _get_job(job_id)
     if job["status"] not in ("running", "cancelling"):
         raise HTTPException(status_code=409, detail="this test is not running")
@@ -2266,27 +2028,31 @@ def api_cancel_test(job_id: str):
 @app.post("/api/test/jobs/{job_id}/resume")
 def api_resume_test(job_id: str):
     """`talk-bench run --resume <run dir>`: redo errored / unfinished scenarios of a
-    cancelled or crashed test and merge into the same results.json."""
-    _ensure_test_runs_enabled()
+    cancelled or crashed test and merge into the same results.json. Runs in the checkout
+    the agent module belongs to (the run dir is absolute, so the cwd only has to be able
+    to import the agent), which may differ from where an old job was recorded."""
     parent = _get_job(job_id)
     if parent["status"] in ("running", "cancelling"):
         raise HTTPException(status_code=409, detail="this test is still running")
     run_dir = parent.get("run_dir")
     if not run_dir or not (Path(run_dir) / "run_config.json").is_file():
         raise HTTPException(status_code=409, detail="this test left no resumable run directory")
-    root = Path(parent["project"])
+    try:
+        root = _test_project_root(parent.get("module"))
+    except HTTPException:
+        root = Path(parent["project"])
     if not (root / "pyproject.toml").is_file():
         raise HTTPException(status_code=404, detail="the checkout this test ran in is gone")
     launcher = _launcher(root)
     if launcher is None:
         raise HTTPException(status_code=500, detail="neither uv nor .venv/bin/talk-bench was found for this checkout")
     inherited = {
-        k: parent.get(k) for k in (
-            "project", "project_name", "runs_root", "agent_name", "module", "source", "domain", "split",
-            "scenario_ids",
-        )
+        k: parent.get(k) for k in ("runs_root", "agent_name", "module", "source", "domain", "split", "scenario_ids")
     }
-    job = _new_job(**inherited, resume_of=parent["id"], run_dir=run_dir, run_name=Path(run_dir).name)
+    job = _new_job(
+        **inherited, project=str(root), project_name=root.name,
+        resume_of=parent["id"], run_dir=run_dir, run_name=Path(run_dir).name,
+    )
     _job_dir(job["id"]).mkdir(parents=True, exist_ok=True)
     src = _job_dir(parent["id"]) / "agent.yaml"
     if src.is_file():
@@ -2298,7 +2064,6 @@ def api_resume_test(job_id: str):
 @app.post("/api/test/jobs/{job_id}/sync")
 def api_sync_test(job_id: str):
     """Copy the run directory into the archive now (partial results of a running test)."""
-    _ensure_test_runs_enabled()
     job = _get_job(job_id)
     if not job.get("run_dir"):
         _locate_run_dir(job)
@@ -2311,7 +2076,6 @@ def api_sync_test(job_id: str):
 
 @app.delete("/api/test/jobs/{job_id}")
 def api_delete_test(job_id: str):
-    _ensure_test_runs_enabled()
     job = _get_job(job_id)
     if job["status"] in ("running", "cancelling"):
         raise HTTPException(status_code=409, detail="stop the test before removing it")
