@@ -22,6 +22,7 @@ import tempfile
 import threading
 import time
 import uuid
+import wave
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -416,6 +417,114 @@ def api_compare(a: str = Query(...), b: str = Query(...)):
     }
 
 
+# ---- transcript ↔ audio alignment ----
+# conversation.json stamps each turn with the wall clock at which it was finalized: the end of the
+# user's speech, or ~1.5 s after the agent's audio ends (when the ASR returns its final text). The
+# wavs start at the AudioBus's first recorded frame, which talk-bench takes right at the timeline's
+# `greeting_wait_start` point. Each turn's speech is located on that clock from the user's latency
+# markers (sample offsets into the wavs) and the VAD segments (monotonic ns, the timeline's clock).
+
+def _read_ndjson(path: Path) -> list[dict]:
+    try:
+        with path.open(encoding="utf-8") as f:
+            return [json.loads(line) for line in f if line.strip()]
+    except (OSError, ValueError):
+        return []
+
+
+def _audio_origin(sdir: Path) -> tuple[float, int] | None:
+    """(wall-clock s, monotonic ns) of the wavs' first sample; None without a timeline."""
+    try:
+        with (sdir / "timeline.ndjson").open(encoding="utf-8") as f:
+            header = json.loads(f.readline())
+            for line in f:
+                if '"greeting_wait_start"' in line:
+                    ts_ns = json.loads(line)["ts_ns"]
+                    return (header["start_wall_ns"] + ts_ns) / 1e9, header["start_ns"] + ts_ns
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
+def _speech_segments(sdir: Path, origin_ns: int, rate: int) -> tuple[list, list, list]:
+    """Speech on the wav clock (s): one (start, end) per sim utterance from the latency markers
+    (end None while still open at hang-up), and the user's and agent's VAD segments."""
+    markers, opened = [], {}
+    for m in _read_ndjson(sdir / "latency_markers.ndjson"):
+        if m.get("kind") == "user_speech_start":
+            opened[m.get("turn_index")] = m["sample"] / rate
+        elif m.get("kind") == "user_speech_end" and m.get("turn_index") in opened:
+            markers.append((opened.pop(m.get("turn_index")), m["sample"] / rate))
+    markers += [(start, None) for start in opened.values()]
+    vad, started = {"user": [], "agent": []}, {}
+    for e in _read_ndjson(sdir / "vad_events.ndjson"):
+        who, t = e.get("speaker"), (e["timestamp_ns"] - origin_ns) / 1e9
+        if e.get("type") == "speech_start":
+            started[who] = t
+        elif e.get("type") == "speech_end" and who in started and who in vad:
+            vad[who].append((started.pop(who), t))
+    return sorted(markers, key=lambda m: m[0]), sorted(vad["user"]), sorted(vad["agent"])
+
+
+def _turn_spans(conversation: list, origin_s: float, markers: list, user_vad: list,
+                agent_vad: list) -> dict[int, list[float]]:
+    """{turn_index: [start, end]} on the wav clock for every turn whose speech was found.
+
+    Both sources are consumed in order. A user turn takes the last unclaimed marker that started
+    before the turn was finalized (one marker per sim utterance; earlier unclaimed ones are speech
+    that never became a turn). An agent turn takes every unclaimed VAD segment that had ended by
+    then: its sentences, plus any audio the ASR never transcribed."""
+    spans, mi, ai = {}, 0, 0
+    for turn in conversation:
+        ts, idx = turn.get("timestamp"), turn.get("turn_index")
+        if not isinstance(ts, (int, float)) or idx is None:
+            continue
+        final = ts - origin_s
+        if turn.get("speaker") == "user":
+            j = mi
+            while j < len(markers) and markers[j][0] <= final + 0.05:
+                j += 1
+            if j == mi:
+                continue
+            start, end = markers[j - 1]
+            mi = j
+            # older talk-bench closed a marker at the first gap in the sim's audio; the VAD
+            # shows where the speech really stopped
+            ends = [e for s, e in user_vad if start <= s and e <= final + 0.3]
+            spans[idx] = [round(start, 3), round(max([end or start, *ends]), 3)]
+        else:
+            j = ai
+            while j < len(agent_vad) and agent_vad[j][1] <= final + 0.05:
+                j += 1
+            if j == ai:
+                continue
+            spans[idx] = [round(agent_vad[ai][0], 3), round(agent_vad[j - 1][1], 3)]
+            ai = j
+    return spans
+
+
+def _audio_alignment(sdir: Path, conversation: list | None) -> dict | None:
+    """Where the transcript sits in the wavs: their wall-clock origin, length and per-turn speech
+    spans. None for a text run or a run without a timeline."""
+    origin = _audio_origin(sdir)
+    if origin is None:
+        return None
+    for name in ("conversation", "user", "agent"):
+        try:
+            with wave.open(str(sdir / f"{name}.wav")) as w:
+                rate, duration = w.getframerate(), w.getnframes() / w.getframerate()
+            break
+        except (OSError, EOFError, wave.Error):
+            continue
+    else:
+        return None
+    try:
+        spans = _turn_spans(conversation or [], origin[0], *_speech_segments(sdir, origin[1], rate))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        spans = {}
+    return {"origin": origin[0], "duration": round(duration, 3), "spans": spans}
+
+
 @app.get("/api/scenario")
 def api_scenario(path: str = Query(...)):
     sdir = _data_dir_at_depth(path, 2, "scenario")
@@ -444,10 +553,11 @@ def api_scenario(path: str = Query(...)):
                 "name": str(relative),
                 "size": f.stat().st_size,
             })
+    conversation = _load_json(sdir / "conversation.json")
     return {
         "path": path,
         "scenario": _load_json(sdir / "scenario.json"),
-        "conversation": _load_json(sdir / "conversation.json"),
+        "conversation": conversation,
         "tool_log": _load_json(sdir / "tool_log.json"),
         "run_meta": meta,
         "scenario_summary": scenario_summary,
@@ -457,6 +567,7 @@ def api_scenario(path: str = Query(...)):
             name: (sdir / f"{name}.wav").exists()
             for name in ("conversation", "user", "agent")
         },
+        "audio_align": _audio_alignment(sdir, conversation if isinstance(conversation, list) else None),
     }
 
 

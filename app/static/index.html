@@ -228,6 +228,9 @@
   .tool-call .name { font-weight: 650; }
   .tool-call .err { color: var(--fail); font-size: 12.5px; }
   .ts { color: var(--faint); font-size: 11px; font-family: ui-monospace, Menlo, monospace; margin-right: 6px; }
+  button.ts { background: none; border: 0; padding: 0; line-height: inherit; cursor: pointer; }
+  button.ts:hover { color: var(--link); text-decoration: underline; }
+  .turn.playing .bubble { box-shadow: 0 0 0 2px var(--link); }
 
   /* ---------- scenario nav & buttons ---------- */
   .scen-nav { display: flex; align-items: center; gap: 8px; margin-left: auto; }
@@ -430,6 +433,10 @@
   .field input::placeholder, .field textarea::placeholder { color: var(--faint); }
   .field .help { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
   .field.invalid textarea { border-color: var(--fail); }
+  .paste-row { display: flex; gap: 6px; }
+  .field .paste-row input { flex: 1; min-width: 0; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+  .yaml-foot { display: flex; align-items: baseline; gap: 10px; }
+  .yaml-foot .navbtn { margin-left: auto; flex: none; }
   .btn.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
   .btn.primary:hover { background: var(--primary); opacity: .88; }
   .actions-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
@@ -1495,11 +1502,35 @@ async function renderCompare(params) {
 }
 
 /* ---------- transcript with tool calls merged chronologically ---------- */
-function renderTimeline(conversation, toolLog) {
+// m:ss.s, rounded once so 59.96 s reads 1:00.0
+const fmtClock = s => {
+  const d = Math.round(Math.abs(s) * 10);
+  return `${s < 0 ? '−' : ''}${Math.floor(d / 600)}:${String(((d % 600) / 10).toFixed(1)).padStart(4, '0')}`;
+};
+
+// With audio (`align` from /api/scenario) times are positions in the wavs: a turn shows where its
+// speech starts, a tool call when it ran; a turn whose speech wasn't located shows when it was
+// finalized, marked ≈. A text run has no wav, so its times count from the first event.
+function renderTimeline(conversation, toolLog, align) {
   if (!conversation && !toolLog?.length) return '<p class="muted">No conversation.json</p>';
   const t0 = (conversation || []).concat(toolLog || []).reduce(
     (m, x) => x.timestamp != null && x.timestamp < m ? x.timestamp : m, Infinity);
   const fmtT = ts => ts == null || t0 === Infinity ? '' : '+' + (ts - t0).toFixed(1) + 's';
+  const seekTs = (s, title, approx = false) => {
+    const label = (approx ? '≈' : '') + fmtClock(s);
+    return s >= 0 && s < align.duration
+      ? `<button class="ts seek" type="button" data-seek="${s.toFixed(2)}" title="${esc(title)} · click to play from here">${label}</button>`
+      : `<span class="ts" title="${esc(title)} · outside the recording">${label}</span>`;
+  };
+  const turnTs = t => {
+    if (!align) return `<span class="ts">${fmtT(t.timestamp)}</span>`;
+    const span = align.spans[t.turn_index];
+    if (span) return seekTs(span[0], `speech ${fmtClock(span[0])}–${fmtClock(span[1])} in the recording`);
+    return t.timestamp == null ? '' : seekTs(t.timestamp - align.origin,
+      'when the turn was finalized — its speech was not located in the recording', true);
+  };
+  const toolTs = c => !align ? `<span class="ts">${fmtT(c.timestamp)}</span>`
+    : c.timestamp == null ? '' : seekTs(c.timestamp - align.origin, 'when the tool was called');
   const items = [
     ...(conversation || []).map(t => ({ kind: 'turn', ts: t.timestamp, d: t })),
     ...(toolLog || []).map(c => ({ kind: 'tool', ts: c.timestamp, d: c })),
@@ -1508,17 +1539,17 @@ function renderTimeline(conversation, toolLog) {
   items.sort((a, b) => (a.ts ?? Infinity) - (b.ts ?? Infinity));
   return items.map(it => {
     if (it.kind === 'turn') {
-      const t = it.d;
+      const t = it.d, span = align?.spans[t.turn_index];
       return `
-      <div class="turn ${t.speaker === 'user' ? 'user' : 'agent'}">
-        <div><div class="who">${esc(t.speaker)} · turn ${t.turn_index ?? ''} <span class="ts">${fmtT(t.timestamp)}</span></div>
+      <div class="turn ${t.speaker === 'user' ? 'user' : 'agent'}"${span ? ` data-span="${span.join(',')}"` : ''}>
+        <div><div class="who">${esc(t.speaker)} · turn ${t.turn_index ?? ''} ${turnTs(t)}</div>
         <div class="bubble">${esc(t.text)}</div></div>
       </div>`;
     }
     const c = it.d;
     return `
     <div class="tool-call inline">
-      <span class="ts">${fmtT(c.timestamp)}</span>
+      ${toolTs(c)}
       🔧 <span class="name mono">${esc(c.tool_name)}</span>
       ${c.db_changed ? '<span class="badge pass" style="margin-left:8px">db changed</span>' : ''}
       ${c.result?.error ? `<span class="badge fail" style="margin-left:8px">error</span>` : ''}
@@ -1526,6 +1557,29 @@ function renderTimeline(conversation, toolLog) {
       ${jsonPreview('args & result', {arguments: c.arguments, result: c.result})}
     </div>`;
   }).join('');
+}
+
+// a transcript time plays conversation.wav from there (clicked again while that turn plays: pause);
+// whichever player is running marks the turns it is inside — all three wavs share one clock
+function initAudioSync() {
+  const box = document.getElementById('transcript');
+  const players = [...document.querySelectorAll('.audio-grid audio')];
+  const player = players.find(a => a.src.endsWith('/conversation.wav')) || players[0];
+  if (!box || !player) return;
+  const turns = [...box.querySelectorAll('[data-span]')].map(el => [el, ...el.dataset.span.split(',').map(Number)]);
+  box.addEventListener('click', e => {
+    const b = e.target.closest('[data-seek]');
+    if (!b) return;
+    if (!player.paused && b.closest('.turn')?.classList.contains('playing')) { player.pause(); return; }
+    players.forEach(a => a !== player && a.pause());
+    player.currentTime = Math.max(0, +b.dataset.seek - 0.2);  // a little lead-in so the first word isn't clipped
+    player.play().catch(() => {});
+  });
+  const mark = e => {
+    const t = e.target.currentTime;
+    for (const [el, start, end] of turns) el.classList.toggle('playing', t >= start - 0.2 && t <= end + 0.2);
+  };
+  for (const a of players) for (const ev of ['timeupdate', 'seeked']) a.addEventListener(ev, mark);
 }
 
 /* ---------- per-scenario scores ---------- */
@@ -1616,6 +1670,7 @@ async function renderScenario(path) {
   const sc = d.scenario || {}, meta = d.run_meta || {};
   const persona = sc.user_persona || {};
   const audioNames = Object.entries(d.audio).filter(([,ok]) => ok).map(([n]) => n);
+  const align = audioNames.length ? d.audio_align : null;
 
   $main.innerHTML = `
   <div class="crumbs" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -1661,10 +1716,11 @@ async function renderScenario(path) {
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="transcript">
     <h3 style="margin-top:0">Transcript
       ${d.conversation ? `<span class="muted" style="font-weight:400">(${d.conversation.length} turns · ${d.tool_log?.length || 0} tool calls)</span>` : ''}</h3>
-    ${renderTimeline(d.conversation, d.tool_log)}
+    ${align ? '<div class="muted" style="font-size:12.5px;margin:-4px 0 10px">Times are positions in the recording — click one to play the audio from there.</div>' : ''}
+    ${renderTimeline(d.conversation, d.tool_log, align)}
   </div>
 
   <div class="card">
@@ -1676,6 +1732,7 @@ async function renderScenario(path) {
 
   initReport(path);
   initChat(path);
+  if (align) initAudioSync();
 
   const jump = document.getElementById('scenJump');
   if (jump) jump.addEventListener('change', () =>
@@ -2302,7 +2359,7 @@ agent:
   #     type: dynamic_variable_header
   #     variable_name: secret__talk_bench_conversation_id
   params:
-    agent_id: agent_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    agent_id: "<agent_id of your ElevenLabs agent>"
     language: en
     connect_timeout_s: 30.0
     requires_auth: true
@@ -2316,7 +2373,7 @@ agent:
   module: voice_agent.elevenlabs_sdk.ElevenLabsSdkTextAgent
   agents_max_supported_concurrency: 2
   params:
-    agent_id: agent_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    agent_id: "<agent_id of your ElevenLabs agent>"
     language: en
     connect_timeout_s: 30.0
     requires_auth: true
@@ -2340,6 +2397,7 @@ const testState = {
   options: null,       // /api/test/options payload
   tab: 'presets',      // presets | import | archived
   preset: null,        // id of the preset the editor was last filled from
+  showYaml: false,     // a Talkdesk agent's full YAML is expanded (other agents always show it)
   parsed: null,        // agent block of the editor's YAML, as the server parsed it
   project: null,       // the checkout the server routes that module to (parse_config's `project`)
   jobs: [],
@@ -2391,6 +2449,8 @@ function fillAgentYaml(text, presetId = null) {
   if (!el) return;
   el.value = text || '';
   testState.preset = presetId;
+  testState.showYaml = false;  // Talkdesk / ElevenLabs / Gemini agents open with the YAML collapsed
+  renderQuickFields();
   parseAgentYamlNow();
 }
 
@@ -2406,6 +2466,7 @@ async function parseAgentYamlNow() {
     info.className = cls;
     info.innerHTML = html;
     el.closest('.field').classList.toggle('invalid', cls === 'err');
+    if (cls === 'err' && !testState.showYaml) { testState.showYaml = true; renderQuickFields(); }  // the error is in the YAML
     updateAgentNotices();
   };
   if (!text.trim()) { settle(null, 'help', 'Pick a preset, import a file, or paste an agent YAML here.'); return; }
@@ -2422,11 +2483,186 @@ async function parseAgentYamlNow() {
 }
 const parseAgentYaml = debounce(parseAgentYamlNow, 350);
 
-// "<like this>" values a preset left for the user to fill in (params and mcp, any depth)
+/* Agents whose YAML stays collapsed: only the values that change from test to test get their own
+   fields (pasteable straight from the clipboard) — Talkdesk its MCP tunnel and agent_system_id,
+   ElevenLabs its agent_id, Gemini Live none. The fields edit the YAML text line by line, so its
+   comments and layout survive; "Edit full YAML" opens the rest. */
+const QUICK_FIELDS = {
+  server_url: { label: 'MCP server', noun: 'MCP server URL', path: 'mcp.server_url', hint: 'https://<your-tunnel>.ngrok-free.dev',
+    help: 'The URL <code>talkdesk-mcp-server --ngrok</code> prints · empty = no MCP server' },
+  agent_system_id: { label: 'Talkdesk agent', noun: 'agent_system_id', path: 'params.agent_system_id', hint: '<agent_system_id of your agent>',
+    help: 'A pasted link or text is reduced to the agent id in it' },
+  agent_id: { label: 'ElevenLabs agent', noun: 'agent_id', path: 'params.agent_id', hint: 'agent_…',
+    help: 'A pasted dashboard link or text is reduced to the <code>agent_…</code> id in it' },
+};
+const COMPACT_AGENTS = [  // matched by the agent module's prefix
+  { kind: 'talkdesk', prefix: 'talkdesk_agent.', fields: ['server_url', 'agent_system_id'] },
+  { kind: 'elevenlabs', prefix: 'voice_agent.elevenlabs_sdk.', fields: ['agent_id'] },
+  { kind: 'gemini', prefix: 'voice_agent.gemini_live.', fields: [] },
+];
+// by the first uncommented module: line — a wrapper's, not the agent it wraps
+function compactAgent(text) {
+  const m = (text || '').match(/^[ \t]*module:[ \t]*["']?([\w.]+)/m);
+  return m && COMPACT_AGENTS.find(c => m[1].startsWith(c.prefix)) || null;
+}
+// a value presets and samples leave for the user to replace
+const isHole = v => /<[^<>]+>/.test(v) || /^(PLACEHOLDER|agent_x+)$/i.test(v);
+const indentOf = line => line.match(/^[ \t]*/)[0];
+
+// the first uncommented block-style line of `key` (a YAML key, not a regex): {i, indent, raw, comment}
+function yamlKeyLine(lines, key) {
+  const re = new RegExp(`^([ \\t]*)${key}[ \\t]*:[ \\t]*("(?:[^"\\\\]|\\\\.)*"|'(?:[^']|'')*'|[^#]*?)([ \\t]+#.*)?$`);
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(re);
+    if (m) return { i, indent: m[1], raw: m[2], comment: m[3] || '' };
+  }
+  return null;
+}
+
+function yamlScalar(raw) {
+  const t = raw.trim();
+  if (t.startsWith('"')) { try { return JSON.parse(t); } catch { return t.slice(1, -1); } }
+  if (t.startsWith("'")) return t.slice(1, -1).replace(/''/g, "'");
+  return t === '~' || t === 'null' ? '' : t;
+}
+
+const yamlValue = (text, key) => { const hit = yamlKeyLine(text.split('\n'), key); return hit ? yamlScalar(hit.raw) : ''; };
+
+// the indentation of the lines under lines[i] (two more spaces when it has none yet)
+function childIndent(lines, i) {
+  const own = indentOf(lines[i]);
+  const next = lines.slice(i + 1).find(l => l.trim() && !l.trim().startsWith('#'));
+  return next && indentOf(next).length > own.length ? indentOf(next) : own + '  ';
+}
+
+// the YAML text with `key` set to value — added where talk-bench reads it when the text has no such
+// line yet. null when the text can't be edited line by line (JSON, flow mappings)
+function yamlSetValue(text, key, value) {
+  if (/^\s*[{[]/.test(text)) return null;
+  const lines = text.split('\n'), q = JSON.stringify(value);  // a JSON string is a valid double-quoted YAML scalar
+  const hit = yamlKeyLine(lines, key);
+  if (hit) {
+    lines[hit.i] = `${hit.indent}${key}: ${q}${hit.comment}`;
+    return lines.join('\n');
+  }
+  const parent = key === 'server_url' ? 'mcp' : 'params';
+  const p = lines.findIndex(l => new RegExp(`^[ \\t]*${parent}:[ \\t]*(\\{[ \\t]*\\})?[ \\t]*(#.*)?$`).test(l));
+  if (p >= 0) {
+    lines[p] = lines[p].replace(/\{[ \t]*\}/, '').replace(/[ \t]+$/, '');
+    lines.splice(p + 1, 0, `${childIndent(lines, p)}${key}: ${q}`);
+    return lines.join('\n');
+  }
+  // no parent block yet: open one next to params (mcp) or after module (params)
+  const params = lines.findIndex(l => /^[ \t]*params:/.test(l));
+  const mod = lines.findIndex(l => /^[ \t]*module:/.test(l));
+  if (mod < 0) return null;
+  if (key === 'server_url') {
+    const at = params >= 0 ? params : mod + 1, ind = indentOf(lines[params >= 0 ? params : mod]);
+    lines.splice(at, 0, `${ind}mcp:`, `${ind}  server_url: ${q}`, `${ind}  identity_transport:`, `${ind}    type: platform_interaction_id`);
+  } else {
+    const ind = indentOf(lines[mod]);
+    lines.splice(mod + 1, 0, `${ind}params:`, `${ind}  ${key}: ${q}`);
+  }
+  return lines.join('\n');
+}
+
+// the YAML text without its mcp block: an empty server_url means no MCP server
+function yamlRemoveMcp(text) {
+  const lines = text.split('\n');
+  const i = lines.findIndex(l => /^[ \t]*mcp:[ \t]*(#.*)?$/.test(l));
+  if (i < 0) return text;
+  const own = indentOf(lines[i]).length;
+  let j = i + 1;
+  while (j < lines.length && (!lines[j].trim() || indentOf(lines[j]).length > own)) j++;
+  while (j > i + 1 && !lines[j - 1].trim()) j--;  // blank lines before the next key stay
+  lines.splice(i, j - i);
+  return lines.join('\n');
+}
+
+// what was copied, reduced to the value: the URL in a copied log line ("ngrok URL: https://…") without
+// the /mcp path talk-bench appends itself; the id in a copied agent link (a UUID on Talkdesk,
+// agent_… on ElevenLabs)
+function quickClean(key, s) {
+  s = String(s || '').trim();
+  if (key === 'server_url') {
+    const url = s.match(/https?:\/\/[^\s"'<>]+/);
+    return (url ? url[0] : s).replace(/[),.;]+$/, '').replace(/\/+$/, '').replace(/\/mcp$/, '');
+  }
+  const id = key === 'agent_id' ? s.match(/agent_[0-9a-z]{16,}/i)
+    : s.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  return id ? id[0] : s.replace(/^["']+|["']+$/g, '');
+}
+
+// a compact agent shows its fields (values read back from the YAML) and a collapsed YAML; any
+// other agent just the YAML
+function renderQuickFields() {
+  const el = document.getElementById('agentYaml'), box = document.getElementById('quickFields');
+  if (!el || !box) return;
+  const c = compactAgent(el.value);
+  if (box.dataset.kind !== (c?.kind || '')) {  // rebuilt only when the kind changes, so a field keeps its focus
+    box.dataset.kind = c?.kind || '';
+    box.innerHTML = (c?.fields || []).map(key => { const f = QUICK_FIELDS[key]; return `
+      <div class="field">
+        <label for="quick-${key}">${f.label} — <span class="mono">${f.path}</span></label>
+        <div class="paste-row"><input id="quick-${key}" data-quick-key="${key}" spellcheck="false" autocomplete="off">
+          <button class="navbtn" type="button" data-quick-paste="${key}" title="Paste from the clipboard">Paste</button></div>
+        <span class="help">${f.help}</span>
+      </div>`; }).join('');
+  }
+  box.hidden = !c?.fields.length;
+  document.getElementById('yamlBox').hidden = !!c && !testState.showYaml;
+  const toggle = document.getElementById('yamlToggle');
+  toggle.hidden = !c;
+  toggle.textContent = testState.showYaml ? 'Hide YAML' : 'Edit full YAML';
+  for (const key of c?.fields || []) {
+    const input = document.getElementById(`quick-${key}`);
+    if (document.activeElement === input) continue;  // don't rewrite what is being typed
+    const v = yamlValue(el.value, key);
+    input.value = isHole(v) ? '' : v;
+    input.placeholder = /<[^<>]+>/.test(v) ? v : QUICK_FIELDS[key].hint;
+  }
+}
+
+// a field edited: write it into the YAML. Emptying server_url drops the mcp block, but only once the
+// field is left (committed) — not while it is being retyped, which would lose the block's other keys
+function quickApply(key, value, committed) {
+  const el = document.getElementById('agentYaml');
+  value = value.trim();
+  if (key === 'server_url' && !value && !committed) return;
+  const next = key === 'server_url' && !value ? yamlRemoveMcp(el.value) : yamlSetValue(el.value, key, value);
+  if (next == null) {
+    testState.showYaml = true;
+    renderQuickFields();
+    setAgentStatus(`⚠ couldn't place ${QUICK_FIELDS[key].path} in this YAML — set it in the editor below`);
+    return;
+  }
+  if (next === el.value) return;
+  el.value = next;
+  parseAgentYaml();
+}
+
+async function quickPaste(key) {
+  const input = document.getElementById(`quick-${key}`);
+  let text;
+  try {
+    text = await navigator.clipboard.readText();
+  } catch (_) {  // no clipboard API (plain-http origin) or permission denied
+    input.focus();
+    setAgentStatus('The browser blocked reading the clipboard — press ⌘V / Ctrl+V in the field instead.');
+    return;
+  }
+  const v = quickClean(key, text);
+  if (!v) { setAgentStatus('The clipboard is empty.'); return; }
+  input.value = v;
+  quickApply(key, v, true);
+  setAgentStatus(`pasted ${QUICK_FIELDS[key].path} from the clipboard`);
+}
+
+// "<like this>" (or PLACEHOLDER) values a preset or sample left for the user to fill in (params and mcp, any depth)
 function placeholderPaths(a) {
   const out = [];
   const walk = (v, path) => {
-    if (typeof v === 'string') { if (/<[^<>]+>/.test(v)) out.push(path); }
+    if (typeof v === 'string') { if (isHole(v)) out.push(path); }
     else if (v && typeof v === 'object') Object.entries(v).forEach(([k, x]) => walk(x, `${path}.${k}`));
   };
   if (a) { walk(a.params, 'params'); walk(a.mcp, 'mcp'); }
@@ -2442,7 +2678,11 @@ function updateAgentNotices() {
   const notes = [];  // [extra class, html]
   const holes = placeholderPaths(a);
   if (holes.length) {
-    notes.push(['warn', `Placeholders still to fill in: <code>${holes.map(esc).join('</code>, <code>')}</code> — a left-over placeholder is sent as-is and overrides the matching value from <code>.env</code>.`]);
+    // a collapsed YAML may hold placeholders outside the fields (the Talkdesk STG account_id)
+    const c = compactAgent(document.getElementById('agentYaml')?.value);
+    const inYaml = c && !testState.showYaml && holes.some(h => !c.fields.some(k => QUICK_FIELDS[k].path === h));
+    notes.push(['warn', `Placeholders still to fill in: <code>${holes.map(esc).join('</code>, <code>')}</code> — a left-over placeholder is sent as-is and overrides the matching value from <code>.env</code>.`
+      + (inYaml ? ' Some are only in the full YAML: <button class="navbtn" type="button" data-yaml-open>Edit full YAML</button>' : '')]);
   }
   const pkg = a?.module ? a.module.split('.')[0] : '';
   if (pkg && p && !(p.packages || []).includes(pkg)) {
@@ -2637,7 +2877,9 @@ function applyPreset(id) {
   if (!p) return;
   fillAgentYaml(p.yaml, id);
   renderAgentSource();
-  setAgentStatus(`preset “${p.label}” loaded — edit the YAML, then start`);
+  const c = compactAgent(p.yaml);
+  setAgentStatus(`preset “${p.label}” loaded — ` + (c?.fields.length ? `paste the ${c.fields.map(k => QUICK_FIELDS[k].noun).join(' and ')}, then start`
+    : c ? 'start it as is, or open Edit full YAML to change it' : 'edit the YAML, then start'));
 }
 
 async function prefillFromRun(runPath) {
@@ -2828,6 +3070,7 @@ async function renderTest(params) {
   testState.parsed = null;
   testState.project = null;
   testState.preset = null;
+  testState.showYaml = false;
   testState.jobsJSON = '';
   testState.catalog = [];
   testState.catalogKey = '';
@@ -2852,11 +3095,17 @@ async function renderTest(params) {
       </div>
     </div>
     <div id="agentSource"></div>
+    <div class="form-grid" id="quickFields" hidden></div>
     <div class="form-grid">
       <div class="field wide">
-        <label for="agentYaml">agent.yaml — written as-is and passed to talk-bench with <code>--config</code></label>
-        <textarea id="agentYaml" rows="18" spellcheck="false" placeholder="agent:&#10;  name: my-agent&#10;  module: voice_agent.cascaded.CascadedAgent&#10;  params:&#10;    llm_model: azure/gpt-4.1"></textarea>
-        <span class="help" id="agentInfo">Pick a preset, import a file, or paste an agent YAML here.</span>
+        <div class="field" id="yamlBox">
+          <label for="agentYaml">agent.yaml — written as-is and passed to talk-bench with <code>--config</code></label>
+          <textarea id="agentYaml" rows="18" spellcheck="false" placeholder="agent:&#10;  name: my-agent&#10;  module: voice_agent.cascaded.CascadedAgent&#10;  params:&#10;    llm_model: azure/gpt-4.1"></textarea>
+        </div>
+        <div class="yaml-foot">
+          <span class="help" id="agentInfo">Pick a preset, import a file, or paste an agent YAML here.</span>
+          <button class="navbtn" type="button" id="yamlToggle" hidden>Edit full YAML</button>
+        </div>
       </div>
     </div>
     <div id="agentNotices"></div>
@@ -2900,10 +3149,31 @@ async function renderTest(params) {
     const tab = e.target.closest('#agentTabs button');
     if (tab) { testState.tab = tab.dataset.tab; renderAgentSource(); return; }
     const preset = e.target.closest('.preset');
-    if (preset) applyPreset(preset.dataset.preset);
+    if (preset) { applyPreset(preset.dataset.preset); return; }
+    const paste = e.target.closest('[data-quick-paste]');
+    if (paste) { quickPaste(paste.dataset.quickPaste); return; }
+    if (e.target.closest('#yamlToggle, [data-yaml-open]')) {
+      testState.showYaml = !!e.target.closest('[data-yaml-open]') || !testState.showYaml;
+      renderQuickFields();
+      updateAgentNotices();
+      if (testState.showYaml) document.getElementById('agentYaml').focus();
+    }
+  });
+  agentCard.addEventListener('input', e => {
+    if (e.target.dataset.quickKey) quickApply(e.target.dataset.quickKey, e.target.value, false);
+  });
+  // ⌘V into a field takes the whole clipboard, reduced to the value (see quickClean)
+  agentCard.addEventListener('paste', e => {
+    const key = e.target.dataset?.quickKey;
+    if (!key) return;
+    e.preventDefault();
+    e.target.value = quickClean(key, e.clipboardData.getData('text'));
+    quickApply(key, e.target.value, true);
   });
   agentCard.addEventListener('change', async e => {
-    if (e.target.id === 'impFile') {
+    if (e.target.dataset.quickKey) {
+      quickApply(e.target.dataset.quickKey, e.target.value, true);
+    } else if (e.target.id === 'impFile') {
       const f = e.target.files[0];
       if (!f) return;
       fillAgentYaml(await f.text());
@@ -2925,7 +3195,11 @@ async function renderTest(params) {
       setAgentStatus(`loaded the agent of ${a.run_path}`);
     }
   });
-  document.getElementById('agentYaml').addEventListener('input', parseAgentYaml);
+  document.getElementById('agentYaml').addEventListener('input', () => {
+    testState.showYaml = true;  // typed into the YAML: keep it open even if the agent just became a compact one
+    renderQuickFields();
+    parseAgentYaml();
+  });
 
   const settings = document.getElementById('sSource').closest('.card');
   settings.addEventListener('change', e => {

@@ -46,6 +46,11 @@ the viewer through a tunnel, put the access control there (e.g. `ngrok http 8377
 - Scenario page: goal, transcript with tool calls merged chronologically, audio, scores, raw files,
   **Ask AI** and a one-click **AI 场景报告** with a mermaid flowchart (mermaid.js is loaded from a CDN
   when a diagram appears; the source stays visible offline)
+- Transcript times on a voice run are positions in the wavs (click one to play from there). talk-bench
+  stamps a turn when it is finalized — the user's speech end, or ~1.5 s after the agent's audio ends —
+  while the wavs start at the timeline's `greeting_wait_start`, so `_audio_alignment` in `app/main.py`
+  places each turn's speech from `latency_markers.ndjson` (user) and `vad_events.ndjson` (agent); a
+  turn it can't place shows its finalization time, marked `≈`
 - **Compare runs**: two runs aligned by scenario id — both pass / only A / only B / both fail,
   aggregates over the shared scenarios, per-scenario table with an "only where the two disagree"
   filter. Text-vs-voice pairs are flagged: `Experience` and `Eval final` are not comparable across
