@@ -244,6 +244,11 @@
   .navbtn:focus-visible { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
   .navbtn.disabled { color: var(--faint); pointer-events: none; box-shadow: none; }
   button.navbtn { cursor: pointer; font-family: inherit; }
+  .more-chev { display: inline-flex; padding: 4px 10px; border: none; border-radius: 8px; background: none; color: var(--faint); cursor: pointer; }
+  .more-chev:hover { background: var(--surface-2); color: var(--fg); }
+  .more-chev:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+  .more-chev svg { width: 18px; height: 18px; transition: transform .15s; }
+  .more-chev.open svg { transform: rotate(180deg); }
 
   /* ---------- star / hide / copy ---------- */
   .star { color: var(--faint); display: inline-flex; transition: color .12s, transform .12s; }
@@ -421,7 +426,6 @@
   .preset.active { border-color: var(--fg); }
   .preset .p-name { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13.5px; }
   .preset .p-name svg { color: var(--muted); flex: none; }
-  .preset .p-desc { color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.45; }
   .preset .p-mod { color: var(--faint); font-size: 11px; font-family: ui-monospace, Menlo, monospace; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 16px; margin-top: 14px; }
   .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -841,6 +845,10 @@ const modalityLabel = m => (MODALITIES.find(([k]) => k === m) || [])[1] || '';
 const modalityTag = m => m
   ? `<span class="mode-tag">${m === 'voice' ? ICONS.mic : ICONS.chat}${modalityLabel(m)}</span>`
   : '<span class="muted">—</span>';
+// runs whose caller was tau2-bench's native user simulator (user_simulator.json in the run dir)
+const userSimTag = engine => engine === 'tau2'
+  ? '<span class="mode-tag" style="margin-left:6px" title="Caller simulated by tau2-bench’s native user simulator">τ² user</span>'
+  : '';
 
 const runSorters = {
   timestamp: r => r.timestamp || '',
@@ -898,7 +906,7 @@ function runRowHTML(r) {
     <td class="mono muted nowrap">${esc(r.timestamp || '?')}</td>
     <td class="mono runcell"><span class="run-name">${esc(r.run_name)}</span></td>
     <td>${esc(r.agent_name || '—')}</td>
-    <td>${modalityTag(r.modality)}</td>
+    <td>${modalityTag(r.modality)}${userSimTag(r.user_simulator)}</td>
     <td>${r.has_results
         ? `<span class="${r.scenarios_passed === r.scenarios_total ? 'badge pass' : 'badge fail'}">${r.scenarios_passed}/${r.scenarios_total}</span>`
           + (r.scenarios_errored ? ` <span class="muted">(${r.scenarios_errored} err)</span>` : '')
@@ -1046,6 +1054,7 @@ async function renderRun(path) {
   if (res) {
     chips.push(['Primary score', res.primary_score], ['Passed', `${res.scenarios_passed}/${res.scenarios_total}`], ['Errored', res.scenarios_errored]);
   }
+  if (d.user_simulator?.engine === 'tau2') chips.push(['User simulator', `τ² native · ${d.user_simulator.llm || '?'}`]);
   if (ev) {
     chips.push(['Eval final', ev.final], ['Resolution', ev.resolution], ['Experience', ev.experience],
                ['Responsiveness', ev.responsiveness], ['Conv. quality', ev.conversation_quality]);
@@ -1174,10 +1183,11 @@ const runScenarioBadge = r => r.has_results
   ? `<span class="badge ${r.scenarios_passed === r.scenarios_total ? 'pass' : 'fail'}">${r.scenarios_passed}/${r.scenarios_total}</span>`
   : '<span class="badge na">no results</span>';
 const runSearchText = r => [r.run_name, r.agent_name, modalityLabel(r.modality),
+  r.user_simulator === 'tau2' ? 'tau2 user simulator' : '',
   (r.domains || []).join(' '), NOTES[r.path] || ''].join(' ').toLowerCase();
 
 const runTitleHTML = r => `<span class="rc-title"><span>${esc(r.agent_name || r.run_name)}</span>${
-  modalityTag(r.modality)}${STARS.has(r.path) ? `<span class="star on">${ICONS.star}</span>` : ''}</span>`;
+  modalityTag(r.modality)}${userSimTag(r.user_simulator)}${STARS.has(r.path) ? `<span class="star on">${ICONS.star}</span>` : ''}</span>`;
 
 // Hidden runs stay out of the list — the eye icon means "stop showing me this" — unless one of
 // them is already on the page, where dropping it silently would be more confusing than showing it.
@@ -2214,6 +2224,9 @@ $main.addEventListener('focusout', async e => {
 /* ---------- run test: edit an agent.yaml and launch talk-bench run ---------- */
 // The page maps onto exactly this command, run inside the talk-bench checkout:
 //   uv run talk-bench run --config <agent.yaml> --domain X --split Y --source tau2|talk_bench [--scenario-ids a,b]
+// or, with the tau2 user simulator picked, the same arguments through tau2_user_sim/launch.py
+// (`uv run python <viewer>/tau2_user_sim/launch.py run …`), which swaps tau2-bench's native
+// user simulator into the voice scenarios of that one process.
 // Everything else talk-bench accepts keeps its CLI default. The agent.yaml is edited as text and
 // written as-is; presets, imported files and archived runs just fill the editor.
 
@@ -2239,7 +2252,6 @@ function talkdeskPresets(plat) {
 `;
   return [
     { id: `talkdesk-${plat}`, label: `Talkdesk Autopilot · ${P.label} (voice)`, modality: 'voice', module: 'talkdesk_agent.agent.TalkdeskAgent',
-      desc: `An AI Agent on the Talkdesk ${P.label} platform (${new URL(P.api).host}) by agent_system_id. Runs in the talk-bench-talkdesk checkout; usually needs the MCP tool server.`,
       yaml: `# Talkdesk Autopilot on ${P.label}. talkdesk_agent lives in the talk-bench-talkdesk workspace, so this
 # test runs there. Needs the MCP tool server, started from talk-bench-talkdesk/:
 #   uv run talkdesk-mcp-server --source <source> --domain <domain> --ngrok
@@ -2266,7 +2278,6 @@ agent:
     grace_period_s: 0.5
 ${auth}` },
     { id: `talkdesk-text-${plat}`, label: `Talkdesk Autopilot · ${P.label} (text)`, modality: 'text', module: 'talkdesk_agent.text_agent.TalkdeskTextAgent',
-      desc: `The Talkdesk ${P.label} agent over the text channel (${new URL(P.api).host}).`,
       yaml: `# Talkdesk Autopilot on ${P.label}, text channel. Runs in the talk-bench-talkdesk checkout.
 agent:
   name: my-talkdesk-text-agent-${plat}
@@ -2284,7 +2295,6 @@ ${auth}` },
 
 const AGENT_PRESETS = [
   { id: 'cascaded', label: 'Cascaded voice (LLM + TTS + ASR)', modality: 'voice', module: 'voice_agent.cascaded.CascadedAgent',
-    desc: 'Your own LLM behind Azure Speech TTS/ASR. Needs the LLM key and AZURE_SPEECH_KEY in the checkout .env.',
     yaml: `agent:
   name: my-cascaded-agent
   module: voice_agent.cascaded.CascadedAgent
@@ -2297,7 +2307,6 @@ const AGENT_PRESETS = [
     greeting: "Hello, how can I help you?"
 ` },
   { id: 'cascaded-text', label: 'Text LLM agent (cascaded, no audio)', modality: 'text', module: 'voice_agent.text_bridge.VoiceAgentTextBridge',
-    desc: 'The same cascaded agent driven over text: no TTS/ASR, the cheapest way to test a prompt or tool setup.',
     yaml: `# The cascaded agent driven over text: no TTS/ASR involved.
 agent:
   name: my-text-agent
@@ -2313,7 +2322,6 @@ agent:
         greeting: "Hello, how can I help you?"
 ` },
   { id: 'openai-realtime', label: 'OpenAI Realtime', modality: 'voice', module: 'voice_agent.openai_realtime.OpenAIRealtimeAgent',
-    desc: 'Speech-to-speech through the Realtime API (OPENAI_API_KEY), or an Azure deployment via base_url.',
     yaml: `agent:
   name: my-openai-realtime
   module: voice_agent.openai_realtime.OpenAIRealtimeAgent
@@ -2332,7 +2340,6 @@ agent:
       interrupt_response: true
 ` },
   { id: 'gemini-live', label: 'Gemini Live', modality: 'voice', module: 'voice_agent.gemini_live.GeminiLiveAgent',
-    desc: 'Google Gemini Live API speech-to-speech (GEMINI_API_KEY).',
     yaml: `agent:
   name: my-gemini-live
   module: voice_agent.gemini_live.GeminiLiveAgent
@@ -2347,7 +2354,6 @@ agent:
     append_tool_grounding_hints: false
 ` },
   { id: 'elevenlabs', label: 'ElevenLabs agent (voice)', modality: 'voice', module: 'voice_agent.elevenlabs_sdk.ElevenLabsSdkAgent',
-    desc: 'A hosted ElevenLabs Conversational AI agent by agent_id (ELEVENLABS_API_KEY). Tools from the client, the workspace, or an MCP server.',
     yaml: `agent:
   name: my-elevenlabs-agent
   module: voice_agent.elevenlabs_sdk.ElevenLabsSdkAgent
@@ -2367,7 +2373,6 @@ agent:
     inject_policy_as_system_prompt: false
 ` },
   { id: 'elevenlabs-text', label: 'ElevenLabs agent (text)', modality: 'text', module: 'voice_agent.elevenlabs_sdk.ElevenLabsSdkTextAgent',
-    desc: 'The same hosted ElevenLabs agent over its text channel.',
     yaml: `agent:
   name: my-elevenlabs-text-agent
   module: voice_agent.elevenlabs_sdk.ElevenLabsSdkTextAgent
@@ -2383,7 +2388,6 @@ agent:
   ...talkdeskPresets('qa'),
   ...talkdeskPresets('stg'),
   { id: 'custom', label: 'Custom module', modality: '', module: 'my_package.my_agent.MyAgent',
-    desc: 'Any importable VoiceAgent / TextAgent subclass in the checkout. params are passed to its constructor as keyword arguments.',
     yaml: `# Any VoiceAgent / TextAgent subclass importable in the checkout.
 # params are passed to its constructor as keyword arguments.
 agent:
@@ -2402,6 +2406,7 @@ const testState = {
   project: null,       // the checkout the server routes that module to (parse_config's `project`)
   jobs: [],
   jobsJSON: '',
+  showAllJobs: false,  // the jobs table lists every test, not just the newest few
   selected: null,      // job id whose log is on screen
   logOffset: 0,
   logText: '',
@@ -2469,7 +2474,7 @@ async function parseAgentYamlNow() {
     if (cls === 'err' && !testState.showYaml) { testState.showYaml = true; renderQuickFields(); }  // the error is in the YAML
     updateAgentNotices();
   };
-  if (!text.trim()) { settle(null, 'help', 'Pick a preset, import a file, or paste an agent YAML here.'); return; }
+  if (!text.trim()) { settle(null, 'help', ''); return; }
   try {
     const r = await postJSON('/api/test/parse_config', { text });
     const mod = moduleModality(r.agent.module), extra = Object.keys(r.extra_blocks || {});
@@ -2488,12 +2493,9 @@ const parseAgentYaml = debounce(parseAgentYamlNow, 350);
    ElevenLabs its agent_id, Gemini Live none. The fields edit the YAML text line by line, so its
    comments and layout survive; "Edit full YAML" opens the rest. */
 const QUICK_FIELDS = {
-  server_url: { label: 'MCP server', noun: 'MCP server URL', path: 'mcp.server_url', hint: 'https://<your-tunnel>.ngrok-free.dev',
-    help: 'The URL <code>talkdesk-mcp-server --ngrok</code> prints · empty = no MCP server' },
-  agent_system_id: { label: 'Talkdesk agent', noun: 'agent_system_id', path: 'params.agent_system_id', hint: '<agent_system_id of your agent>',
-    help: 'A pasted link or text is reduced to the agent id in it' },
-  agent_id: { label: 'ElevenLabs agent', noun: 'agent_id', path: 'params.agent_id', hint: 'agent_…',
-    help: 'A pasted dashboard link or text is reduced to the <code>agent_…</code> id in it' },
+  server_url: { label: 'MCP server', path: 'mcp.server_url', hint: 'https://<your-tunnel>.ngrok-free.dev' },
+  agent_system_id: { label: 'Talkdesk agent', path: 'params.agent_system_id', hint: '<agent_system_id of your agent>' },
+  agent_id: { label: 'ElevenLabs agent', path: 'params.agent_id', hint: 'agent_…' },
 };
 const COMPACT_AGENTS = [  // matched by the agent module's prefix
   { kind: 'talkdesk', prefix: 'talkdesk_agent.', fields: ['server_url', 'agent_system_id'] },
@@ -2606,7 +2608,6 @@ function renderQuickFields() {
         <label for="quick-${key}">${f.label} — <span class="mono">${f.path}</span></label>
         <div class="paste-row"><input id="quick-${key}" data-quick-key="${key}" spellcheck="false" autocomplete="off">
           <button class="navbtn" type="button" data-quick-paste="${key}" title="Paste from the clipboard">Paste</button></div>
-        <span class="help">${f.help}</span>
       </div>`; }).join('');
   }
   box.hidden = !c?.fields.length;
@@ -2672,7 +2673,7 @@ function placeholderPaths(a) {
 function updateAgentNotices() {
   const box = document.getElementById('agentNotices');
   if (!box) return;
-  const a = testState.parsed, p = testProject(), dflt = currentProject();
+  const a = testState.parsed, p = testProject();
   const help = document.getElementById('checkoutHelp');
   if (help) help.innerHTML = checkoutHelpHTML(p);
   const notes = [];  // [extra class, html]
@@ -2681,27 +2682,23 @@ function updateAgentNotices() {
     // a collapsed YAML may hold placeholders outside the fields (the Talkdesk STG account_id)
     const c = compactAgent(document.getElementById('agentYaml')?.value);
     const inYaml = c && !testState.showYaml && holes.some(h => !c.fields.some(k => QUICK_FIELDS[k].path === h));
-    notes.push(['warn', `Placeholders still to fill in: <code>${holes.map(esc).join('</code>, <code>')}</code> — a left-over placeholder is sent as-is and overrides the matching value from <code>.env</code>.`
+    notes.push(['warn', `Placeholders still to fill in: <code>${holes.map(esc).join('</code>, <code>')}</code>.`
       + (inYaml ? ' Some are only in the full YAML: <button class="navbtn" type="button" data-yaml-open>Edit full YAML</button>' : '')]);
   }
   const pkg = a?.module ? a.module.split('.')[0] : '';
   if (pkg && p && !(p.packages || []).includes(pkg)) {
     notes.push(['warn', `No local checkout's workspace provides the <b>${esc(pkg)}</b> package, so the test runs in <b>${esc(p.name)}</b> and fails at import unless that package is installed in <span class="mono">${esc(p.id)}/.venv</span>.`]);
-  } else if (pkg && p && dflt && p.id !== dflt.id) {
-    notes.push(['', `<b>${esc(pkg)}</b> is provided by the <b>${esc(p.name)}</b> workspace, so this test runs in <span class="mono">${esc(p.id)}</span> and that checkout's <code>talkbench.yaml</code> applies.`]);
-  }
-  if (a?.mcp?.server_url) {
-    notes.push(['warn', `This agent reaches its tools through an MCP server at <code>${esc(a.mcp.server_url)}</code>. Start it before the test — for Talkdesk, from <code>talk-bench-talkdesk/</code>: <code>uv run talkdesk-mcp-server --source &lt;source&gt; --domain &lt;domain&gt; --ngrok</code> — with the <b>same source and domain</b> as this run, and make sure the platform can reach that URL.`]);
   }
   box.innerHTML = notes.map(([cls, n]) => `<div class="notice${cls ? ' ' + cls : ''}">${n}</div>`).join('');
+  updateUserSimHelp();
 }
 
 /* run settings: --source / --domain / --split — the command runs in the checkout that provides the agent module */
 function checkoutHelpHTML(p) {
   if (!p) return '';
-  return `Runs in <span class="mono">${esc(p.id)}</span>`
-    + (p.has_env ? '' : ' · <span style="color:var(--fail)">no .env in the talk-bench checkout — talk-bench refuses to start without one</span>')
-    + (p.launcher ? '' : ' · <span style="color:var(--fail)">neither uv nor .venv/bin/talk-bench found</span>');
+  return [p.has_env ? '' : 'no .env in the talk-bench checkout — talk-bench refuses to start without one',
+    p.launcher ? '' : 'neither uv nor .venv/bin/talk-bench found']
+    .filter(Boolean).map(t => `<span style="color:var(--fail)">${t}</span>`).join(' · ');
 }
 
 function settingsFormHTML(project) {
@@ -2709,13 +2706,19 @@ function settingsFormHTML(project) {
   <p class="muted" id="checkoutHelp" style="font-size:12px;margin:6px 0 0">${checkoutHelpHTML(project)}</p>
   <div class="form-grid">
     <div class="field"><label for="sSource">--source</label><select id="sSource">
-      <option value="talk_bench">talk_bench — native scenarios</option><option value="tau2">tau2 — τ²-bench tasks</option></select></div>
+      <option value="talk_bench">talk_bench</option><option value="tau2">tau2</option></select></div>
     <div class="field"><label for="sDomain">--domain</label><select id="sDomain"></select></div>
     <div class="field"><label for="sSplit">--split</label><select id="sSplit"></select>
       <span class="help" id="sSplitHelp"></span></div>
+    <div class="field"><label for="sUserSim">User simulator</label><select id="sUserSim">
+      <option value="talk_bench">talk-bench</option><option value="tau2">tau2 native</option></select>
+      <span class="help" id="sUserSimHelp"></span></div>
+    <div class="field" id="sComplexityField"><label for="sComplexity">--speech-complexity</label><select id="sComplexity">
+      <option value="">not set</option>
+      ${SPEECH_COMPLEXITIES.map(c => `<option value="${c}">${c}</option>`).join('')}</select></div>
   </div>
   <div class="field wide" style="margin-top:14px">
-    <label for="scenFilter">Scenarios — <span class="mono">--scenario-ids</span> (optional: tick the ones to run; none ticked = the whole split)</label>
+    <label for="scenFilter">Scenarios — <span class="mono">--scenario-ids</span></label>
     <div class="scen-head">
       <input id="scenFilter" placeholder="filter by id or description…" autocomplete="off" spellcheck="false">
       <button class="navbtn" type="button" id="scenAll">Tick all shown</button>
@@ -2777,6 +2780,8 @@ function renderScenarioList() {
 function applySettings(s) {
   const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
   if (s.source) set('sSource', s.source);
+  if (s.user_simulator) set('sUserSim', s.user_simulator);
+  if (s.speech_complexity !== undefined) set('sComplexity', s.speech_complexity || '');
   refreshDomainOptions(s.domain, s.split);
   updateAgentNotices();
   if (s.scenario_ids) loadScenarioCatalog(s.scenario_ids);
@@ -2820,9 +2825,21 @@ function refreshSplitOptions(keepSplit) {
   if (splits.length) sel.value = splits.some(s => s.split === prev) ? prev : splits.some(s => s.split === 'base') ? 'base' : splits[0].split;
   document.getElementById('sSplitHelp').textContent = !splits.length ? 'This domain defines no splits.'
     : keepSplit && !splits.some(s => s.split === keepSplit) ? `Split “${keepSplit}” is not defined for ${domain} — ${sel.value} selected instead.`
-    : domain === 'all' ? 'Applied to every domain that defines this split.' : '';
+    : '';
   updateCmdPreview();
   loadScenarioCatalog();
+}
+
+// tau2's SpeechComplexity presets (v1.0.1); the server checks the same list
+const SPEECH_COMPLEXITIES = ['control', 'regular', 'control_audio', 'control_accents', 'control_behavior',
+  'control_audio_accents', 'control_audio_behavior', 'control_accents_behavior'];
+
+function updateUserSimHelp() {
+  const sel = document.getElementById('sUserSim'), help = document.getElementById('sUserSimHelp');
+  if (!sel || !help) return;
+  help.innerHTML = sel.value === 'tau2' && moduleModality(testState.parsed?.module) === 'text'
+    ? '<span style="color:var(--fail)">Voice agents only — a text run on tau2 tasks already uses tau2’s own simulator.</span>'
+    : '';
 }
 
 function updateCmdPreview() {
@@ -2831,9 +2848,15 @@ function updateCmdPreview() {
   const p = currentProject();
   const v = id => document.getElementById(id).value.trim();
   const ids = pickedScenarioIds();
-  el.textContent = `cd ${shellQuote(p?.id || '<checkout>')} && ${p?.launcher || 'uv run talk-bench'} run --config agent.yaml`
+  const tau2Sim = v('sUserSim') === 'tau2';
+  const tau2Source = v('sSource') === 'tau2';
+  document.getElementById('sComplexityField').hidden = !tau2Source;
+  const complexity = tau2Source ? v('sComplexity') : '';
+  updateUserSimHelp();
+  el.textContent = `cd ${shellQuote(p?.id || '<checkout>')} && ${(tau2Sim ? p?.tau2_launcher : p?.launcher) || 'uv run talk-bench'} run --config agent.yaml`
     + ` --domain ${shellQuote(v('sDomain') || 'all')} --split ${shellQuote(v('sSplit') || 'base')} --source ${v('sSource')}`
-    + (ids.length ? ` --scenario-ids ${ids.slice(0, 4).join(',')}${ids.length > 4 ? `,… (${ids.length} ids)` : ''}` : '');
+    + (ids.length ? ` --scenario-ids ${ids.slice(0, 4).join(',')}${ids.length > 4 ? `,… (${ids.length} ids)` : ''}` : '')
+    + (complexity ? ` --speech-complexity ${complexity}` : '');
 }
 
 /* where the YAML comes from */
@@ -2844,7 +2867,6 @@ function renderAgentSource() {
     box.innerHTML = `<div class="preset-grid">${AGENT_PRESETS.map(p => `
       <button type="button" class="preset${testState.preset === p.id ? ' active' : ''}" data-preset="${p.id}">
         <div class="p-name">${p.modality === 'voice' ? ICONS.mic : p.modality === 'text' ? ICONS.chat : ICONS.bot}${esc(p.label)}</div>
-        <div class="p-desc">${esc(p.desc)}</div>
         <div class="p-mod" title="${esc(p.module)}">${esc(p.module)}</div>
       </button>`).join('')}</div>`;
   } else if (testState.tab === 'import') {
@@ -2852,22 +2874,21 @@ function renderAgentSource() {
       <div class="actions-row" style="margin-top:0">
         <label class="navbtn" style="cursor:pointer">Choose a YAML / JSON file…<input type="file" id="impFile" accept=".yaml,.yml,.json" hidden></label>
         <select id="impSample" style="max-width:420px;padding:5px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px">
-          <option value="">…or load a sample from a checkout's samples/</option>
+          <option value="">Load a sample…</option>
           ${(currentProject()?.projects || []).map(p => {
             const list = (currentProject()?.samples || []).filter(s => s.project === p.name);
             return list.length ? `<optgroup label="${esc(p.name)}/samples">${list.map(s =>
               `<option value="${esc(s.file)}" data-project="${esc(p.name)}">${esc(s.file)} — ${esc(s.name || '')} (${esc(shortModule(s.module))})</option>`).join('')}</optgroup>` : '';
           }).join('')}
         </select>
-        <span class="muted" style="font-size:12px" id="impStatus">or paste YAML into the editor below</span>
+        <span class="muted" style="font-size:12px" id="impStatus"></span>
       </div>`;
   } else {
     const list = testState.options.archived || [];
     box.innerHTML = `<div class="form-grid" style="margin-top:0"><div class="field wide">
-      <label for="archSel">Agent configs recorded in archived runs — newest first (${list.length})</label>
+      <label for="archSel">Archived runs (${list.length})</label>
       <select id="archSel"><option value="">pick a run's agent…</option>${list.map((a, i) =>
         `<option value="${i}">${esc(a.agent.name)} · ${esc(shortModule(a.agent.module))}${agentKeyParam(a.agent) ? ` · ${esc(agentKeyParam(a.agent))}` : ''} · ${esc(a.domain || '?')}/${esc(a.split || '?')} · ${esc((a.timestamp || '').slice(0, 10))} · ${a.run_paths.length} run${a.run_paths.length === 1 ? '' : 's'}</option>`).join('')}</select>
-      <span class="help">Fills the editor with that run's agent config and selects its source, domain and split — or open a run and press “Re-run this agent…”.</span>
     </div></div>`;
   }
 }
@@ -2877,9 +2898,7 @@ function applyPreset(id) {
   if (!p) return;
   fillAgentYaml(p.yaml, id);
   renderAgentSource();
-  const c = compactAgent(p.yaml);
-  setAgentStatus(`preset “${p.label}” loaded — ` + (c?.fields.length ? `paste the ${c.fields.map(k => QUICK_FIELDS[k].noun).join(' and ')}, then start`
-    : c ? 'start it as is, or open Edit full YAML to change it' : 'edit the YAML, then start'));
+  setAgentStatus(`preset “${p.label}” loaded`);
 }
 
 async function prefillFromRun(runPath) {
@@ -2892,6 +2911,7 @@ async function prefillFromRun(runPath) {
   applySettings({
     source: (d.scenarios || []).some(s => /-tau2-/.test(s.id)) ? 'tau2' : 'talk_bench',
     domain: rc.domain, split: rc.split,
+    user_simulator: d.user_simulator?.engine === 'tau2' ? 'tau2' : 'talk_bench',
   });
   // tick exactly the scenarios that run covered when it was a subset of the split
   await loadScenarioCatalog((d.scenarios || []).map(s => s.id));
@@ -2906,9 +2926,9 @@ async function loadJobIntoEditor(id) {
   const d = await getJSON(`/api/test/jobs/${encodeURIComponent(id)}?offset=0`);
   const j = d.job;
   fillAgentYaml(d.config_yaml || '');
-  applySettings({ source: j.source, domain: j.domain, split: j.split, scenario_ids: jobScenarioIds(j) });
+  applySettings({ source: j.source, domain: j.domain, split: j.split, scenario_ids: jobScenarioIds(j), user_simulator: j.user_simulator || 'talk_bench', speech_complexity: j.speech_complexity || '' });
   document.getElementById('agentCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  setAgentStatus(`loaded from the test started ${fmtWhen(j.started)} — edit, then start`);
+  setAgentStatus(`loaded from the test started ${fmtWhen(j.started)}`);
 }
 
 /* jobs table + log */
@@ -2941,7 +2961,9 @@ function jobRowHTML(j) {
   <tr class="${testState.selected === j.id ? 'tr-selected' : ''}">
     <td class="nowrap">${jobStatusHTML(j)}</td>
     <td><b>${esc(j.agent_name)}</b><div class="subscore">${esc(shortModule(j.module))}${j.resume_of ? ' · resume' : ''}</div></td>
-    <td class="nowrap">${esc(j.source)}${j.project_name && j.project_name !== 'talk-bench' ? `<div class="subscore">${esc(j.project_name)}</div>` : ''}</td>
+    <td class="nowrap">${esc(j.source)}${j.project_name && j.project_name !== 'talk-bench' ? `<div class="subscore">${esc(j.project_name)}</div>` : ''}${
+      j.user_simulator === 'tau2' ? '<div class="subscore">τ² user simulator</div>' : ''}${
+      j.speech_complexity ? `<div class="subscore">complexity ${esc(j.speech_complexity)}</div>` : ''}</td>
     <td class="nowrap">${esc(j.domain)} / ${esc(j.split)}${jobScenarioIds(j).length
       ? `<div class="subscore" title="${esc(jobScenarioIds(j).join(', '))}">${jobScenarioIds(j).length} scenario id${jobScenarioIds(j).length === 1 ? '' : 's'}</div>` : ''}</td>
     <td class="nowrap"><span class="mono muted">${esc(fmtWhen(j.started))}</span><div class="subscore">${fmtElapsed(j.started, j.finished)}</div></td>
@@ -2951,14 +2973,24 @@ function jobRowHTML(j) {
   </tr>`;
 }
 
+const JOBS_COLLAPSED = 3;  // newest tests listed before "Show all"
+
 function renderJobRows() {
   const rows = document.getElementById('jobRows');
   if (!rows) return;
-  rows.innerHTML = testState.jobs.map(jobRowHTML).join('');
+  // collapsed: the newest few, plus any older one that is still running or whose log is open
+  const collapsed = testState.jobs.filter((j, i) => i < JOBS_COLLAPSED
+    || j.status === 'running' || j.status === 'cancelling' || j.id === testState.selected);
+  const hidden = testState.jobs.length - collapsed.length;
+  rows.innerHTML = (testState.showAllJobs ? testState.jobs : collapsed).map(jobRowHTML).join('');
+  document.getElementById('jobsMoreWrap').hidden = !hidden;
+  const more = document.getElementById('jobsMore');
+  more.classList.toggle('open', testState.showAllJobs);
+  more.title = testState.showAllJobs ? 'Show fewer' : `Show all ${testState.jobs.length} tests`;
+  more.setAttribute('aria-label', more.title);
+  more.setAttribute('aria-expanded', testState.showAllJobs);
   const running = testState.jobs.filter(j => j.status === 'running' || j.status === 'cancelling').length;
-  document.getElementById('jobsHint').textContent = running
-    ? `${running} running — runs are copied into this archive as scenarios finish`
-    : testState.jobs.length ? 'runs are copied into this archive when they finish' : '';
+  document.getElementById('jobsHint').textContent = running ? `${running} running` : '';
   document.getElementById('jobsEmpty').hidden = !!testState.jobs.length;
 }
 
@@ -3041,13 +3073,14 @@ async function startTest() {
   const text = document.getElementById('agentYaml').value;
   if (!text.trim()) { status.textContent = 'The agent.yaml editor is empty.'; return; }
   const v = id => document.getElementById(id).value.trim();
-  const payload = { config_text: text, source: v('sSource'), domain: v('sDomain'), split: v('sSplit') || 'base', scenario_ids: pickedScenarioIds() };
+  const payload = { config_text: text, source: v('sSource'), domain: v('sDomain'), split: v('sSplit') || 'base', scenario_ids: pickedScenarioIds(), user_simulator: v('sUserSim'),
+    speech_complexity: v('sSource') === 'tau2' ? v('sComplexity') || null : null };
   const btn = document.getElementById('startTestBtn');
   btn.disabled = true;
   status.textContent = 'starting…';
   try {
     const res = await postJSON('/api/test/jobs', payload);
-    status.textContent = `started ${res.job.agent_name} on ${res.job.domain}/${res.job.split}`;
+    status.textContent = `started ${res.job.agent_name} on ${res.job.domain}/${res.job.split}${res.job.user_simulator === 'tau2' ? ' with the τ² user simulator' : ''}`;
     await refreshJobs(true);
     selectJob(res.job.id);
   } catch (e) {
@@ -3072,6 +3105,7 @@ async function renderTest(params) {
   testState.preset = null;
   testState.showYaml = false;
   testState.jobsJSON = '';
+  testState.showAllJobs = false;
   testState.catalog = [];
   testState.catalogKey = '';
   testState.picked = new Set();
@@ -3079,15 +3113,13 @@ async function renderTest(params) {
   $main.innerHTML = `
   <div class="crumbs"><a href="#">All runs</a> / Run test</div>
   <div class="card">
-    <h2 style="margin-top:0">Run a test</h2>
-    <p class="muted" style="font-size:12.5px;margin:-4px 0 0">Write the agent's <code>agent.yaml</code> — from a preset, an imported file, or an archived run — pick the scenarios, and the viewer runs
-      <code>talk-bench run --config agent.yaml --domain … --split … --source … [--scenario-ids …]</code> in the local <code>talk-bench</code> checkout — or in <code>talk-bench-talkdesk</code> for <code>talkdesk_agent</code> modules, the only venv they import from. The run is copied into this archive as it progresses.</p>
+    <h2 style="margin:0">Run a test</h2>
     ${project ? '' : `<div class="notice warn">No <b>talk-bench</b> checkout was found
       (looked for <code>talk-bench/</code> under <code>VIEWER_SOURCE_REPOS</code>, <code>~/GitHub/ai-ds-research</code> and <code>~/Documents/tau2-bench-fork/ai-ds-research</code>). Clone one to run tests.</div>`}
   </div>
   <div class="card" id="agentCard">
     <div class="card-head" style="padding:0 0 12px;border-bottom:none;flex-wrap:wrap">
-      <h3 style="margin:0">1 · Agent — <span class="mono" style="font-weight:500">--config agent.yaml</span></h3>
+      <h3 style="margin:0">1 · Agent</h3>
       <div class="seg" id="agentTabs" style="margin-left:auto">
         <button type="button" data-tab="presets">Presets</button>
         <button type="button" data-tab="import">Import YAML / JSON</button>
@@ -3099,11 +3131,11 @@ async function renderTest(params) {
     <div class="form-grid">
       <div class="field wide">
         <div class="field" id="yamlBox">
-          <label for="agentYaml">agent.yaml — written as-is and passed to talk-bench with <code>--config</code></label>
+          <label for="agentYaml">agent.yaml</label>
           <textarea id="agentYaml" rows="18" spellcheck="false" placeholder="agent:&#10;  name: my-agent&#10;  module: voice_agent.cascaded.CascadedAgent&#10;  params:&#10;    llm_model: azure/gpt-4.1"></textarea>
         </div>
         <div class="yaml-foot">
-          <span class="help" id="agentInfo">Pick a preset, import a file, or paste an agent YAML here.</span>
+          <span class="help" id="agentInfo"></span>
           <button class="navbtn" type="button" id="yamlToggle" hidden>Edit full YAML</button>
         </div>
       </div>
@@ -3112,7 +3144,7 @@ async function renderTest(params) {
     <div class="muted" id="agentStatus" style="font-size:12px;margin-top:10px" aria-live="polite"></div>
   </div>
   <div class="card">
-    <h3 style="margin:0">2 · Scenarios — <span class="mono" style="font-weight:500">--source · --domain · --split · --scenario-ids</span></h3>
+    <h3 style="margin:0">2 · Scenarios</h3>
     ${settingsFormHTML(project)}
     <div class="actions-row">
       <button class="btn primary" type="button" id="startTestBtn"${project ? '' : ' disabled'}>${ICONS.play}Start test</button>
@@ -3127,7 +3159,8 @@ async function renderTest(params) {
         <tbody id="jobRows"></tbody>
       </table>
     </div>
-    <div class="empty" id="jobsEmpty" hidden>No tests yet — configure an agent above and press Start test.</div>
+    <div class="empty" id="jobsEmpty" hidden>No tests yet.</div>
+    <div id="jobsMoreWrap" style="padding:4px 16px;text-align:center;border-top:1px solid var(--border-soft)" hidden><button class="more-chev" type="button" id="jobsMore">${ICONS.chevron}</button></div>
   </div>
   <div class="card" id="logCard" hidden>
     <div class="report-head">
@@ -3206,6 +3239,7 @@ async function renderTest(params) {
     if (e.target.id === 'sSource') refreshDomainOptions();
     else if (e.target.id === 'sDomain') refreshSplitOptions();
     else if (e.target.id === 'sSplit') { updateCmdPreview(); loadScenarioCatalog(); }
+    else if (e.target.id === 'sUserSim' || e.target.id === 'sComplexity') updateCmdPreview();
   });
   settings.addEventListener('input', e => {
     if (e.target.id === 'scenFilter') renderScenarioList();
@@ -3220,6 +3254,7 @@ async function renderTest(params) {
   document.getElementById('scenNone').addEventListener('click', () => { testState.picked = new Set(); renderScenarioList(); });
   document.getElementById('startTestBtn').addEventListener('click', startTest);
 
+  document.getElementById('jobsMore').addEventListener('click', () => { testState.showAllJobs = !testState.showAllJobs; renderJobRows(); });
   document.getElementById('jobsTable').addEventListener('click', async e => {
     const b = e.target.closest('button');
     if (!b) return;

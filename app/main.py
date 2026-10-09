@@ -129,6 +129,11 @@ def _parse_timestamp(run_name: str) -> str | None:
     return f"{t[0:4]}-{t[4:6]}-{t[6:8]} {t[9:11]}:{t[11:13]}:{t[13:15]}Z"
 
 
+def _is_text_module(module: str) -> bool:
+    # text_bridge drives a voice agent class over text, so it is a text run despite the package name
+    return any(k in module for k in ("text_agent", "TextAgent", "text_bridge", "TextBridge"))
+
+
 def _run_modality(results: dict[str, Any] | None, scenarios: list[Path]) -> str | None:
     """"text" or "voice" (None when a run has no scenarios to judge by).
 
@@ -136,8 +141,7 @@ def _run_modality(results: dict[str, Any] | None, scenarios: list[Path]) -> str 
     run_context, so fall back to whether the first scenarios recorded audio.
     """
     module = (((results or {}).get("run_context") or {}).get("agent_config") or {}).get("module") or ""
-    # text_bridge drives a voice agent class over text, so it is a text run despite the package name
-    if "text_agent" in module or "TextAgent" in module or "text_bridge" in module or "TextBridge" in module:
+    if _is_text_module(module):
         return "text"
     if "voice_agent" in module or "TalkdeskAgent" in module:
         return "voice"
@@ -145,6 +149,13 @@ def _run_modality(results: dict[str, Any] | None, scenarios: list[Path]) -> str 
         if any((sdir / f"{name}.wav").exists() for name in ("conversation", "user", "agent")):
             return "voice"
     return "text" if scenarios else None
+
+
+def _run_user_simulator(run_dir: Path) -> dict[str, Any] | None:
+    """user_simulator.json, written by tau2_user_sim/launch.py into runs whose voice
+    scenarios used tau2-bench's native user simulator (absent = talk-bench's own)."""
+    marker = _load_json(run_dir / "user_simulator.json")
+    return marker if isinstance(marker, dict) and marker.get("engine") else None
 
 
 def build_index() -> list[dict[str, Any]]:
@@ -166,6 +177,7 @@ def build_index() -> list[dict[str, Any]]:
             "scenario_count": len(scenarios),
             "has_results": results is not None,
             "modality": _run_modality(results, scenarios),
+            "user_simulator": (_run_user_simulator(run_dir) or {}).get("engine"),
         }
         if results:
             entry.update(
@@ -315,7 +327,10 @@ def api_run(path: str = Query(...)):
             "domain": summary.get("domain"),
         })
 
-    payload = {"path": path, "results": results, "evaluation": eval_res, "scenarios": scenarios}
+    payload = {
+        "path": path, "results": results, "evaluation": eval_res, "scenarios": scenarios,
+        "user_simulator": _run_user_simulator(run_dir),
+    }
     if len(_run_cache) >= _RUN_CACHE_MAX:
         _run_cache.pop(next(iter(_run_cache)))
     _run_cache[path] = payload
@@ -842,6 +857,19 @@ _MODALITY_BRIEF = {
 }
 
 
+def _user_simulator_line(run_dir: Path) -> list[str]:
+    """Context line for runs whose caller was tau2-bench's simulator, so the analyst
+    does not attribute its turns or hang-ups to talk-bench's own simulator."""
+    marker = _run_user_simulator(run_dir)
+    if not marker:
+        return []
+    return [
+        f"User simulator: tau2-bench native ({marker.get('simulator')}, LLM {marker.get('llm')}) — "
+        "the caller's words, interruptions and hang-ups came from tau2's voice user simulator "
+        "(tau2 voice guidelines + task instructions, ###STOP### to end), not talk-bench's EventDrivenSimulator"
+    ]
+
+
 def _modality_brief(modality: str | None) -> str:
     brief = _MODALITY_BRIEF.get(modality or "")
     return brief + "\n\n" if brief else ""
@@ -883,6 +911,7 @@ def _scenario_context(sdir: Path, modality: str | None = None) -> str:
         f"Scenario: {sdir.name}",
         f"Agent: {results.get('agent_name', 'unknown')}",
         f"Modality: {modality or 'unknown'}",
+        *_user_simulator_line(run_dir),
         f"End reason: {meta.get('end_reason')} · duration: {round((meta.get('total_duration_ms') or 0) / 1000)}s",
     ]
     if scenario:
@@ -1038,6 +1067,7 @@ def _run_context(run_dir: Path, modality: str | None = None) -> str:
         f"Run: {run_dir.name}",
         f"Agent: {results.get('agent_name') or 'unknown'}",
         f"Modality: {modality or 'unknown'}",
+        *_user_simulator_line(run_dir),
     ]
     if results:
         parts.append(
@@ -1352,6 +1382,16 @@ _LOADED_RE = re.compile(r"Loaded (\d+) scenarios")
 _SCORE_RE = re.compile(r"^Score:\s*([\d.]+)%\s*\((\d+)/(\d+)\s*passed\)")
 _RESULTS_RE = re.compile(r"^Results:\s*(.+?)[/\\]results\.json\s*$")
 _TOKEN_RE = re.compile(r"^[\w.:,/=+@%\-]+$")
+# talk_bench = talk-bench's own simulator; tau2 = tau2-bench's native user simulator,
+# swapped in by tau2_user_sim/launch.py (which runs the same CLI in the checkout's venv)
+USER_SIMULATORS = ("talk_bench", "tau2")
+TAU2_SIM_LAUNCHER = BASE_DIR / "tau2_user_sim" / "launch.py"
+# tau2's SpeechComplexity presets (v1.0.1) for --speech-complexity on tau2 tasks: the
+# caller's persona (verbosity, whether it interrupts), voice and audio effects
+SPEECH_COMPLEXITIES = (
+    "control", "regular", "control_audio", "control_accents", "control_behavior",
+    "control_audio_accents", "control_audio_behavior", "control_accents_behavior",
+)
 
 
 def _slug(text: str) -> str:
@@ -1376,10 +1416,16 @@ def _uv_bin() -> str | None:
     return next((c for c in candidates if Path(c).is_file()), None)
 
 
-def _launcher(root: Path) -> list[str] | None:
+def _launcher(root: Path, user_simulator: str = "talk_bench") -> list[str] | None:
     """How to invoke the CLI in a checkout: `uv run talk-bench` (what the docs use),
-    or the venv's shim when uv is not installed."""
+    or the venv's shim when uv is not installed. With the tau2 user simulator it is the
+    same CLI started through tau2_user_sim/launch.py in that checkout's venv."""
     uv = _uv_bin()
+    if user_simulator == "tau2":
+        if uv:
+            return [uv, "run", "python", str(TAU2_SIM_LAUNCHER)]
+        python = root / ".venv" / "bin" / "python"
+        return [str(python), str(TAU2_SIM_LAUNCHER)] if python.is_file() else None
     if uv:
         return [uv, "run", "talk-bench"]
     shim = root / ".venv" / "bin" / "talk-bench"
@@ -1561,6 +1607,7 @@ def _describe_project(root: Path) -> dict[str, Any]:
     refuses to start without that one wherever the test runs (the checkout's own .env
     loads on top of it, see the section comment above)."""
     launcher = _launcher(root)
+    tau2_launcher = _launcher(root, "tau2")
     env_root = _talk_bench_lib_root(root) or root
     return {
         "id": str(root),
@@ -1568,6 +1615,7 @@ def _describe_project(root: Path) -> dict[str, Any]:
         "packages": sorted(_project_packages(root)),
         "has_env": (env_root / ".env").is_file(),
         "launcher": " ".join([Path(launcher[0]).name, *launcher[1:]]) if launcher else None,
+        "tau2_launcher": " ".join([Path(tau2_launcher[0]).name, *tau2_launcher[1:]]) if tau2_launcher else None,
     }
 
 
@@ -1806,7 +1854,7 @@ def _new_job(**fields: Any) -> dict[str, Any]:
         "status": "running", "pid": None, "exit_code": None, "cmd": [], "cwd": None,
         "run_dir": None, "run_name": None, "run_path": None, "synced_at": None,
         "progress": {"done": 0, "total": None}, "score": None, "error": None, "log_size": 0,
-        "resume_of": None, "scenario_ids": [],
+        "resume_of": None, "scenario_ids": [], "user_simulator": "talk_bench", "speech_complexity": None,
         **fields,
     }
 
@@ -2029,6 +2077,8 @@ class TestJobBody(BaseModel):
     domain: str
     split: str = "base"
     scenario_ids: list[str] = []  # optional --scenario-ids; empty = the whole split
+    user_simulator: str = "talk_bench"  # talk_bench | tau2 (voice agents only)
+    speech_complexity: str | None = None  # --speech-complexity, tau2 source only
 
 
 @app.get("/api/test/jobs")
@@ -2040,12 +2090,26 @@ def api_test_jobs():
 @app.post("/api/test/jobs")
 def api_start_test(body: TestJobBody):
     """Start `talk-bench run --config <agent.yaml> --domain X --split Y --source S
-    [--scenario-ids a,b]` in the checkout whose workspace provides the agent module."""
+    [--scenario-ids a,b]` in the checkout whose workspace provides the agent module —
+    through tau2_user_sim/launch.py when the tau2 user simulator is picked."""
     if len(body.config_text) > 200_000:
         raise HTTPException(status_code=413, detail="agent config is too large")
     agent, _extra = _parse_config_text(body.config_text)  # same checks talk-bench's AgentConfig makes
+    if body.user_simulator not in USER_SIMULATORS:
+        raise HTTPException(status_code=400, detail=f"user_simulator must be one of {', '.join(USER_SIMULATORS)}")
+    if body.user_simulator == "tau2" and _is_text_module(agent["module"]):
+        raise HTTPException(
+            status_code=400,
+            detail="the tau2 user simulator option is for voice agents — text runs on tau2 tasks already use tau2's own simulator",
+        )
+    speech_complexity = body.speech_complexity or None
+    if speech_complexity is not None:
+        if body.source != "tau2":
+            raise HTTPException(status_code=400, detail="--speech-complexity applies to tau2 tasks only")
+        if speech_complexity not in SPEECH_COMPLEXITIES:
+            raise HTTPException(status_code=400, detail=f"speech_complexity must be one of {', '.join(SPEECH_COMPLEXITIES)}")
     root = _test_project_root(agent["module"])
-    launcher = _launcher(root)
+    launcher = _launcher(root, body.user_simulator)
     if launcher is None:
         raise HTTPException(status_code=500, detail="neither uv nor .venv/bin/talk-bench was found for this checkout")
     if body.source not in ("tau2", "talk_bench"):
@@ -2071,6 +2135,7 @@ def api_start_test(body: TestJobBody):
         project=str(root), project_name=root.name, runs_root=str(root / output_dir),
         agent_name=agent["name"], module=agent["module"],
         source=body.source, domain=domain, split=split, scenario_ids=scenario_ids,
+        user_simulator=body.user_simulator, speech_complexity=speech_complexity,
     )
     d = _job_dir(job["id"])
     d.mkdir(parents=True, exist_ok=True)
@@ -2082,6 +2147,8 @@ def api_start_test(body: TestJobBody):
     ]
     if scenario_ids:
         cmd += ["--scenario-ids", ",".join(scenario_ids)]
+    if speech_complexity:
+        cmd += ["--speech-complexity", speech_complexity]
     _start_job(job, cmd, root)
     return {"job": _public_job(job)}
 
@@ -2154,11 +2221,16 @@ def api_resume_test(job_id: str):
         root = Path(parent["project"])
     if not (root / "pyproject.toml").is_file():
         raise HTTPException(status_code=404, detail="the checkout this test ran in is gone")
-    launcher = _launcher(root)
+    # a resumed run keeps the user simulator its first scenarios ran with
+    launcher = _launcher(root, parent.get("user_simulator") or "talk_bench")
     if launcher is None:
         raise HTTPException(status_code=500, detail="neither uv nor .venv/bin/talk-bench was found for this checkout")
     inherited = {
-        k: parent.get(k) for k in ("runs_root", "agent_name", "module", "source", "domain", "split", "scenario_ids")
+        k: parent.get(k)
+        for k in (
+            "runs_root", "agent_name", "module", "source", "domain", "split", "scenario_ids",
+            "user_simulator", "speech_complexity",
+        )
     }
     job = _new_job(
         **inherited, project=str(root), project_name=root.name,

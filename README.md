@@ -82,6 +82,41 @@ progress and a streaming log, can be stopped (the process group is killed; talk-
 graceful stop) and resumed with `--resume`, and the run is cloned into the archive as scenarios
 finish and when the run ends.
 
+**User simulator.** `talk-bench` (default) is talk-bench's own `EventDrivenSimulator`. `tau2 native`
+has tau2-bench's own voice user simulator play the caller in a voice run, and the page then runs
+
+```bash
+uv run python <viewer>/tau2_user_sim/launch.py run …same arguments…
+```
+
+in the same checkout. `tau2_user_sim/launch.py` is the talk-bench CLI with one change made in that
+process only: each voice scenario's simulator is `Tau2NativeVoiceUserSimulator`
+(`tau2_user_sim/tau2_native_user_simulator.py`). Nothing in `ai-ds-research` is modified. What the
+caller says and when it hangs up come from the vendored tau2 package at runtime: tau2's voice
+guidelines (`simulation_guidelines_voice.md`), persona and `<scenario>` prompt, its `generate` call
+with the CUSTOMER role reminder, the `###STOP###` / `###TRANSFER###` / `###OUT-OF-SCOPE###` tokens,
+`[Both parties silent for X seconds]` annotations, and its interruption-decision prompt. TTS/ASR,
+audio effects, *when* the simulator is woken, and scoring stay talk-bench's. tau2's 200 ms tick
+loop maps onto talk-bench's wakes: agent turn finished → reply; silence threshold → check-in;
+agent speaking for N s → tau2's YES/NO interruption policy. Native talk-bench tasks work too: their
+`user_scenario` is rendered in tau2's instruction layout. Limits:
+
+- voice agents only — a text run on tau2 tasks already uses tau2's own simulator (`Tau2FaithfulUserSimulator`)
+- no backchannels ("uh-huh"), because talk-bench has no backchannel action
+- no user-side tools, the same as the text-channel tau2 simulator, so tasks where the caller
+  must act on their own phone (tau2 telecom) cannot finish; the log warns
+- the simulator's LLM is `simulator.llm_model` from the checkout's `talkbench.yaml`; the
+  interruption decision uses it too unless `TAU2_USER_SIM_DECISION_LLM` is set (tau2 itself uses `gpt-4.1`)
+- talk-bench's simulator / mid-turn / terminal-hangup gates are switched off for these runs, because
+  they would override tau2's decisions
+
+`--speech-complexity` (tau2 tasks only) picks tau2's per-task caller persona, voice and audio effects
+for either simulator. `regular` is tau2's default: noisy audio and terse callers who interrupt. It
+is the only setting where the tau2 simulator interrupts; without it the caller is tau2's default
+persona, as in `control`. Runs made this way carry `user_simulator.json` and show a **τ² user** tag in
+the run list. Resume keeps the simulator. The tests run in a talk-bench venv:
+`~/GitHub/ai-ds-research/talk-bench/.venv/bin/python -m pytest tau2_user_sim/tests -q -p no:cacheprovider`.
+
 Requirements: `uv` (or `.venv/bin/talk-bench` in the checkout) and a populated `.env` in the
 checkout. Agents that use an MCP tool server (Talkdesk, ElevenLabs with `tool_source: mcp`) need
 that server started by hand with the same `--source` / `--domain`; the page warns when the YAML
