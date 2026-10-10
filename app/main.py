@@ -11,6 +11,7 @@ Data layout:
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
@@ -24,10 +25,13 @@ import time
 import uuid
 import wave
 from collections import Counter
-from datetime import datetime, timezone
+from contextlib import asynccontextmanager, contextmanager
+from datetime import datetime, timedelta, timezone
+from functools import cache, lru_cache
 from pathlib import Path
 from typing import Any
 
+import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
@@ -36,44 +40,36 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-# VIEWER_DATA_DIR points the archive at shared storage (e.g. a mounted Azure
-# Files share) so several hosts can serve and upload to the same runs.
-DATA_DIR = Path(os.environ.get("VIEWER_DATA_DIR") or BASE_DIR / "data").expanduser()
-DATA_DIR.mkdir(parents=True, exist_ok=True)  # fresh clone, or a share with no runs yet
-STATIC_DIR = Path(__file__).resolve().parent / "static"
-
-# LLM credentials and model come from this project's own .env (see .env.example).
+# Settings, LLM credentials and model come from this project's own .env (see .env.example).
 # Tests launched from the Run test page get the pre-.env environment, so the
 # checkout's own .env decides their credentials (see _child_env).
 _BASE_ENV = dict(os.environ)
 load_dotenv(BASE_DIR / ".env")
+# VIEWER_DATA_DIR keeps the archive elsewhere (e.g. a mounted share). Run one viewer per data dir:
+# the run index, run cache and upload staging are per-process.
+DATA_DIR = Path(os.environ.get("VIEWER_DATA_DIR") or BASE_DIR / "data").expanduser()
+DATA_DIR.mkdir(parents=True, exist_ok=True)  # fresh clone, or a new VIEWER_DATA_DIR
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 LLM_MODEL = os.environ.get("VIEWER_LLM_MODEL", "azure/gpt-4.1")
 
 TS_RE = re.compile(r"(\d{8}T\d{6}Z)")
 
-app = FastAPI(title="talk-bench runs viewer")
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # scheduled tests start with the server, not on import (scripts may import this module)
+    threading.Thread(target=_scheduler_loop, name="test-scheduler", daemon=True).start()
+    yield
 
 
-class ApiGZipMiddleware(GZipMiddleware):
-    """Compress only /api/ JSON. Static/audio responses are left alone so
-    Range requests (audio seeking) keep working and wav bytes aren't re-crunched."""
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope.get("path", "").startswith("/api/"):
-            await super().__call__(scope, receive, send)
-        else:
-            await self.app(scope, receive, send)
+app = FastAPI(title="talk-bench runs viewer", lifespan=_lifespan)
 
 
-app.add_middleware(ApiGZipMiddleware, minimum_size=1024)
+# Starlette's GZip skips 206 (Range) and audio/* responses, so wav seeking is unaffected
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
-_index_cache: list[dict[str, Any]] | None = None
-# agent / simulator config recorded in each archived run's results.json, keyed by run
+# agent config recorded in each archived run's results.json, keyed by run
 # name — feeds the "from archived run" picker on the Run test page
 _archived_run_context: dict[str, dict[str, Any]] = {}
-# Run detail payloads are costly to build; cache a few, cleared on data changes.
-_run_cache: dict[str, dict[str, Any]] = {}
-_RUN_CACHE_MAX = 16
 
 
 class PublicDataFiles(StaticFiles):
@@ -91,18 +87,20 @@ def _load_json(path: Path) -> Any | None:
         return None
 
 
-def _safe_path(rel: str) -> Path:
-    p = (DATA_DIR / rel).resolve()
-    if not p.is_relative_to(DATA_DIR.resolve()):
-        raise HTTPException(status_code=400, detail="path escapes data dir")
-    return p
+def _write_json(path: Path, data: Any, indent: int = 1) -> None:
+    """Write via a temp file + replace: a torn write would fail to parse and read back as empty."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=indent))
+    tmp.replace(path)
 
 
 def _data_dir_at_depth(rel: str, depth: int, label: str) -> Path:
     parts = Path(rel).parts
-    if len(parts) != depth or any(part.startswith(".") or part in {"..", ""} for part in parts):
+    if len(parts) != depth or any(part.startswith(".") for part in parts):
         raise HTTPException(status_code=400, detail=f"invalid {label} path")
-    p = _safe_path(rel)
+    p = (DATA_DIR / rel).resolve()
+    if not p.is_relative_to(DATA_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="path escapes data dir")
     if not p.is_dir():
         raise HTTPException(status_code=404, detail=f"{label} not found")
     return p
@@ -158,6 +156,7 @@ def _run_user_simulator(run_dir: Path) -> dict[str, Any] | None:
     return marker if isinstance(marker, dict) and marker.get("engine") else None
 
 
+@cache
 def build_index() -> list[dict[str, Any]]:
     global _archived_run_context
     runs = []
@@ -192,7 +191,6 @@ def build_index() -> list[dict[str, Any]]:
             if isinstance(run_context, dict) and isinstance(run_context.get("agent_config"), dict):
                 contexts[run_dir.name] = {
                     "agent": run_context["agent_config"],
-                    "simulator": run_context.get("simulator_config"),
                     "domain": run_context.get("domain"),
                     "split": run_context.get("split"),
                     # tau2-sourced scenarios are named <domain>-tau2-<n>
@@ -203,8 +201,6 @@ def build_index() -> list[dict[str, Any]]:
             entry["agent_name"] = run_dir.name.split("-1trials-")[0]
         if eval_res:
             entry["eval_final"] = eval_res.get("final")
-            entry["eval_resolution"] = eval_res.get("resolution")
-            entry["eval_experience"] = eval_res.get("experience")
         runs.append(entry)
     runs.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
     _archived_run_context = contexts
@@ -223,14 +219,6 @@ def _load_stars() -> set[str]:
     return set(stars) if isinstance(stars, list) else set()
 
 
-def _save_stars(stars: set[str]) -> None:
-    # write + replace, like the notes file: a torn write on shared storage would
-    # fail to parse and silently read back as "no stars"
-    temp_file = STARS_FILE.with_name(f"{STARS_FILE.name}.tmp")
-    temp_file.write_text(json.dumps(sorted(stars), indent=1))
-    temp_file.replace(STARS_FILE)
-
-
 def _load_run_notes() -> dict[str, str]:
     notes = _load_json(RUN_NOTES_FILE)
     if not isinstance(notes, dict):
@@ -242,21 +230,10 @@ def _load_run_notes() -> dict[str, str]:
     }
 
 
-def _save_run_notes(notes: dict[str, str]) -> None:
-    temp_file = RUN_NOTES_FILE.with_name(f"{RUN_NOTES_FILE.name}.tmp")
-    temp_file.write_text(
-        json.dumps(dict(sorted(notes.items())), ensure_ascii=False, indent=2) + "\n"
-    )
-    temp_file.replace(RUN_NOTES_FILE)
-
-
 @app.get("/api/runs")
 def api_runs():
-    global _index_cache
-    if _index_cache is None:
-        _index_cache = build_index()
     return {
-        "runs": _index_cache,
+        "runs": build_index(),
         "stars": sorted(_load_stars()),
         "notes": _load_run_notes(),
         "llm_model": LLM_MODEL,
@@ -272,7 +249,7 @@ def api_star(path: str = Form(...), starred: bool = Form(...)):
             stars.add(path)
         else:
             stars.discard(path)
-        _save_stars(stars)
+        _write_json(STARS_FILE, sorted(stars))
     return {"path": path, "starred": starred}
 
 
@@ -291,16 +268,18 @@ def api_note(path: str = Form(...), note: str = Form("")):
             notes[path] = note
         else:
             notes.pop(path, None)
-        _save_run_notes(notes)
+        _write_json(RUN_NOTES_FILE, dict(sorted(notes.items())), indent=2)
     return {"path": path, "note": note}
 
 
 @app.get("/api/run")
 def api_run(path: str = Query(...)):
-    run_dir = _data_dir_at_depth(path, 1, "run")
-    cached = _run_cache.get(path)
-    if cached is not None:
-        return cached
+    return _run_payload(path, _data_dir_at_depth(path, 1, "run"))
+
+
+# run detail payloads are costly to build; keep a few, cleared on data changes (_invalidate_index)
+@lru_cache(maxsize=16)
+def _run_payload(path: str, run_dir: Path) -> dict[str, Any]:
     results = _load_json(run_dir / "results.json")
     eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json")
 
@@ -324,17 +303,12 @@ def api_run(path: str = Query(...)):
             "end_reason": end_reason,
             "turn_count": summary.get("turn_count"),
             "duration_ms": duration_ms,
-            "domain": summary.get("domain"),
         })
 
-    payload = {
+    return {
         "path": path, "results": results, "evaluation": eval_res, "scenarios": scenarios,
         "user_simulator": _run_user_simulator(run_dir),
     }
-    if len(_run_cache) >= _RUN_CACHE_MAX:
-        _run_cache.pop(next(iter(_run_cache)))
-    _run_cache[path] = payload
-    return payload
 
 
 EVAL_METRICS = (
@@ -353,11 +327,7 @@ def _compare_side(path: str) -> tuple[dict[str, Any], dict[str, Any]]:
         "path": path,
         "agent_name": results.get("agent_name"),
         "modality": _run_modality(results, scenarios),
-        "timestamp": _parse_timestamp(path),
         "domains": sorted((results.get("per_domain") or {}).keys()),
-        "primary_score": results.get("primary_score"),
-        "scenarios_passed": results.get("scenarios_passed"),
-        "scenarios_total": results.get("scenarios_total"),
         "evaluation": {k: eval_res.get(k) for k in EVAL_METRICS} if eval_res else None,
     }
     per = {
@@ -377,7 +347,7 @@ def _mean(values) -> float | None:
 
 def _compare_stats(per: dict[str, Any], ids: list[str]) -> dict[str, Any]:
     """Averages over the *shared* scenarios only, so both sides cover the same tasks."""
-    rows = [per.get(i) or {} for i in ids]
+    rows = [per[i] for i in ids]
     tools = [(r.get("tool_metrics") or {}) for r in rows]
     return {
         "passed": sum(1 for r in rows if r.get("passed")),
@@ -392,6 +362,14 @@ def _compare_stats(per: dict[str, Any], ids: list[str]) -> dict[str, Any]:
     }
 
 
+def _compare_cell(s: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "passed": s.get("passed"), "goal_score": s.get("goal_score"),
+        "end_reason": s.get("end_reason"), "turn_count": s.get("turn_count"),
+        "duration_ms": s.get("total_duration_ms"),
+    }
+
+
 @app.get("/api/compare")
 def api_compare(a: str = Query(...), b: str = Query(...)):
     """Align two runs by scenario id — the point of comparison for text vs voice."""
@@ -400,23 +378,8 @@ def api_compare(a: str = Query(...), b: str = Query(...)):
     side_a, per_a = _compare_side(a)
     side_b, per_b = _compare_side(b)
     shared = sorted(set(per_a) & set(per_b), key=_natural_key)
-    scenarios = []
-    for sid in shared:
-        sa, sb = per_a.get(sid) or {}, per_b.get(sid) or {}
-        scenarios.append({
-            "id": sid,
-            "a": {
-                "passed": sa.get("passed"), "goal_score": sa.get("goal_score"),
-                "end_reason": sa.get("end_reason"), "turn_count": sa.get("turn_count"),
-                "duration_ms": sa.get("total_duration_ms"),
-            },
-            "b": {
-                "passed": sb.get("passed"), "goal_score": sb.get("goal_score"),
-                "end_reason": sb.get("end_reason"), "turn_count": sb.get("turn_count"),
-                "duration_ms": sb.get("total_duration_ms"),
-            },
-        })
-    counts = Counter()
+    scenarios = [{"id": sid, "a": _compare_cell(per_a[sid]), "b": _compare_cell(per_b[sid])} for sid in shared]
+    counts = dict.fromkeys(("both_pass", "a_only", "b_only", "both_fail"), 0)
     for row in scenarios:
         pa, pb = bool(row["a"]["passed"]), bool(row["b"]["passed"])
         counts["both_pass" if pa and pb else "a_only" if pa else "b_only" if pb else "both_fail"] += 1
@@ -426,7 +389,7 @@ def api_compare(a: str = Query(...), b: str = Query(...)):
         "a": side_a,
         "b": side_b,
         "scenarios": scenarios,
-        "counts": {k: counts.get(k, 0) for k in ("both_pass", "a_only", "b_only", "both_fail")},
+        "counts": counts,
         "only_in_a": sorted(set(per_a) - set(per_b), key=_natural_key),
         "only_in_b": sorted(set(per_b) - set(per_a), key=_natural_key),
     }
@@ -540,6 +503,18 @@ def _audio_alignment(sdir: Path, conversation: list | None) -> dict | None:
     return {"origin": origin[0], "duration": round(duration, 3), "spans": spans}
 
 
+def _scenario_results(sdir: Path) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
+    """The parent run's results.json plus this scenario's entry in it and its evaluation
+    session result (without ``turns``, which duplicate conversation.json)."""
+    results = _load_json(sdir.parent / "results.json") or {}
+    eval_res = _load_json(sdir.parent / "talk_bench_evaluation_result.json") or {}
+    summary = next((s for s in results.get("per_scenario") or [] if s.get("scenario_id") == sdir.name), None)
+    session = next((s for s in eval_res.get("session_results") or [] if s.get("session_id") == sdir.name), None)
+    if session:
+        session = {k: v for k, v in session.items() if k != "turns"}
+    return results, summary, session
+
+
 @app.get("/api/scenario")
 def api_scenario(path: str = Query(...)):
     sdir = _data_dir_at_depth(path, 2, "scenario")
@@ -548,18 +523,7 @@ def api_scenario(path: str = Query(...)):
     meta.pop("db_state", None)
 
     # per-scenario scores live in the parent run's result files
-    run_dir = sdir.parent
-    results = _load_json(run_dir / "results.json") or {}
-    scenario_summary = next(
-        (s for s in results.get("per_scenario") or [] if s.get("scenario_id") == sdir.name), None
-    )
-    eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json") or {}
-    session_result = next(
-        (s for s in eval_res.get("session_results") or [] if s.get("session_id") == sdir.name), None
-    )
-    if session_result:
-        # turns duplicate conversation.json; keep the payload lean
-        session_result = {k: v for k, v in session_result.items() if k != "turns"}
+    _, scenario_summary, session_result = _scenario_results(sdir)
     files = []
     for f in sorted(sdir.rglob("*")):
         relative = f.relative_to(sdir)
@@ -587,9 +551,8 @@ def api_scenario(path: str = Query(...)):
 
 
 def _invalidate_index() -> None:
-    global _index_cache
-    _index_cache = None
-    _run_cache.clear()
+    build_index.cache_clear()
+    _run_payload.cache_clear()
 
 
 # ---- folder sync: begin -> chunk (repeated) -> commit ----
@@ -606,8 +569,8 @@ def _staging_dir() -> Path:
     return d
 
 
-def _get_staged(upload_id: str) -> dict[str, Any]:
-    st = _staged.get(upload_id)
+def _get_staged(upload_id: str, pop: bool = False) -> dict[str, Any]:
+    st = _staged.pop(upload_id, None) if pop else _staged.get(upload_id)
     if not st:
         raise HTTPException(status_code=404, detail="unknown or expired upload_id")
     return st
@@ -634,7 +597,7 @@ def upload_dir_begin(
 
 
 @app.post("/api/upload_dir_chunk")
-async def upload_dir_chunk(
+def upload_dir_chunk(
     upload_id: str = Form(...),
     paths: list[str] = Form(...),
     files: list[UploadFile] = File(...),
@@ -657,9 +620,7 @@ async def upload_dir_chunk(
 
 @app.post("/api/upload_dir_commit")
 def upload_dir_commit(upload_id: str = Form(...)):
-    st = _staged.pop(upload_id, None)
-    if not st:
-        raise HTTPException(status_code=404, detail="unknown or expired upload_id")
+    st = _get_staged(upload_id, pop=True)
     target = DATA_DIR / st["run_name"]
     if target.exists():
         shutil.rmtree(target)
@@ -712,6 +673,28 @@ def _dir_signature(root: Path) -> list[tuple[str, int, int]]:
     return sig
 
 
+# the Sync button and test-job snapshots both stage in .sync-tmp-<run>, so they share one lock
+_mirror_lock = threading.Lock()
+
+
+def _mirror_run(src: Path) -> str | None:
+    """Clone a run dir into the archive: "added" / "updated", or None when unchanged. It is
+    staged under a temp name so an interrupted copy is never mistaken for a complete run."""
+    target = DATA_DIR / src.name
+    with _mirror_lock:
+        exists = target.exists()
+        if exists and _dir_signature(src) == _dir_signature(target):
+            return None
+        tmp = DATA_DIR / f".sync-tmp-{src.name}"
+        if tmp.exists():
+            shutil.rmtree(tmp)
+        _clone_dir(src, tmp)
+        if target.exists():
+            shutil.rmtree(target)
+        tmp.rename(target)
+    return "updated" if exists else "added"
+
+
 def _source_repos() -> list[Path]:
     """Existing source checkouts, in priority order, de-duplicated by real path
     (the same checkout can be reachable through a symlink under two names)."""
@@ -739,7 +722,7 @@ def sync_sources():
     try:
         repos = _source_repos()
         if not repos:
-            looked = ", ".join(str(p) for p in SOURCE_REPO_CANDIDATES)
+            looked = os.environ.get("VIEWER_SOURCE_REPOS", "").strip() or ", ".join(str(p) for p in SOURCE_REPO_CANDIDATES)
             raise HTTPException(status_code=404, detail=f"no source checkout found (looked in: {looked})")
         added, updated, unchanged = [], [], 0
         synced: set[str] = set()  # run names are globally unique: first checkout wins
@@ -752,21 +735,11 @@ def sync_sources():
                     if not run.is_dir() or run.name in synced:
                         continue
                     synced.add(run.name)
-                    target = DATA_DIR / run.name
-                    exists = target.exists()
-                    if exists and _dir_signature(run) == _dir_signature(target):
+                    outcome = _mirror_run(run)
+                    if outcome:
+                        (updated if outcome == "updated" else added).append(run.name)
+                    else:
                         unchanged += 1
-                        continue
-                    # stage under a temp name so an interrupted copy is never
-                    # mistaken for a complete run on the next sync
-                    tmp = DATA_DIR / f".sync-tmp-{run.name}"
-                    if tmp.exists():
-                        shutil.rmtree(tmp)
-                    _clone_dir(run, tmp)
-                    if exists:
-                        shutil.rmtree(target)
-                    tmp.rename(target)
-                    (updated if exists else added).append(run.name)
         _invalidate_index()
         return {
             "added": added,
@@ -870,37 +843,13 @@ def _user_simulator_line(run_dir: Path) -> list[str]:
     ]
 
 
-def _modality_brief(modality: str | None) -> str:
-    brief = _MODALITY_BRIEF.get(modality or "")
-    return brief + "\n\n" if brief else ""
-
-
-def _analyst_role(modality: str | None) -> str:
-    return {"text": "text-agent", "voice": "voice-agent"}.get(modality or "", "conversational-agent")
-
-
-def _asr_cause(modality: str | None, phrase: str) -> str:
-    """The ASR item belongs in a root-cause list only when speech was involved."""
-    return "" if modality == "text" else phrase
-
-
 def _scenario_context(sdir: Path, modality: str | None = None) -> str:
     """Assemble the artifacts an analyst would read to diagnose this scenario."""
     run_dir = sdir.parent
-    results = _load_json(run_dir / "results.json") or {}
-    summary = next(
-        (s for s in results.get("per_scenario") or [] if s.get("scenario_id") == sdir.name), None
-    )
-    eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json") or {}
-    session = next(
-        (s for s in eval_res.get("session_results") or [] if s.get("session_id") == sdir.name), None
-    )
-    if session:
-        drop = {"turns"}
-        if modality == "text":
-            # zero-filled placeholders an analyst would otherwise read as a real failure
-            drop |= {"responsiveness", "latency"}
-        session = {k: v for k, v in session.items() if k not in drop}
+    results, summary, session = _scenario_results(sdir)
+    if session and modality == "text":
+        # zero-filled placeholders an analyst would otherwise read as a real failure
+        session = {k: v for k, v in session.items() if k not in ("responsiveness", "latency")}
     scenario = _load_json(sdir / "scenario.json")
     conversation = _load_json(sdir / "conversation.json")
     tool_log = _load_json(sdir / "tool_log.json")
@@ -1083,11 +1032,7 @@ def _run_context(run_dir: Path, modality: str | None = None) -> str:
             "per-scenario summaries below may be empty."
         )
     if eval_res:
-        keys = (
-            "final", "resolution", "experience", "pass_at1", "mean_pass_rate",
-            "responsiveness", "customer_effort", "conversation_quality",
-            "voice_consistency", "judge_parse_failure_rate",
-        )
+        keys = (*EVAL_METRICS, "pass_at1", "mean_pass_rate", "judge_parse_failure_rate")
         if modality == "text":
             keys = tuple(k for k in keys if k not in ("responsiveness", "voice_consistency"))
         agg = {k: eval_res.get(k) for k in keys if eval_res.get(k) is not None}
@@ -1112,7 +1057,6 @@ def _run_context(run_dir: Path, modality: str | None = None) -> str:
     comp_fail: Counter[str] = Counter()     # tau2 component < 1
     comp_seen: Counter[str] = Counter()
     domain_stats: dict[str, list[int]] = {}  # domain -> [passed, total]
-    not_passed_total = 0
     not_passed_dirs: list[tuple[Path, dict[str, Any]]] = []
     for name, sdir in entries:
         session = _as_dict(sessions.get(name))
@@ -1130,14 +1074,13 @@ def _run_context(run_dir: Path, modality: str | None = None) -> str:
             if not isinstance(v, (int, float)) or v < 1:
                 comp_fail[comp] += 1
         if summary.get("passed") is not True:
-            not_passed_total += 1
             end_reasons[str(summary.get("end_reason"))] += 1
             if sdir is not None:
                 not_passed_dirs.append((sdir, summary))
     if lines:
         parts.append("## Per-scenario results (one line each)\n" + "\n".join(lines))
 
-    agg_lines = [f"{not_passed_total}/{len(entries)} scenarios did not pass."]
+    agg_lines = [f"{end_reasons.total()}/{len(entries)} scenarios did not pass."]
     if end_reasons:
         agg_lines.append(
             "End reasons among not-passed scenarios: "
@@ -1184,6 +1127,15 @@ _CHAT_STYLE_RULES = (
 )
 
 
+def _analyst_prompt(modality: str | None, task: str, context: str) -> str:
+    role = {"text": "text-agent", "voice": "voice-agent"}.get(modality or "", "conversational-agent")
+    brief = _MODALITY_BRIEF.get(modality or "")
+    return (
+        f"You are a {role} benchmark analyst. {task}{_CHAT_STYLE_RULES}\n\n"
+        + (brief + "\n\n" if brief else "") + context
+    )
+
+
 def _complete(system: str, messages: list[dict[str, str]], timeout: int) -> str:
     import litellm  # imported lazily: heavy module, only needed for the AI features
 
@@ -1191,9 +1143,13 @@ def _complete(system: str, messages: list[dict[str, str]], timeout: int) -> str:
         resp = litellm.completion(
             model=LLM_MODEL, messages=[{"role": "system", "content": system}, *messages], timeout=timeout
         )
-        return resp.choices[0].message.content
+        choice = resp.choices[0]
+        content = choice.message.content
     except Exception as e:  # surface provider errors to the UI
         raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
+    if not content:  # e.g. finish_reason=content_filter leaves content None
+        raise HTTPException(status_code=502, detail=f"LLM returned no text (finish_reason={choice.finish_reason})")
+    return content
 
 
 @app.post("/api/chat")
@@ -1202,34 +1158,32 @@ def api_chat(req: ChatRequest):
     if is_run:
         run_dir = _data_dir_at_depth(req.path, 1, "run")
         modality = _run_dir_modality(run_dir)
-        system = (
-            f"You are a {_analyst_role(modality)} benchmark analyst. The user is reviewing one "
+        system = _analyst_prompt(modality, (
+            "The user is reviewing one "
             "complete talk-bench run in which an agent was tested on many scenarios. Using the "
             "run data below, answer questions about the overall outcome. When asked for a "
             "summary, cover: (1) headline numbers (pass rate, key scores); (2) the dominant "
             "failure patterns, grouped by root cause (agent behavior, tool errors, "
-            + _asr_cause(modality, "ASR/transcription issues, ")
+            + ("" if modality == "text" else "ASR/transcription issues, ")
             + "user-simulator behavior, judge/scoring artifacts, timeouts or infra "
             "errors), each with a count and example scenario ids; (3) anything else notable. "
             "Ground every claim in the data and cite scenario ids as evidence. Transcript "
             "excerpts are included only for scenarios that did not pass, and may be capped; "
             "if something is not in the context, say so instead of guessing — the user can "
             "open a scenario page and its per-scenario AI chat for a deep dive. "
-            + _CHAT_STYLE_RULES + "\n\n" + _modality_brief(modality) + _run_context(run_dir, modality)
-        )
+        ), _run_context(run_dir, modality))
     else:
         sdir = _data_dir_at_depth(req.path, 2, "scenario")
         modality = _run_dir_modality(sdir.parent)
-        system = (
-            f"You are a {_analyst_role(modality)} benchmark analyst. The user is investigating "
+        system = _analyst_prompt(modality, (
+            "The user is investigating "
             "one talk-bench scenario run. Using the artifacts below, answer questions about what "
             "happened and, when the scenario failed, diagnose the concrete root cause (agent "
             "behavior, tool errors, "
-            + _asr_cause(modality, "ASR issues, ")
+            + ("" if modality == "text" else "ASR issues, ")
             + "judge/scoring details, user-simulator behavior, timeouts). "
             "Quote specific turns or tool calls as evidence. "
-            + _CHAT_STYLE_RULES + "\n\n" + _modality_brief(modality) + _scenario_context(sdir, modality)
-        )
+        ), _scenario_context(sdir, modality))
     messages = [{"role": m.role, "content": m.content} for m in req.messages[-20:]]
     return {"reply": _complete(system, messages, timeout=180 if is_run else 90)}  # run summaries read far more context
 
@@ -1269,13 +1223,12 @@ _SCENARIO_REPORT_PROMPT = """\
 def api_scenario_report(req: ReportRequest):
     sdir = _data_dir_at_depth(req.path, 2, "scenario")
     modality = _run_dir_modality(sdir.parent)
-    system = (
-        f"You are a {_analyst_role(modality)} benchmark analyst. The user pressed a button "
+    system = _analyst_prompt(modality, (
+        "The user pressed a button "
         "asking for a structured report on one talk-bench scenario run. Ground every claim in "
         "the artifacts below and cite specific turns or tool calls as evidence; if something "
         "is not in the context, say so instead of guessing. "
-        + _CHAT_STYLE_RULES + "\n\n" + _modality_brief(modality) + _scenario_context(sdir, modality)
-    )
+    ), _scenario_context(sdir, modality))
     return {"report": _complete(system, [{"role": "user", "content": _SCENARIO_REPORT_PROMPT}], timeout=120)}
 
 
@@ -1333,15 +1286,14 @@ def _run_report_prompt(modality: str | None) -> str:
 def api_run_report(req: ReportRequest):
     run_dir = _data_dir_at_depth(req.path, 1, "run")
     modality = _run_dir_modality(run_dir)
-    system = (
-        f"You are a {_analyst_role(modality)} benchmark analyst. The user pressed a button "
+    system = _analyst_prompt(modality, (
+        "The user pressed a button "
         "asking for a detailed report on one complete talk-bench run in which an agent was "
         "tested on many scenarios. Ground every claim in the run data below and cite scenario "
         "ids as evidence. Transcript excerpts are included only for scenarios that did not "
         "pass, and may be capped; if something is not in the context, say so instead of "
         "guessing. "
-        + _CHAT_STYLE_RULES + "\n\n" + _modality_brief(modality) + _run_context(run_dir, modality)
-    )
+    ), _run_context(run_dir, modality))
     prompt = [{"role": "user", "content": _run_report_prompt(modality)}]
     return {"report": _complete(system, prompt, timeout=300)}  # large runs: big context and a long structured answer
 
@@ -1349,7 +1301,8 @@ def api_run_report(req: ReportRequest):
 # ---- run test: launch talk-bench runs with a user-configured agent ----
 #
 # A test is exactly
-#     uv run talk-bench run --config <agent.yaml> --domain X --split Y --source S [--scenario-ids a,b]
+#     uv run talk-bench run --config <agent.yaml> --domain X --split Y --source S
+#         [--scenario-ids a,b] [--speech-complexity <preset>]
 # started as a child process inside one of the local ai-ds-research checkouts;
 # every other CLI option keeps its default. The working directory matters: the
 # CLI finds the checkout's talkbench.yaml from there and writes the run to its
@@ -1368,8 +1321,7 @@ _SNAPSHOT_INTERVAL_S = 90  # re-clone a running job's partial run dir into the a
 
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
-_job_procs: dict[str, subprocess.Popen] = {}
-_job_sync_lock = threading.Lock()
+_start_lock = threading.Lock()  # held from the "may this test start?" checks until the job is in _jobs
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _AGENT_MODULE_RE = re.compile(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+$")
@@ -1381,7 +1333,6 @@ _PROGRESS_RE = re.compile(r"^\[(\d+)/(\d+)\] (\S+)(?: \(trial \d+/\d+\))?: ([^\[
 _LOADED_RE = re.compile(r"Loaded (\d+) scenarios")
 _SCORE_RE = re.compile(r"^Score:\s*([\d.]+)%\s*\((\d+)/(\d+)\s*passed\)")
 _RESULTS_RE = re.compile(r"^Results:\s*(.+?)[/\\]results\.json\s*$")
-_TOKEN_RE = re.compile(r"^[\w.:,/=+@%\-]+$")
 # talk_bench = talk-bench's own simulator; tau2 = tau2-bench's native user simulator,
 # swapped in by tau2_user_sim/launch.py (which runs the same CLI in the checkout's venv)
 USER_SIMULATORS = ("talk_bench", "tau2")
@@ -1400,12 +1351,6 @@ def _slug(text: str) -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _yaml():
-    import yaml  # PyYAML, imported lazily like litellm
-
-    return yaml
 
 
 def _uv_bin() -> str | None:
@@ -1440,11 +1385,18 @@ def _talk_bench_lib_root(root: Path) -> Path | None:
     return None
 
 
-def _split_entries(splits: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {"split": str(k), "count": len(v) if isinstance(v, (list, dict)) else None}
-        for k, v in splits.items()
-    ]
+# per --source: the checkout's domain data dir (under _talk_bench_lib_root) and its splits file
+_DOMAIN_DATA = {
+    "talk_bench": ("libs/talk_bench_domains/src/talk_bench_domains", "splits.json"),
+    "tau2": ("vendor/tau2-bench/data/tau2/domains", "split_tasks.json"),
+}
+
+
+def _domain_dirs(lib: Path, source: str) -> list[Path]:
+    base = lib / _DOMAIN_DATA[source][0]
+    if not base.is_dir():
+        return []
+    return [d for d in sorted(base.iterdir()) if d.is_dir() and (source == "tau2" or not d.name.startswith(("_", ".")))]
 
 
 def _scan_domains(root: Path) -> dict[str, dict[str, list[dict[str, Any]]]]:
@@ -1452,27 +1404,16 @@ def _scan_domains(root: Path) -> dict[str, dict[str, list[dict[str, Any]]]]:
     own data files so the pickers offer exactly what the CLI accepts."""
     out: dict[str, dict[str, list[dict[str, Any]]]] = {"talk_bench": {}, "tau2": {}}
     lib = _talk_bench_lib_root(root)
-    if lib is None:
-        return out
-    native = lib / "libs" / "talk_bench_domains" / "src" / "talk_bench_domains"
-    if native.is_dir():
-        for d in sorted(native.iterdir()):
-            if not d.is_dir() or d.name.startswith(("_", ".")):
-                continue
-            splits = _load_json(d / "splits.json")
+    for source, domains in out.items():
+        for d in _domain_dirs(lib, source) if lib else []:
+            splits = _load_json(d / _DOMAIN_DATA[source][1])
             if isinstance(splits, dict) and splits:
-                out["talk_bench"][d.name] = _split_entries(splits)
-            elif (d / "tasks.json").is_file():
-                tasks = _load_json(d / "tasks.json")
-                out["talk_bench"][d.name] = [
-                    {"split": "base", "count": len(tasks) if isinstance(tasks, list) else None}
+                domains[d.name] = [
+                    {"split": str(k), "count": len(v) if isinstance(v, (list, dict)) else None} for k, v in splits.items()
                 ]
-    tau2 = lib / "vendor" / "tau2-bench" / "data" / "tau2" / "domains"
-    if tau2.is_dir():
-        for d in sorted(tau2.iterdir()):
-            splits = _load_json(d / "split_tasks.json") if d.is_dir() else None
-            if isinstance(splits, dict) and splits:
-                out["tau2"][d.name] = _split_entries(splits)
+            elif source == "talk_bench" and (d / "tasks.json").is_file():
+                tasks = _load_json(d / "tasks.json")
+                domains[d.name] = [{"split": "base", "count": len(tasks) if isinstance(tasks, list) else None}]
     return out
 
 
@@ -1490,63 +1431,38 @@ def _scenario_catalog(root: Path, source: str, domain: str, split: str) -> list[
     lib = _talk_bench_lib_root(root)
     if lib is None:
         return []
+    tau2 = source == "tau2"
+    base = lib / _DOMAIN_DATA[source][0]
+    domains = [d.name for d in _domain_dirs(lib, source)] if domain == "all" else [domain]
     parts = [x.strip() for x in split.split(",") if x.strip()]
-    out: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    def add(sid: str, dom: str, summary: str, extra: dict[str, Any]) -> None:
-        if sid not in seen:
-            seen.add(sid)
-            out.append({"id": sid, "domain": dom, "summary": summary, **extra})
-
-    if source == "tau2":
-        base = lib / "vendor" / "tau2-bench" / "data" / "tau2" / "domains"
-        domains = sorted(d.name for d in base.iterdir() if d.is_dir()) if domain == "all" and base.is_dir() else [domain]
-        for dom in domains:
-            splits = _load_json(base / dom / "split_tasks.json")
-            tasks = _load_json(base / dom / "tasks.json")
-            if not isinstance(splits, dict):
-                continue
-            by_id = {str(t.get("id")): t for t in tasks if isinstance(t, dict)} if isinstance(tasks, list) else {}
-            for part in parts:
-                for tid in splits.get(part) or []:
-                    task = by_id.get(str(tid), {})
-                    desc = task.get("description") if isinstance(task.get("description"), dict) else {}
-                    instr = ((task.get("user_scenario") or {}).get("instructions") or {}) if isinstance(task.get("user_scenario"), dict) else {}
-                    summary = desc.get("purpose") or instr.get("reason_for_call") or ""
-                    add(f"{dom}-tau2-{tid}", dom, _clip(summary, 160), {})
-        return out
-
-    base = lib / "libs" / "talk_bench_domains" / "src" / "talk_bench_domains"
-    domains = (
-        sorted(d.name for d in base.iterdir() if d.is_dir() and not d.name.startswith(("_", ".")))
-        if domain == "all" and base.is_dir() else [domain]
-    )
+    out: dict[str, dict[str, Any]] = {}  # by id: the first domain listing it wins
     for dom in domains:
-        splits = _load_json(base / dom / "splits.json")
+        splits = _load_json(base / dom / _DOMAIN_DATA[source][1])
         tasks = _load_json(base / dom / "tasks.json")
         by_id = {str(t.get("id")): t for t in tasks if isinstance(t, dict)} if isinstance(tasks, list) else {}
         if isinstance(splits, dict):
-            ids = [sid for part in parts for sid in (splits.get(part) or [])]
-        elif by_id and parts == ["base"]:  # domains that ship tasks.json only
+            ids = [str(sid) for part in parts for sid in (splits.get(part) or [])]
+        elif by_id and parts == ["base"] and not tau2:  # talk_bench domains that ship tasks.json only
             ids = list(by_id)
         else:
             ids = []
-        for sid in ids:
-            task = by_id.get(str(sid), {})
+        for tid in ids:
+            task = by_id.get(tid, {})
             scenario = task.get("user_scenario") if isinstance(task.get("user_scenario"), dict) else {}
-            summary = task.get("description") or scenario.get("reason_for_call") or ""
-            extra = {k: task[k] for k in ("difficulty", "tags") if task.get(k)}
-            add(str(sid), dom, _clip(summary, 160), extra)
-    return out
+            if tau2:
+                desc = task.get("description") if isinstance(task.get("description"), dict) else {}
+                sid, extra = f"{dom}-tau2-{tid}", {}
+                summary = desc.get("purpose") or (scenario.get("instructions") or {}).get("reason_for_call")
+            else:
+                sid, extra = tid, {k: task[k] for k in ("difficulty", "tags") if task.get(k)}
+                summary = task.get("description") or scenario.get("reason_for_call")
+            out.setdefault(sid, {"id": sid, "domain": dom, "summary": _clip(summary or "", 160), **extra})
+    return list(out.values())
 
 
 def _project_manifest(root: Path) -> dict[str, Any]:
-    manifest = root / "talkbench.yaml"
-    if not manifest.is_file():
-        return {}
     try:
-        doc = _yaml().safe_load(manifest.read_text())
+        doc = yaml.safe_load((root / "talkbench.yaml").read_text())
     except Exception:
         return {}
     return doc if isinstance(doc, dict) else {}
@@ -1562,7 +1478,7 @@ def _sample_configs(root: Path) -> list[dict[str, Any]]:
         if not f.is_file() or f.suffix not in (".yaml", ".yml"):
             continue
         try:
-            doc = _yaml().safe_load(f.read_text())
+            doc = yaml.safe_load(f.read_text())
         except Exception:
             continue
         agent = doc.get("agent") if isinstance(doc, dict) else None
@@ -1650,7 +1566,7 @@ def _normalize_agent(raw: Any) -> dict[str, Any]:
     if not _AGENT_MODULE_RE.match(module):
         raise HTTPException(
             status_code=400,
-            detail="agent.module must be a dotted Python path like voice_agent.cascaded.CascadedAgent",
+            detail="agent.module must be a dotted Python path like voice_agent.openai_realtime.OpenAIRealtimeAgent",
         )
     params = raw.get("params")
     if params is None:
@@ -1687,9 +1603,13 @@ def _normalize_agent(raw: Any) -> dict[str, Any]:
     return agent
 
 
-def _split_config_doc(doc: Any) -> tuple[dict[str, Any], dict[str, Any]]:
-    """(agent block, other top-level blocks) of a parsed agent YAML. talk-bench accepts
+def _parse_config_text(text: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """(agent block, other top-level blocks) of an agent YAML. talk-bench accepts
     both `agent: {…}` with siblings and a flat agent mapping."""
+    try:
+        doc = yaml.safe_load(text)
+    except Exception as e:  # yaml.YAMLError carries the line/column
+        raise HTTPException(status_code=400, detail=f"invalid YAML/JSON: {e}")
     if not isinstance(doc, dict):
         raise HTTPException(status_code=400, detail="config must be a YAML/JSON mapping")
     if isinstance(doc.get("agent"), dict):
@@ -1698,24 +1618,13 @@ def _split_config_doc(doc: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     return _normalize_agent(doc), {}
 
 
-def _parse_config_text(text: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    try:
-        doc = _yaml().safe_load(text)
-    except Exception as e:  # yaml.YAMLError carries the line/column
-        raise HTTPException(status_code=400, detail=f"invalid YAML/JSON: {e}")
-    return _split_config_doc(doc)
-
-
 def _dump_yaml(doc: dict[str, Any]) -> str:
-    return _yaml().safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    return yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
 
 def _archived_agents() -> list[dict[str, Any]]:
     """Distinct agent configs recorded in archived runs, newest first."""
-    global _index_cache
-    if _index_cache is None:
-        _index_cache = build_index()
-    by_run = {r["path"]: r for r in _index_cache}
+    by_run = {r["path"]: r for r in build_index()}
     groups: dict[str, dict[str, Any]] = {}
     for run_name, ctx in list(_archived_run_context.items()):
         entry = by_run.get(run_name)
@@ -1729,7 +1638,7 @@ def _archived_agents() -> list[dict[str, Any]]:
         stamp = entry.get("timestamp") or ""
         latest = {
             "timestamp": stamp, "run_path": run_name, "domain": ctx.get("domain"),
-            "split": ctx.get("split"), "source": ctx.get("source"), "modality": entry.get("modality"),
+            "split": ctx.get("split"), "source": ctx.get("source"),
         }
         g = groups.get(key)
         if g is None:
@@ -1754,12 +1663,8 @@ def api_test_scenarios(
 ):
     """What `--domain/--split/--source` resolve to, for the scenario picker (--scenario-ids)."""
     root = _test_project_root()
-    if source not in ("tau2", "talk_bench"):
-        raise HTTPException(status_code=400, detail="source must be tau2 or talk_bench")
-    domain = _check_token(domain, "domain", re.compile(r"^[a-z0-9_\-]+$"))
-    split = _check_token(split or "base", "split", re.compile(r"^[A-Za-z0-9_:,\-]+$"))
-    scenarios = _scenario_catalog(root, source, domain, split)
-    return {"scenarios": scenarios, "count": len(scenarios)}
+    domain, split = _check_selection(source, domain, split)
+    return {"scenarios": _scenario_catalog(root, source, domain, split)}
 
 
 @app.get("/api/test/sample")
@@ -1800,9 +1705,7 @@ def _job_dir(job_id: str) -> Path:
 def _save_job(job: dict[str, Any]) -> None:
     d = _job_dir(job["id"])
     d.mkdir(parents=True, exist_ok=True)
-    tmp = d / "job.json.tmp"
-    tmp.write_text(json.dumps(_public_job(job), ensure_ascii=False, indent=1))
-    tmp.replace(d / "job.json")
+    _write_json(d / "job.json", _public_job(job))
 
 
 def _public_job(job: dict[str, Any]) -> dict[str, Any]:
@@ -1852,17 +1755,16 @@ def _new_job(**fields: Any) -> dict[str, Any]:
     return {
         "id": uuid.uuid4().hex[:12], "created": _now_iso(), "started": time.time(), "finished": None,
         "status": "running", "pid": None, "exit_code": None, "cmd": [], "cwd": None,
-        "run_dir": None, "run_name": None, "run_path": None, "synced_at": None,
-        "progress": {"done": 0, "total": None}, "score": None, "error": None, "log_size": 0,
+        "run_dir": None, "run_path": None, "synced_at": None,
+        "progress": {"done": 0, "total": None}, "score": None, "error": None,
         "resume_of": None, "scenario_ids": [], "user_simulator": "talk_bench", "speech_complexity": None,
+        "schedule_id": None, "schedule_name": None,
         **fields,
     }
 
 
 def _start_job(job: dict[str, Any], cmd: list[str], root: Path) -> None:
-    d = _job_dir(job["id"])
-    d.mkdir(parents=True, exist_ok=True)
-    log_path = d / "log.txt"
+    log_path = _job_dir(job["id"]) / "log.txt"
     with log_path.open("ab") as log:
         header = f"$ cd {shlex.quote(str(root))} && {shlex.join(cmd)}\n# started {job['created']}\n\n"
         log.write(header.encode())
@@ -1877,7 +1779,6 @@ def _start_job(job: dict[str, Any], cmd: list[str], root: Path) -> None:
     job.update(pid=proc.pid, cmd=cmd, cwd=str(root))
     with _jobs_lock:
         _jobs[job["id"]] = job
-        _job_procs[job["id"]] = proc
     _save_job(job)
     threading.Thread(target=_watch_job, args=(job["id"], proc), daemon=True).start()
 
@@ -1897,7 +1798,6 @@ def _ingest_log(job: dict[str, Any], log_path: Path) -> None:
     lines = (job.get("_log_rest", "") + data.decode("utf-8", errors="replace")).split("\n")
     job["_log_rest"] = lines.pop()  # trailing partial line waits for the next poll
     job["_log_offset"] = size
-    job["log_size"] = size
     for line in lines:
         line = line.rstrip("\r")
         m = _PROGRESS_RE.match(line)
@@ -1918,7 +1818,6 @@ def _ingest_log(job: dict[str, Any], log_path: Path) -> None:
             if not run_dir.is_absolute():
                 run_dir = Path(job["cwd"]) / run_dir
             job["run_dir"] = str(run_dir)
-            job["run_name"] = run_dir.name
             continue
         if line.startswith(("Error", "Configuration error", "Invalid YAML")):
             job["error"] = line[:400]
@@ -1934,6 +1833,10 @@ def _locate_run_dir(job: dict[str, Any]) -> None:
         return
     prefix = f"{_slug(job['agent_name'])}-{_slug(job['domain'])}-"
     claimed = {j.get("run_dir") for j in list(_jobs.values()) if j is not job}
+    try:  # a dir born after the job's last log write belongs to a later run
+        log_mtime = (_job_dir(job["id"]) / "log.txt").stat().st_mtime
+    except OSError:
+        log_mtime = float("inf")
     best: tuple[float, Path] | None = None
     for d in runs_root.iterdir():
         if not d.is_dir() or not d.name.startswith(prefix) or str(d) in claimed:
@@ -1943,13 +1846,12 @@ def _locate_run_dir(job: dict[str, Any]) -> None:
         except OSError:
             continue
         born = getattr(st, "st_birthtime", st.st_mtime)
-        if born < job["started"] - 5 or not (d / "run_config.json").exists():
+        if born < job["started"] - 5 or born > log_mtime + 5 or not (d / "run_config.json").exists():
             continue
         if best is None or born < best[0]:
             best = (born, d)
     if best:
         job["run_dir"] = str(best[1])
-        job["run_name"] = best[1].name
 
 
 def _sync_job_run(job: dict[str, Any]) -> bool:
@@ -1963,21 +1865,12 @@ def _sync_job_run(job: dict[str, Any]) -> bool:
     if run_dir.resolve() == target.resolve():  # the checkout writes straight into the archive
         job["run_path"] = run_dir.name
         return False
-    with _job_sync_lock:
-        if target.exists() and _dir_signature(run_dir) == _dir_signature(target):
-            job["run_path"] = run_dir.name
-            return False
-        tmp = DATA_DIR / f".sync-tmp-{run_dir.name}"
-        if tmp.exists():
-            shutil.rmtree(tmp)
-        _clone_dir(run_dir, tmp)
-        if target.exists():
-            shutil.rmtree(target)
-        tmp.rename(target)
+    changed = _mirror_run(run_dir) is not None
     job["run_path"] = run_dir.name
-    job["synced_at"] = time.time()
-    _invalidate_index()
-    return True
+    if changed:
+        job["synced_at"] = time.time()
+        _invalidate_index()
+    return changed
 
 
 def _last_log_lines(log_path: Path, n: int = 3) -> str:
@@ -2019,16 +1912,15 @@ def _watch_job(job_id: str, proc: subprocess.Popen | None) -> None:
     with _jobs_lock:
         job["exit_code"] = exit_code
         job["finished"] = time.time()
-        has_results = bool(job.get("run_dir")) and (Path(job["run_dir"]) / "results.json").is_file()
         if job["status"] == "cancelling":
             job["status"] = "cancelled"
-        elif exit_code in (0, 1) or (exit_code is None and has_results):
+        elif exit_code in (0, 1) or (exit_code is None and job.get("score")):  # Score: is printed only once the run completes
             job["status"] = "done"  # 0 = every scenario passed, 1 = some did not; the run completed
-        elif exit_code is None:
+        elif exit_code is None:  # followed by pid after a viewer restart: no exit code to read
             job["status"] = "interrupted"
+            job["error"] = job.get("error") or "the viewer restarted while this test was running"
         else:
             job["status"] = "error"  # 2 = configuration, 3 = runtime
-        _job_procs.pop(job_id, None)
     if job["status"] == "error" and not job.get("error"):
         job["error"] = _last_log_lines(log_path)
     try:
@@ -2049,26 +1941,29 @@ def _recover_jobs() -> None:
             continue
         job = _new_job(**{k: v for k, v in job.items() if not k.startswith("_")})
         _jobs[job["id"]] = job
-        if job.get("status") not in ("running", "cancelling"):
-            continue
-        if _pid_alive(job.get("pid")):
+    # once every record is loaded, so _locate_run_dir skips the run dirs the others claim
+    for job in list(_jobs.values()):
+        if job.get("status") in ("running", "cancelling"):
+            # still running (its own session survives a viewer restart): followed to its end;
+            # ended while the viewer was down: the watcher's first pass reads the log, finds
+            # the run dir and settles it (done / cancelled / interrupted), then archives it
             threading.Thread(target=_watch_job, args=(job["id"], None), daemon=True).start()
-        else:
-            job["status"] = "interrupted"
-            job["finished"] = job.get("finished") or time.time()
-            job["error"] = job.get("error") or "the viewer restarted while this test was running"
-            _save_job(job)
-            threading.Thread(target=_sync_job_run, args=(job,), daemon=True).start()
 
 
 _recover_jobs()
 
 
-def _check_token(value: str, label: str, pattern: re.Pattern[str] = _TOKEN_RE, max_len: int = 200) -> str:
+def _check_token(value: str, label: str, pattern: str) -> str:
     value = value.strip()
-    if not value or len(value) > max_len or not pattern.match(value):
+    if not value or len(value) > 200 or not re.match(pattern, value):
         raise HTTPException(status_code=400, detail=f"invalid {label}: {value[:60]!r}")
     return value
+
+
+def _check_selection(source: str, domain: str, split: str) -> tuple[str, str]:
+    if source not in ("tau2", "talk_bench"):
+        raise HTTPException(status_code=400, detail="source must be tau2 or talk_bench")
+    return _check_token(domain, "domain", r"^[a-z0-9_\-]+$"), _check_token(split or "base", "split", r"^[A-Za-z0-9_:,\-]+$")
 
 
 class TestJobBody(BaseModel):
@@ -2087,11 +1982,9 @@ def api_test_jobs():
     return {"jobs": [_public_job(j) for j in jobs[:200]]}
 
 
-@app.post("/api/test/jobs")
-def api_start_test(body: TestJobBody):
-    """Start `talk-bench run --config <agent.yaml> --domain X --split Y --source S
-    [--scenario-ids a,b]` in the checkout whose workspace provides the agent module —
-    through tau2_user_sim/launch.py when the tau2 user simulator is picked."""
+def _prepare_test(body: TestJobBody) -> dict[str, Any]:
+    """Check a test request the way talk-bench will and resolve the checkout it runs in.
+    Start test and every scheduled run go through this."""
     if len(body.config_text) > 200_000:
         raise HTTPException(status_code=413, detail="agent config is too large")
     agent, _extra = _parse_config_text(body.config_text)  # same checks talk-bench's AgentConfig makes
@@ -2112,10 +2005,7 @@ def api_start_test(body: TestJobBody):
     launcher = _launcher(root, body.user_simulator)
     if launcher is None:
         raise HTTPException(status_code=500, detail="neither uv nor .venv/bin/talk-bench was found for this checkout")
-    if body.source not in ("tau2", "talk_bench"):
-        raise HTTPException(status_code=400, detail="source must be tau2 or talk_bench")
-    domain = _check_token(body.domain, "domain", re.compile(r"^[a-z0-9_\-]+$"))
-    split = _check_token(body.split or "base", "split", re.compile(r"^[A-Za-z0-9_:,\-]+$"))
+    domain, split = _check_selection(body.source, body.domain, body.split)
     scenario_ids: list[str] = []
     for sid in body.scenario_ids:
         sid = sid.strip()
@@ -2126,31 +2016,54 @@ def api_start_test(body: TestJobBody):
         scenario_ids.append(sid)
     if len(scenario_ids) > MAX_SCENARIO_IDS:
         raise HTTPException(status_code=400, detail=f"at most {MAX_SCENARIO_IDS} scenario ids per test")
-    running = sum(1 for j in list(_jobs.values()) if j["status"] in ("running", "cancelling"))
-    if running >= MAX_RUNNING_TESTS:
-        raise HTTPException(status_code=409, detail=f"{MAX_RUNNING_TESTS} tests are already running — wait for one to finish")
-    manifest = _project_manifest(root)
-    output_dir = str((manifest.get("defaults") or {}).get("output_dir") or "data/runs")
-    job = _new_job(
-        project=str(root), project_name=root.name, runs_root=str(root / output_dir),
-        agent_name=agent["name"], module=agent["module"],
-        source=body.source, domain=domain, split=split, scenario_ids=scenario_ids,
-        user_simulator=body.user_simulator, speech_complexity=speech_complexity,
-    )
-    d = _job_dir(job["id"])
-    d.mkdir(parents=True, exist_ok=True)
-    config_path = d / "agent.yaml"
-    config_path.write_text(body.config_text.rstrip() + "\n")
-    cmd = [
-        *launcher, "run", "--config", str(config_path),
-        "--domain", domain, "--split", split, "--source", body.source,
-    ]
-    if scenario_ids:
-        cmd += ["--scenario-ids", ",".join(scenario_ids)]
-    if speech_complexity:
-        cmd += ["--speech-complexity", speech_complexity]
-    _start_job(job, cmd, root)
-    return {"job": _public_job(job)}
+    return {
+        "agent": agent, "root": root, "launcher": launcher, "config_text": body.config_text,
+        "source": body.source, "domain": domain, "split": split, "scenario_ids": scenario_ids,
+        "user_simulator": body.user_simulator, "speech_complexity": speech_complexity,
+    }
+
+
+def _running_tests() -> int:
+    return sum(1 for j in list(_jobs.values()) if j["status"] in ("running", "cancelling"))
+
+
+def _launch_test(t: dict[str, Any], **fields: Any) -> dict[str, Any]:
+    """Start a test _prepare_test checked; fields go into the job record."""
+    with _start_lock:
+        if _running_tests() >= MAX_RUNNING_TESTS:
+            raise HTTPException(status_code=409, detail=f"{MAX_RUNNING_TESTS} tests are already running — wait for one to finish")
+        root, agent = t["root"], t["agent"]
+        manifest = _project_manifest(root)
+        output_dir = str((manifest.get("defaults") or {}).get("output_dir") or "data/runs")
+        job = _new_job(
+            project=str(root), project_name=root.name, runs_root=str(root / output_dir),
+            agent_name=agent["name"], module=agent["module"],
+            source=t["source"], domain=t["domain"], split=t["split"], scenario_ids=t["scenario_ids"],
+            user_simulator=t["user_simulator"], speech_complexity=t["speech_complexity"], **fields,
+        )
+        d = _job_dir(job["id"])
+        d.mkdir(parents=True, exist_ok=True)
+        config_path = d / "agent.yaml"
+        config_path.write_text(t["config_text"].rstrip() + "\n")
+        cmd = [
+            *t["launcher"], "run", "--config", str(config_path),
+            "--domain", t["domain"], "--split", t["split"], "--source", t["source"],
+        ]
+        if t["scenario_ids"]:
+            cmd += ["--scenario-ids", ",".join(t["scenario_ids"])]
+        if t["speech_complexity"]:
+            cmd += ["--speech-complexity", t["speech_complexity"]]
+        _start_job(job, cmd, root)
+    return job
+
+
+@app.post("/api/test/jobs")
+def api_start_test(body: TestJobBody):
+    """Start `talk-bench run --config <agent.yaml> --domain X --split Y --source S
+    [--scenario-ids a,b] [--speech-complexity <preset>]` in the checkout whose workspace
+    provides the agent module — through tau2_user_sim/launch.py when the tau2 user
+    simulator is picked."""
+    return {"job": _public_job(_launch_test(_prepare_test(body)))}
 
 
 @app.get("/api/test/jobs/{job_id}")
@@ -2172,7 +2085,7 @@ def api_test_job(job_id: str, offset: int = 0):
         pass
     config_path = _job_dir(job_id) / "agent.yaml"
     return {
-        "job": _public_job(job), "log": text, "next_offset": offset, "log_size": size, "more": more,
+        "job": _public_job(job), "log": text, "next_offset": offset, "more": more,
         "config_yaml": config_path.read_text() if config_path.is_file() else None,
     }
 
@@ -2187,8 +2100,8 @@ def api_cancel_test(job_id: str):
 
     def _signal(sig: int) -> None:
         try:
-            os.killpg(os.getpgid(pid), sig)
-        except (ProcessLookupError, PermissionError, OSError):
+            os.killpg(pid, sig)  # started with start_new_session: the pid is its group's id
+        except OSError:
             pass
 
     _signal(signal.SIGTERM)  # talk-bench has no graceful stop; the run can be resumed afterwards
@@ -2215,32 +2128,37 @@ def api_resume_test(job_id: str):
     run_dir = parent.get("run_dir")
     if not run_dir or not (Path(run_dir) / "run_config.json").is_file():
         raise HTTPException(status_code=409, detail="this test left no resumable run directory")
-    try:
-        root = _test_project_root(parent.get("module"))
-    except HTTPException:
-        root = Path(parent["project"])
-    if not (root / "pyproject.toml").is_file():
-        raise HTTPException(status_code=404, detail="the checkout this test ran in is gone")
-    # a resumed run keeps the user simulator its first scenarios ran with
-    launcher = _launcher(root, parent.get("user_simulator") or "talk_bench")
-    if launcher is None:
-        raise HTTPException(status_code=500, detail="neither uv nor .venv/bin/talk-bench was found for this checkout")
-    inherited = {
-        k: parent.get(k)
-        for k in (
-            "runs_root", "agent_name", "module", "source", "domain", "split", "scenario_ids",
-            "user_simulator", "speech_complexity",
+    with _start_lock:
+        if any(j["status"] in ("running", "cancelling") and j.get("run_dir") == run_dir for j in list(_jobs.values())):
+            raise HTTPException(status_code=409, detail="a test is already running in this run directory")
+        if _running_tests() >= MAX_RUNNING_TESTS:
+            raise HTTPException(status_code=409, detail=f"{MAX_RUNNING_TESTS} tests are already running — wait for one to finish")
+        try:
+            root = _test_project_root(parent.get("module"))
+        except HTTPException:
+            root = Path(parent["project"])
+        if not (root / "pyproject.toml").is_file():
+            raise HTTPException(status_code=404, detail="the checkout this test ran in is gone")
+        # a resumed run keeps the user simulator its first scenarios ran with
+        launcher = _launcher(root, parent.get("user_simulator") or "talk_bench")
+        if launcher is None:
+            raise HTTPException(status_code=500, detail="neither uv nor .venv/bin/talk-bench was found for this checkout")
+        inherited = {
+            k: parent.get(k)
+            for k in (
+                "runs_root", "agent_name", "module", "source", "domain", "split", "scenario_ids",
+                "user_simulator", "speech_complexity",
+            )
+        }
+        job = _new_job(
+            **inherited, project=str(root), project_name=root.name,
+            resume_of=parent["id"], run_dir=run_dir,
         )
-    }
-    job = _new_job(
-        **inherited, project=str(root), project_name=root.name,
-        resume_of=parent["id"], run_dir=run_dir, run_name=Path(run_dir).name,
-    )
-    _job_dir(job["id"]).mkdir(parents=True, exist_ok=True)
-    src = _job_dir(parent["id"]) / "agent.yaml"
-    if src.is_file():
-        shutil.copyfile(src, _job_dir(job["id"]) / "agent.yaml")
-    _start_job(job, [*launcher, "run", "--resume", run_dir], root)
+        _job_dir(job["id"]).mkdir(parents=True, exist_ok=True)
+        src = _job_dir(parent["id"]) / "agent.yaml"
+        if src.is_file():
+            shutil.copyfile(src, _job_dir(job["id"]) / "agent.yaml")
+        _start_job(job, [*launcher, "run", "--resume", run_dir], root)
     return {"job": _public_job(job)}
 
 
@@ -2266,6 +2184,313 @@ def api_delete_test(job_id: str):
         _jobs.pop(job_id, None)
     shutil.rmtree(_job_dir(job_id), ignore_errors=True)
     return {"deleted": job_id}
+
+
+# ---- scheduled tests ----
+#
+# A schedule is a saved Start-test request (agent YAML, source / domain / split,
+# scenario ids, user simulator) plus a 5-field cron expression read in this host's
+# local time. A thread in the viewer starts the test when it is due, through the same
+# _prepare_test / _launch_test as the button, and the job records the schedule.
+#   - runs missed while the viewer was stopped or the Mac asleep start once when it is
+#     back (they collapse into one run), then the schedule keeps its cadence
+#   - a due run is skipped while the schedule's previous test is still running
+#   - while MAX_RUNNING_TESTS tests run, a due run waits for a free slot
+# Schedules live in <data dir>/.test_schedules.json, changed under an flock so a second
+# viewer process on the same data dir cannot start a run twice.
+
+SCHEDULES_FILE = DATA_DIR / ".test_schedules.json"
+_SCHEDULES_LOCK_FILE = DATA_DIR / ".test_schedules.lock"
+MAX_SCHEDULES = 50
+MIN_SCHEDULE_GAP_S = 15 * 60  # a full test run is minutes long; `* * * * *` is almost surely a typo
+_SCHEDULER_TICK_S = 20
+_schedules_lock = threading.Lock()
+
+_CRON_FIELDS = (("minute", 0, 59), ("hour", 0, 23), ("day of month", 1, 31), ("month", 1, 12), ("day of week", 0, 7))
+_CRON_NAMES = (
+    {}, {}, {},
+    {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))},
+    {d: i for i, d in enumerate(("sun", "mon", "tue", "wed", "thu", "fri", "sat"))},
+)
+
+
+def _cron_value(text: str, names: dict[str, int], label: str) -> int:
+    if text in names:
+        return names[text]
+    if not text.isdigit():
+        raise ValueError(f"bad {label} value {text!r}")
+    return int(text)
+
+
+def _cron_field(text: str, idx: int) -> set[int]:
+    label, lo, hi = _CRON_FIELDS[idx]
+    values: set[int] = set()
+    for part in text.lower().split(","):
+        rng, slash, step_text = part.partition("/")
+        step = _cron_value(step_text, {}, label + " step") if slash else 1
+        if rng == "*":
+            a, b = lo, hi
+        elif "-" in rng:
+            a, b = (_cron_value(x, _CRON_NAMES[idx], label) for x in rng.split("-", 1))
+        else:
+            a = _cron_value(rng, _CRON_NAMES[idx], label)
+            b = hi if slash else a
+        if not (lo <= a <= b <= hi) or step < 1:
+            raise ValueError(f"{label} {part!r} is out of range {lo}-{hi}")
+        values.update(range(a, b + 1, step))
+    return values
+
+
+def _parse_cron(expr: str) -> tuple:
+    """minute hour day-of-month month day-of-week, with *, a-b, */n, a-b/n, lists and
+    jan-dec / sun-sat names. As in cron, when both day fields are restricted a day
+    matching either one fires."""
+    parts = expr.split()
+    if len(parts) != 5:
+        raise ValueError("a cron expression has 5 fields: minute hour day-of-month month day-of-week")
+    fields = [_cron_field(p, i) for i, p in enumerate(parts)]
+    fields[4] = {d % 7 for d in fields[4]}  # 7 is Sunday too
+    return (*fields, parts[2].startswith("*") or parts[4].startswith("*"))
+
+
+def _cron_next(cron: tuple, after: float) -> float:
+    """The first minute after `after` (epoch seconds) the cron fires, in local time."""
+    minutes, hours, mdays, months, wdays, either_star = cron
+    t = datetime.fromtimestamp(after).replace(second=0, microsecond=0) + timedelta(minutes=1)
+    limit = t + timedelta(days=366 * 8)  # Feb 29 skips 2100: 2096 -> 2104
+    while t < limit:
+        if t.month not in months:
+            t = (t.replace(day=1, hour=0, minute=0) + timedelta(days=32)).replace(day=1)
+            continue
+        md, wd = t.day in mdays, t.isoweekday() % 7 in wdays
+        if not ((md and wd) if either_star else (md or wd)):
+            t = t.replace(hour=0, minute=0) + timedelta(days=1)
+            continue
+        if t.hour not in hours:
+            t = t.replace(minute=0) + timedelta(hours=1)
+            continue
+        if t.minute in minutes:
+            for ts in (t.timestamp(), t.replace(fold=1).timestamp()):  # fold=1: the hour a DST fall-back repeats
+                if ts > after:
+                    return ts
+        t += timedelta(minutes=1)
+    raise ValueError("this cron expression never fires")
+
+
+def _cron_fires(expr: str, after: float, n: int) -> list[float]:
+    cron, out = _parse_cron(expr), []
+    for _ in range(n):
+        after = _cron_next(cron, after)
+        out.append(after)
+    return out
+
+
+def _check_cron(expr: str) -> str:
+    expr = " ".join(expr.split())
+    try:
+        fires = _cron_fires(expr, time.time(), 30)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"cron: {e}")
+    if min(b - a for a, b in zip(fires, fires[1:])) < MIN_SCHEDULE_GAP_S:
+        raise HTTPException(
+            status_code=400, detail=f"this schedule fires more often than every {MIN_SCHEDULE_GAP_S // 60} minutes",
+        )
+    return expr
+
+
+def _fmt_local(ts: float | None) -> str | None:
+    return datetime.fromtimestamp(ts).strftime("%a %Y-%m-%d %H:%M") if ts else None
+
+
+def _local_tz_label() -> str:
+    now = datetime.now().astimezone()
+    off = now.strftime("%z")
+    return f"{now.tzname()} (UTC{off[:3]}:{off[3:]})"
+
+
+@contextmanager
+def _schedules_txn():
+    """Yield the schedule list for reading or changing; changes are saved on exit.
+    One thread, and one process on this data dir, at a time."""
+    with _schedules_lock, _SCHEDULES_LOCK_FILE.open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)  # released when the file closes
+        data = _load_json(SCHEDULES_FILE) if SCHEDULES_FILE.exists() else []
+        if not isinstance(data, list):
+            raise HTTPException(status_code=500, detail=f"{SCHEDULES_FILE.name} is unreadable — fix or remove it")
+        schedules = [s for s in data if isinstance(s, dict) and s.get("id")]
+        before = json.dumps(schedules, sort_keys=True)
+        yield schedules
+        if json.dumps(schedules, sort_keys=True) != before:
+            _write_json(SCHEDULES_FILE, schedules)
+
+
+def _find_schedule(schedules: list[dict[str, Any]], sid: str) -> dict[str, Any]:
+    s = next((s for s in schedules if s["id"] == sid), None)
+    if s is None:
+        raise HTTPException(status_code=404, detail="no such schedule")
+    return s
+
+
+def _public_schedule(s: dict[str, Any]) -> dict[str, Any]:
+    """A schedule for the list: the test settings without the agent YAML, times also
+    spelled in this host's local time (the one the cron is read in)."""
+    last = s.get("last_run")
+    return {
+        **s,
+        "test": {k: v for k, v in (s.get("test") or {}).items() if k != "config_text"},
+        "next_run_local": _fmt_local(s.get("next_run")),
+        "last_run": {**last, "at_local": _fmt_local(last.get("at"))} if isinstance(last, dict) else None,
+    }
+
+
+def _job_running(job_id: str | None) -> bool:
+    """Is this test still running? Also sees a test another viewer process started."""
+    if not job_id or not re.fullmatch(r"[0-9a-f]{12}", job_id):
+        return False
+    job = _jobs.get(job_id) or _load_json(_job_dir(job_id) / "job.json")
+    return isinstance(job, dict) and job.get("status") in ("running", "cancelling") and _pid_alive(job.get("pid"))
+
+
+def _start_scheduled(s: dict[str, Any]) -> dict[str, Any]:
+    """Start the schedule's test now and record it as its last run."""
+    if _job_running((s.get("last_run") or {}).get("job_id")):
+        raise HTTPException(status_code=409, detail="its previous test is still running")
+    job = _launch_test(_prepare_test(TestJobBody(**s["test"])), schedule_id=s["id"], schedule_name=s["name"])
+    s["last_run"] = {"at": time.time(), "status": "started", "job_id": job["id"]}
+    s.pop("waiting", None)
+    return job
+
+
+def _scheduler_tick() -> None:
+    now = time.time()
+    with _schedules_txn() as schedules:
+        for s in schedules:
+            if not s.get("enabled") or not s.get("next_run") or now < s["next_run"]:
+                continue
+            if _running_tests() >= MAX_RUNNING_TESTS:
+                s["waiting"] = f"{MAX_RUNNING_TESTS} tests are already running"
+                continue  # keep next_run: it starts as soon as a slot frees up
+            prev_job = (s.get("last_run") or {}).get("job_id")  # kept so the overlap check still sees it
+            try:
+                _start_scheduled(s)
+            except HTTPException as e:
+                status = "skipped" if e.status_code == 409 else "error"
+                s["last_run"] = {"at": now, "status": status, "detail": str(e.detail)[:400], "job_id": prev_job}
+            except Exception as e:  # a broken schedule must not stop the others
+                s["last_run"] = {"at": now, "status": "error", "detail": repr(e)[:400], "job_id": prev_job}
+            s.pop("waiting", None)
+            try:
+                s["next_run"] = _cron_next(_parse_cron(s["cron"]), now)  # missed runs collapse into this one
+            except ValueError as e:
+                s["enabled"], s["next_run"] = False, None
+                s["last_run"] = {"at": now, "status": "error", "detail": f"cron: {e}"}
+
+
+def _scheduler_loop() -> None:
+    while True:
+        try:
+            _scheduler_tick()
+        except Exception as e:
+            print(f"test scheduler: {e!r}", flush=True)
+        time.sleep(_SCHEDULER_TICK_S)
+
+
+class ScheduleBody(BaseModel):
+    name: str = ""  # default: agent · domain/split
+    cron: str
+    enabled: bool = True
+    test: TestJobBody
+
+
+class ScheduleEnabledBody(BaseModel):
+    enabled: bool
+
+
+def _schedule_fields(body: ScheduleBody) -> dict[str, Any]:
+    t = _prepare_test(body.test)  # rejected now, not at 02:00
+    name = " ".join(body.name.split()) or f"{t['agent']['name']} · {t['domain']}/{t['split']}"[:120]
+    if len(name) > 120:
+        raise HTTPException(status_code=400, detail="the schedule name must be at most 120 characters")
+    return {
+        "name": name, "cron": _check_cron(body.cron), "enabled": body.enabled,
+        "agent_name": t["agent"]["name"], "module": t["agent"]["module"],
+        "test": {
+            k: t[k] for k in
+            ("config_text", "source", "domain", "split", "scenario_ids", "user_simulator", "speech_complexity")
+        },
+    }
+
+
+@app.get("/api/test/schedules")
+def api_test_schedules():
+    with _schedules_txn() as schedules:
+        out = [_public_schedule(s) for s in schedules]
+    return {"schedules": out, "tz": _local_tz_label()}
+
+
+@app.get("/api/test/schedules/preview")
+def api_schedule_preview(cron: str = Query(...)):
+    """The next fire times of a cron expression, for the schedule form."""
+    expr = _check_cron(cron)
+    return {"cron": expr, "next": [_fmt_local(t) for t in _cron_fires(expr, time.time(), 3)], "tz": _local_tz_label()}
+
+
+@app.post("/api/test/schedules")
+def api_create_schedule(body: ScheduleBody):
+    fields = _schedule_fields(body)
+    with _schedules_txn() as schedules:
+        if len(schedules) >= MAX_SCHEDULES:
+            raise HTTPException(status_code=409, detail=f"at most {MAX_SCHEDULES} schedules")
+        s = {"id": uuid.uuid4().hex[:12], "created": _now_iso(), **fields, "last_run": None}
+        s["next_run"] = _cron_next(_parse_cron(s["cron"]), time.time()) if s["enabled"] else None
+        schedules.append(s)
+    return {"schedule": _public_schedule(s)}
+
+
+@app.get("/api/test/schedules/{sid}")
+def api_test_schedule(sid: str):
+    with _schedules_txn() as schedules:
+        s = _find_schedule(schedules, sid)
+        return {"schedule": {**_public_schedule(s), "test": s["test"]}}
+
+
+@app.put("/api/test/schedules/{sid}")
+def api_update_schedule(sid: str, body: ScheduleBody):
+    fields = _schedule_fields(body)
+    with _schedules_txn() as schedules:
+        s = _find_schedule(schedules, sid)
+        s.update(fields, updated=_now_iso())
+        s.pop("waiting", None)
+        s["next_run"] = _cron_next(_parse_cron(s["cron"]), time.time()) if s["enabled"] else None
+    return {"schedule": _public_schedule(s)}
+
+
+@app.post("/api/test/schedules/{sid}/enabled")
+def api_schedule_enabled(sid: str, body: ScheduleEnabledBody):
+    """Pause or resume. Resuming counts from now: runs due while paused are not made up."""
+    with _schedules_txn() as schedules:
+        s = _find_schedule(schedules, sid)
+        s["enabled"] = body.enabled
+        s.pop("waiting", None)
+        s["next_run"] = _cron_next(_parse_cron(s["cron"]), time.time()) if body.enabled else None
+    return {"schedule": _public_schedule(s)}
+
+
+@app.post("/api/test/schedules/{sid}/run")
+def api_run_schedule(sid: str):
+    """Start the schedule's test now; its timing is unchanged."""
+    with _schedules_txn() as schedules:
+        s = _find_schedule(schedules, sid)
+        job = _start_scheduled(s)
+    return {"job": _public_job(job), "schedule": _public_schedule(s)}
+
+
+@app.delete("/api/test/schedules/{sid}")
+def api_delete_schedule(sid: str):
+    """Remove the schedule; the tests it started stay in the list."""
+    with _schedules_txn() as schedules:
+        schedules.remove(_find_schedule(schedules, sid))
+    return {"deleted": sid}
 
 
 

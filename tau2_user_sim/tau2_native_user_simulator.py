@@ -236,11 +236,11 @@ class Tau2NativeVoiceUserSimulator:
         if kind == "agent_utterance_ready":
             return await self._reply(ctx, "speak")
         if kind in ("silence_exceeded", "awaiting_reply_timeout"):
-            seconds = ctx.silence_s if kind == "silence_exceeded" else ctx.event.waited_s  # type: ignore[union-attr]
-            if kind == "silence_exceeded" and not seconds:
-                seconds = ctx.event.threshold_s  # type: ignore[union-attr]
-            note = SILENCE_ANNOTATION.format(seconds=seconds)
-            self._silence_notes.append((len(ctx.conversation_history), note))
+            if kind == "silence_exceeded":
+                seconds = ctx.silence_s or ctx.event.threshold_s  # type: ignore[union-attr]
+            else:
+                seconds = ctx.event.waited_s  # type: ignore[union-attr]
+            self._silence_notes.append((len(ctx.conversation_history), SILENCE_ANNOTATION.format(seconds=seconds)))
             return await self._reply(ctx, "re_engage")
         if kind == "agent_speaking_for":
             partial = (ctx.agent_live_partial_text or "").strip()
@@ -250,10 +250,8 @@ class Tau2NativeVoiceUserSimulator:
         if kind == "agent_utterance_empty":
             # nothing was heard: wait, as tau2 does, until the silence wake checks in
             return _listen_more()
-        if kind in _ABORT_EVENT_KINDS:
-            return _hangup(EndAction.OUT_OF_SCOPE)
-        if kind == "user_tool_result":
-            # unreachable: this simulator never emits execute_user_tool
+        if kind in _ABORT_EVENT_KINDS or kind == "user_tool_result":
+            # user_tool_result is unreachable: this simulator never emits execute_user_tool
             return _hangup(EndAction.OUT_OF_SCOPE)
         logger.warning("[%s] tau2 user simulator: unknown wake event %r — listening", self.scenario_id, kind)
         return _listen_more()
@@ -273,7 +271,7 @@ class Tau2NativeVoiceUserSimulator:
                 items.append((role, text))
 
         history = ctx.conversation_history
-        notes = sorted(self._silence_notes)
+        notes = sorted(self._silence_notes, key=lambda n: n[0])
         for i, msg in enumerate(history):
             for _, note in (n for n in notes if n[0] == i):
                 add("system", note)

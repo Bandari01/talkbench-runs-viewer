@@ -17,10 +17,15 @@
 <style>
   /* Tokens follow shadcn/ui (new-york, neutral) + Vercel Geist accents — hexes are the
      compiled values from shadcn-ui/ui registry themes and vercel.com Geist tokens. */
-  :root { --topbar-h: 48px; --side-w: 256px; --radius: 14px; }
+  :root {
+    --topbar-h: 48px; --side-w: 256px; --radius: 14px;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --ease-out: cubic-bezier(.16, 1, .3, 1); --dur-1: .12s; --dur-2: .2s; --dur-3: .28s;  /* the one easing curve and the three durations of all motion */
+  }
   :root[data-theme="light"] {
     color-scheme: light;
-    --bg: #ffffff; --surface: #ffffff; --surface-2: #f5f5f5; --surface-3: #e5e5e5;
+    --bg: #fafafa; --surface: #ffffff; --surface-2: #f5f5f5; --surface-3: #e5e5e5;
     --border: #e5e5e5; --border-soft: #f0f0f0;
     --fg: #0a0a0a; --fg-soft: #4c4c4c; --muted: #737373; --faint: #a3a3a3;
     --link: #0072f5;
@@ -37,6 +42,8 @@
     --side-bg: #fafafa;
     --shadow: 0 1px 2px 0 rgba(0, 0, 0, .05);
     --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, .06), 0 1px 2px -1px rgba(0, 0, 0, .06);
+    --shadow-pop: 0 0 0 1px rgba(0, 0, 0, .03), 0 4px 8px -4px rgba(0, 0, 0, .06), 0 16px 32px -12px rgba(0, 0, 0, .18);
+    --selection: rgba(0, 114, 245, .16);
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
@@ -57,23 +64,26 @@
     --side-bg: #171717;
     --shadow: 0 1px 2px 0 rgba(0, 0, 0, .4);
     --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, .5);
+    --shadow-pop: 0 0 0 1px rgba(255, 255, 255, .06), 0 16px 40px -12px rgba(0, 0, 0, .75);
+    --selection: rgba(82, 168, 255, .32);
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
+  #sidebar, pre, .rc-list, .chat-log, .scen-list, .table-wrap, .markdown-table-wrap { scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
   body {
-    margin: 0; display: flex; align-items: stretch; min-height: 100vh;
-    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue", sans-serif;
+    margin: 0; display: flex; min-height: 100vh;
+    font: 14px/1.5 var(--sans);
     background: var(--bg); color: var(--fg);
     -webkit-font-smoothing: antialiased; accent-color: var(--link);
   }
-  ::selection { background: var(--ring); }
+  ::selection { background: var(--selection); }
+  .log-pane::selection, .markdown-body pre ::selection { background: rgba(82, 168, 255, .35); }  /* both panes are dark in either theme */
 
   /* ---------- sidebar ---------- */
   #sidebar {
     width: var(--side-w); flex: none; position: sticky; top: 0; height: 100vh; overflow-y: auto;
     background: var(--side-bg); border-right: 1px solid var(--border);
     padding: 14px 12px; display: flex; flex-direction: column; z-index: 60;
-    scrollbar-width: thin; scrollbar-color: var(--faint) transparent;
   }
   .brand { display: flex; align-items: center; gap: 10px; padding: 2px 4px 12px; color: var(--fg); font-weight: 650; font-size: 14.5px; letter-spacing: -.01em; }
   .brand:hover { text-decoration: none; }
@@ -84,11 +94,12 @@
     display: flex; width: 100%; align-items: center; gap: 9px; padding: 7px 10px; margin: 1px 0;
     border: 0; border-radius: 8px; background: none; color: var(--fg-soft);
     font: inherit; font-size: 13.5px; cursor: pointer; text-align: left;
+    transition: background-color var(--dur-1), color var(--dur-1);
   }
-  .side-item svg { color: var(--muted); flex: none; }
+  .side-item svg { color: var(--muted); flex: none; transition: color var(--dur-1); }
   .side-item > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .side-item:hover { background: var(--surface-2); color: var(--fg); }
-  .side-item.active { background: var(--surface-2); color: var(--fg); font-weight: 600; }
+  .side-item.active { background: var(--surface-2); color: var(--fg); font-weight: 500; }
   .side-item.active svg { color: var(--fg); }
   .side-n { margin-left: auto; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
   .side-foot { padding: 12px 10px 4px; border-top: 1px solid var(--border-soft); color: var(--muted); font-size: 12px; }
@@ -108,6 +119,7 @@
   .icon-btn {
     display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none;
     border: 0; border-radius: 8px; background: none; color: var(--fg-soft); cursor: pointer;
+    transition: background-color var(--dur-1), color var(--dur-1), scale var(--dur-1) var(--ease-out);
   }
   .icon-btn:hover { background: var(--surface-2); color: var(--fg); }
   .menu-btn { display: none; }
@@ -116,48 +128,54 @@
   .search-wrap kbd {
     position: absolute; right: 8px; pointer-events: none;
     border: 1px solid var(--border); border-radius: 4px; padding: 0 5px;
-    font: 11px/1.6 ui-monospace, Menlo, monospace; color: var(--muted); background: var(--surface-2);
+    font: 11px/1.6 var(--mono); color: var(--muted); background: var(--surface-2);
   }
   #q {
     width: 280px; max-width: 100%; padding: 6px 30px 6px 31px;
     border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg);
-    font: inherit; font-size: 13.5px; transition: border-color .15s, box-shadow .15s;
+    font: inherit; font-size: 13.5px; transition: border-color var(--dur-1), box-shadow var(--dur-1);
   }
   #q::placeholder { color: var(--faint); }
   #q:focus { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
   .btn {
     display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px;
     border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg);
-    font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
-    box-shadow: var(--shadow); transition: background .12s;
+    font: inherit; font-size: 13px; font-weight: 500; line-height: 18px; cursor: pointer; white-space: nowrap;
+    box-shadow: var(--shadow);
+    transition: background-color var(--dur-1), opacity var(--dur-1), box-shadow var(--dur-1), scale var(--dur-1) var(--ease-out);
   }
   .btn:hover { background: var(--surface-2); }
   .btn:disabled { opacity: .5; pointer-events: none; }
   main { width: 100%; max-width: 1200px; margin: 0 auto; padding: 20px 20px 64px; }
 
   /* ---------- cards ---------- */
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 14px; box-shadow: var(--shadow-card); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow-card); }
+  .card > :first-child { margin-top: 0; }
+  .card > :last-child { margin-bottom: 0; }
   .card.table-card { padding: 0; overflow: clip; }  /* clip rounds the corners without becoming a scroll container, so sticky th works */
   .card-head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--border-soft); }
   .card-head h3 { margin: 0; }
   .list-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--border-soft); }
   .list-meta .count { font-size: 13px; color: var(--fg-soft); font-weight: 500; }
   .list-meta .hint { margin-left: auto; font-size: 12.5px; color: var(--faint); }
+  body.drop-hint #main .table-card { box-shadow: 0 0 0 2px var(--link), var(--shadow-card); }  /* run folders are being dragged over the list */
+  body.drop-hint #listHint { color: var(--link); }
 
   /* ---------- tables ---------- */
-  .table-wrap { width: 100%; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
   th {
     position: sticky; top: var(--topbar-h); z-index: 5;
     text-align: left; color: var(--muted); font-weight: 500; font-size: 12.5px;
-    padding: 9px 10px; background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap;
+    padding: 9px 10px; background: var(--surface); white-space: nowrap;
+    box-shadow: inset 0 -1px 0 var(--border);  /* a collapsed border stays on the grid; the shadow travels with a stuck header */
   }
   td { padding: 10px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
   .table-card th:first-child, .table-card td:first-child { padding-left: 16px; }
   .table-card th:last-child, .table-card td:last-child { padding-right: 16px; }
   .table-card tr:last-child td { border-bottom: none; }
   tr.rowlink { cursor: pointer; }
-  tr.rowlink:hover { background: var(--surface-2); }
+  .table-card tbody tr:hover { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+  .table-card tbody tr.rowlink:hover { background: var(--surface-2); }
   th[data-sort] { cursor: pointer; user-select: none; }
   th[data-sort]:hover { color: var(--fg); }
   .sort-ind::after { content: '↕'; margin-left: 4px; color: var(--faint); opacity: 0; }
@@ -165,49 +183,55 @@
   th.sorted-asc .sort-ind::after { content: '↑'; color: var(--fg); opacity: 1; }
   th.sorted-desc .sort-ind::after { content: '↓'; color: var(--fg); opacity: 1; }
   .nowrap { white-space: nowrap; }
-  .runcell { word-break: break-all; }
-  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+  .mono { font-family: var(--mono); font-size: 12.5px; }
   .muted { color: var(--muted); }
 
   /* ---------- badges & chips ---------- */
-  .badge { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 500; border: 1px solid transparent; white-space: nowrap; }
+  .badge { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 500; border: 1px solid transparent; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .badge.pass { background: var(--pass-bg); color: var(--pass); border-color: var(--pass-border); }
   .badge.fail { background: var(--fail-bg); color: var(--fail); border-color: var(--fail-border); }
   .badge.na   { background: var(--na-bg); color: var(--muted); border-color: var(--na-border); }
+  h2 .badge { line-height: 18px; }  /* the scenario PASS / FAIL pill: h2's 1.3 would shrink it below the 18px of every other badge */
   .chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; margin: 14px 0 4px; }
   .chip { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; }
   .chip .k { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chip .v { font-size: 20px; font-weight: 600; letter-spacing: -.02em; margin-top: 2px; }
+  .chip .v { font-size: 20px; font-weight: 600; letter-spacing: -.02em; margin-top: 2px; font-variant-numeric: tabular-nums; }
 
   /* ---------- text & misc ---------- */
   a { color: var(--link); text-decoration: none; }
   a:hover { text-decoration: underline; }
+  a:has(> .badge):hover { text-decoration: none; }  /* PASS / FAIL badges that link to a scenario */
   .crumbs { font-size: 13px; margin-bottom: 12px; color: var(--muted); }
-  h2 { font-size: 17px; margin: 4px 0 10px; font-weight: 600; letter-spacing: -.02em; }
+  h2 { font-size: 20px; line-height: 1.3; margin: 2px 0 10px; font-weight: 600; letter-spacing: -.025em; overflow-wrap: anywhere; }
   h3 { font-size: 14px; margin: 20px 0 8px; font-weight: 600; }
-  details > summary { cursor: pointer; color: var(--link); font-size: 13px; user-select: none; font-weight: 500; }
+  details > summary { cursor: pointer; color: var(--link); font-size: 13px; user-select: none; font-weight: 500; list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::before {
+    content: ''; display: inline-block; width: 5px; height: 5px; margin: 0 8px 2px 2px;
+    border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform var(--dur-1) var(--ease-out);
+  }
+  details[open] > summary::before { transform: rotate(45deg); }
   pre {
     background: var(--surface-2); color: var(--fg); border: 1px solid var(--border-soft);
     padding: 12px 14px; border-radius: 8px; overflow: auto; font-size: 12px; max-height: 480px;
-    scrollbar-width: thin; scrollbar-color: var(--faint) transparent;
   }
   .json-preview-toolbar { display: flex; justify-content: flex-end; margin: 8px 0 -4px; }
-  .json-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-  .json-preview.no-wrap pre { white-space: pre; overflow-wrap: normal; word-break: normal; }
+  .json-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .json-preview.no-wrap pre { white-space: pre; }
   .empty { color: var(--muted); padding: 32px; text-align: center; font-size: 13.5px; }
   .detail-heading { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
   .detail-heading h2 { margin-right: auto; }
-  .skel { height: 13px; border-radius: 6px; margin: 12px 0; background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
-  @keyframes shimmer { to { background-position: -200% 0; } }
+  .skel { height: 13px; border-radius: 6px; margin: 12px 0; background: var(--surface-3); animation: pulse 1.6s ease-in-out infinite; }  /* opacity pulse: compositor-only */
   .toast {
     position: fixed; bottom: 20px; right: 20px; z-index: 100; max-width: 400px;
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
     padding: 10px 14px; font-size: 13px; color: var(--fg-soft);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .14);
+    box-shadow: var(--shadow-pop);
     display: flex; align-items: flex-start; gap: 10px;
+    animation: toast-in var(--dur-2) var(--ease-out);
   }
   .toast-close {
-    flex-shrink: 0; margin: -2px -6px 0 0; padding: 0 4px; border: 0; background: none;
+    flex-shrink: 0; margin: -2px -6px 0 0; padding: 0 4px; border: 0; border-radius: 6px; background: none;
     color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer;
   }
   .toast-close:hover { color: var(--fg); }
@@ -223,51 +247,55 @@
   .turn .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
   audio { width: 100%; margin: 4px 0 10px; }
   .audio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 18px; }
-  .tool-call { border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 12px; margin: 8px 0; background: var(--surface-2); }
-  .tool-call.inline { margin: 10px 40px; font-size: 13px; }
+  .tool-call { border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 12px; margin: 10px 40px; font-size: 13px; background: var(--surface-2); }
   .tool-call .name { font-weight: 650; }
   .tool-call .err { color: var(--fail); font-size: 12.5px; }
-  .ts { color: var(--faint); font-size: 11px; font-family: ui-monospace, Menlo, monospace; margin-right: 6px; }
+  .ts { color: var(--faint); font-size: 11px; font-family: var(--mono); margin-right: 6px; }
   button.ts { background: none; border: 0; padding: 0; line-height: inherit; cursor: pointer; }
   button.ts:hover { color: var(--link); text-decoration: underline; }
+  .turn .bubble { transition: box-shadow var(--dur-2) var(--ease-out); }  /* the audio-sync ring glides from turn to turn */
   .turn.playing .bubble { box-shadow: 0 0 0 2px var(--link); }
 
   /* ---------- scenario nav & buttons ---------- */
   .scen-nav { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-  .scen-nav select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; font-size: 12.5px; max-width: 220px; }
+  .scen-nav select, #impSample { padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; font-size: 12.5px; max-width: 220px; }
   .navbtn {
     display: inline-block; padding: 5px 12px; border: 1px solid var(--border); border-radius: 8px;
-    background: var(--surface); color: var(--fg); font-size: 12.5px; white-space: nowrap;
-    box-shadow: var(--shadow); transition: background .12s;
+    background: var(--surface); color: var(--fg); font-size: 12.5px; line-height: 18px; white-space: nowrap;
+    box-shadow: var(--shadow);
+    transition: background-color var(--dur-1), box-shadow var(--dur-1), scale var(--dur-1) var(--ease-out);
   }
   .navbtn:hover { background: var(--surface-2); text-decoration: none; }
   .navbtn:focus-visible { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
-  .navbtn.disabled { color: var(--faint); pointer-events: none; box-shadow: none; }
+  .navbtn.disabled, .navbtn:disabled { color: var(--faint); pointer-events: none; box-shadow: none; }
   button.navbtn { cursor: pointer; font-family: inherit; }
   .more-chev { display: inline-flex; padding: 4px 10px; border: none; border-radius: 8px; background: none; color: var(--faint); cursor: pointer; }
   .more-chev:hover { background: var(--surface-2); color: var(--fg); }
   .more-chev:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
-  .more-chev svg { width: 18px; height: 18px; transition: transform .15s; }
+  .more-chev svg { width: 18px; height: 18px; transition: transform var(--dur-2) var(--ease-out); }
   .more-chev.open svg { transform: rotate(180deg); }
 
   /* ---------- star / hide / copy ---------- */
-  .star { color: var(--faint); display: inline-flex; transition: color .12s, transform .12s; }
+  .star { color: var(--faint); display: inline-flex; transition: color var(--dur-1), transform var(--dur-1) var(--ease-out); }
   .star.on { color: var(--star); }
   .star.on svg { fill: currentColor; }
   .starcell { cursor: pointer; user-select: none; }
   .starcell:hover .star { color: var(--star); transform: scale(1.12); }
-  .eye { color: var(--faint); display: inline-flex; transition: color .12s; }
+  .eye { color: var(--faint); display: inline-flex; transition: color var(--dur-1); }
   .eye.on { color: var(--muted); }
   .eyecell { cursor: pointer; user-select: none; }
   .eyecell:hover .eye { color: var(--fg); }
   .run-name { overflow-wrap: anywhere; }
+  .run-suffix { color: var(--muted); }  /* -<N>trials-<timestamp>-run-<id>: repeats the Time column */
+  .ratio { display: block; width: 56px; height: 3px; margin-top: 7px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+  .ratio::after { content: ''; display: block; height: 100%; background: var(--pass); transform-origin: left; transform: scaleX(var(--r)); }
   .copy-run-name { appearance: none; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: copy; overflow-wrap: anywhere; }
   .copy-run-name:hover { color: var(--link); }
   .copy-run-name:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; border-radius: 2px; }
   .copy-icon { display: inline-block; vertical-align: -2px; margin-left: 5px; color: var(--faint); }
   .copy-icon svg { width: 12px; height: 12px; }
   .copy-run-name:hover .copy-icon { color: var(--link); }
-  .copy-feedback { margin-left: 5px; color: var(--pass); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; font-size: 11px; font-weight: 600; }
+  .copy-feedback { margin-left: 5px; color: var(--pass); font-family: var(--sans); font-size: 11px; font-weight: 600; }
   .copy-run-name.copy-error .copy-feedback { color: var(--fail); }
   .subscore { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
   .subscore .ok { color: var(--pass); }
@@ -275,7 +303,7 @@
   .mode-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--fg-soft); white-space: nowrap; }
   .mode-tag svg { width: 13px; height: 13px; opacity: .7; }
   .cmp-pickers { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; margin-top: 14px; }
-  .cmp-swap { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
+  .cmp-swap { border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow); }
 
   /* ---------- run picker (filterable listbox; a native <select> of 100+ runs is unreadable) ---------- */
   .run-combo { position: relative; min-width: 0; }
@@ -284,7 +312,7 @@
     border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--fg);
     font: inherit; text-align: left; cursor: pointer; box-shadow: var(--shadow);
     user-select: none; -webkit-tap-highlight-color: transparent;
-    transition: background .12s, border-color .12s, box-shadow .12s;
+    transition: background-color var(--dur-1), border-color var(--dur-1), box-shadow var(--dur-1);
   }
   .rc-btn:hover { background: var(--surface-2); }
   .rc-btn:focus-visible, .run-combo.open .rc-btn { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
@@ -299,15 +327,18 @@
   .rc-title .star svg { width: 12px; height: 12px; }
   .rc-empty { color: var(--muted); font-weight: 500; }
   .rc-sub { display: block; margin-top: 1px; font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rc-chev { flex: none; display: inline-flex; color: var(--faint); transition: transform .15s; }
+  .rc-chev { flex: none; display: inline-flex; color: var(--faint); transition: transform var(--dur-2) var(--ease-out); }
   .run-combo.open .rc-chev { transform: rotate(180deg); }
 
   .rc-pop {
     position: absolute; z-index: 50; top: calc(100% + 6px); left: 0; width: max(100%, 540px); overflow: hidden;
     border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
-    box-shadow: 0 12px 32px -10px rgba(0, 0, 0, .3), var(--shadow-card);
+    box-shadow: var(--shadow-pop);
   }
   .run-combo[data-side="b"] .rc-pop { left: auto; right: 0; }  /* stay inside the card */
+  /* an entrance animation makes the picker card a stacking context that would trap the popover under #cmpBody:
+     lift the card above the entering #cmpBody cards and sticky th (5), below the topbar (40) */
+  #main > .card:has(.run-combo.open) { position: relative; z-index: 6; }
   .rc-search { position: relative; display: flex; padding: 8px; border-bottom: 1px solid var(--border-soft); }
   .rc-search svg { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
   .rc-search input {
@@ -316,7 +347,7 @@
   }
   .rc-search input::placeholder { color: var(--faint); }
   .rc-search input:focus { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
-  .rc-list { max-height: 340px; overflow-y: auto; padding: 5px; scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
+  .rc-list { max-height: 340px; overflow-y: auto; padding: 5px; }
   .rc-group { padding: 7px 9px 4px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
   .rc-opt + .rc-group { margin-top: 5px; border-top: 1px solid var(--border-soft); }
   .rc-opt { display: flex; align-items: center; gap: 9px; padding: 6px 9px; border-radius: 8px; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
@@ -330,9 +361,12 @@
   .rc-score { min-width: 34px; text-align: right; font-size: 12px; color: var(--fg-soft); font-variant-numeric: tabular-nums; }
   .rc-none { padding: 16px 10px; text-align: center; font-size: 12.5px; color: var(--muted); }
   .rc-foot { display: flex; align-items: center; gap: 5px; padding: 6px 10px; border-top: 1px solid var(--border-soft); background: var(--surface-2); font-size: 11.5px; color: var(--muted); }
-  .rc-foot kbd { border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; background: var(--surface); font: 11px/1.5 ui-monospace, Menlo, monospace; }
+  .rc-foot kbd { border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; background: var(--surface); font: 11px/1.5 var(--mono); }
   .rc-count { margin-left: auto; font-variant-numeric: tabular-nums; }
   .cmp-side { border-left: 2px solid var(--border); }
+  .cmp-agg { overflow-x: auto; }  /* nowrap run-name headers can outgrow the card, which clips: scroll instead */
+  .cmp-agg th { position: static; }  /* sticky inside a scroll container would float mid-table */
+  #cmpHead th { top: calc(var(--topbar-h) + 36px); }  /* stack under the stuck A/B group row (36.75px: 9+9 padding + 12.5px x 1.5) */
   tr.cmp-group td { font-size: 12px; color: var(--muted); font-weight: 500; background: var(--surface); }
   .cmp-delta.up { color: var(--pass); }
   .cmp-delta.down { color: var(--fail); }
@@ -365,26 +399,25 @@
 
 
   /* ---------- chat ---------- */
-  .chat-log { display: none; max-height: 560px; overflow-y: auto; margin-bottom: 10px; border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 14px; background: var(--surface-2); scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
+  .chat-log { display: none; max-height: 560px; overflow-y: auto; margin-bottom: 10px; border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 14px; background: var(--surface-2); animation: fade-in var(--dur-2) var(--ease-out); }
   .chat-msg { margin: 14px 0; }
   .chat-msg:first-child { margin-top: 2px; }
   .chat-msg:last-child { margin-bottom: 2px; }
   .chat-msg .who { font-size: 11px; font-weight: 650; color: var(--muted); margin: 0 4px 4px; letter-spacing: .02em; }
   .chat-msg .bubble { margin: 0; overflow-wrap: anywhere; }
   .chat-msg.user .who { text-align: right; }
-  .chat-msg.user .bubble { width: fit-content; max-width: 82%; margin-left: auto; padding: 9px 13px; white-space: pre-wrap; background: var(--bubble-user); color: var(--bubble-user-fg); }
+  .chat-msg.user .bubble { width: fit-content; max-width: 82%; margin-left: auto; background: var(--bubble-user); color: var(--bubble-user-fg); }
   .chat-msg.assistant .bubble { padding: 13px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
   .chat-input { display: flex; gap: 8px; }
-  .chat-input input { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 13.5px; background: var(--surface); color: var(--fg); transition: border-color .15s, box-shadow .15s; }
+  .chat-input input { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 13.5px; background: var(--surface); color: var(--fg); transition: border-color var(--dur-1), box-shadow var(--dur-1); }
   .chat-input input::placeholder { color: var(--faint); }
   .chat-input input:focus { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
-  .chat-input button:disabled { color: var(--faint); pointer-events: none; }
 
   /* ---------- AI scenario report ---------- */
   .report-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .report-head h3 { margin: 0; }
   .report-head .navbtn { margin-left: auto; }
-  .report-body { margin-top: 12px; padding: 13px 16px; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 10px; }
+  .report-body { margin-top: 12px; padding: 13px 16px; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 10px; transition: opacity var(--dur-2) var(--ease-out); }
   .mermaid-diagram { margin: 10px 0; padding: 12px; overflow-x: auto; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 10px; text-align: center; }
   .mermaid-diagram svg { max-width: 100%; height: auto; }
 
@@ -401,15 +434,15 @@
   .markdown-body li { margin: 4px 0; padding-left: 2px; }
   .markdown-body li::marker { color: var(--muted); font-weight: 650; }
   .markdown-body strong { color: var(--fg); font-weight: 700; }
-  .markdown-body code { padding: 2px 5px; border-radius: 5px; background: var(--code-bg); color: var(--code-text); font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+  .markdown-body code { padding: 2px 5px; border-radius: 5px; background: var(--code-bg); color: var(--code-text); font: 12px/1.5 var(--mono); }
   .markdown-body pre { margin: 10px 0; padding: 11px 13px; max-height: 360px; border-color: var(--md-pre-border); background: var(--md-pre-bg); color: var(--md-pre-text); white-space: pre; }
-  .markdown-body pre code { padding: 0; background: transparent; color: inherit; font-size: 12px; }
+  .markdown-body pre code { padding: 0; background: transparent; color: inherit; }
   .markdown-body blockquote { margin: 10px 0; padding: 8px 12px; border-left: 3px solid var(--faint); background: var(--surface-2); color: var(--fg-soft); }
   .markdown-body hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
   .markdown-body a { overflow-wrap: anywhere; }
   .markdown-table-wrap { max-width: 100%; margin: 10px 0; overflow-x: auto; }
   .markdown-body table { width: auto; min-width: 55%; font-size: 12.5px; }
-  .markdown-body th { position: static; padding: 6px 9px; background: var(--surface-2); }
+  .markdown-body th { position: static; padding: 6px 9px; background: var(--surface-2); box-shadow: none; border-bottom: 1px solid var(--border); }
   .markdown-body td { padding: 6px 9px; border: 1px solid var(--border-soft); }
 
   .filelist { columns: 2; font-size: 12.5px; }
@@ -417,53 +450,55 @@
 
   /* ---------- run test ---------- */
   .seg { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); flex-wrap: wrap; }
-  .seg button { border: 0; background: none; padding: 5px 12px; border-radius: 7px; font: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  .seg button { border: 0; background: none; padding: 5px 12px; border-radius: 7px; font: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer; white-space: nowrap; transition: background-color var(--dur-2), color var(--dur-2), box-shadow var(--dur-2); }
   .seg button:hover { color: var(--fg); }
   .seg button.active { background: var(--surface); color: var(--fg); font-weight: 600; box-shadow: var(--shadow); }
   .preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
-  .preset { text-align: left; border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; background: var(--surface); cursor: pointer; font: inherit; color: var(--fg); box-shadow: var(--shadow); transition: background .12s, border-color .12s; }
+  .preset { text-align: left; border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; background: var(--surface); cursor: pointer; font: inherit; color: var(--fg); box-shadow: var(--shadow); transition: background-color var(--dur-1), border-color var(--dur-1), box-shadow var(--dur-1); }
   .preset:hover { background: var(--surface-2); }
   .preset.active { border-color: var(--fg); }
   .preset .p-name { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13.5px; }
   .preset .p-name svg { color: var(--muted); flex: none; }
-  .preset .p-mod { color: var(--faint); font-size: 11px; font-family: ui-monospace, Menlo, monospace; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .preset .p-mod { color: var(--faint); font-size: 11px; font-family: var(--mono); margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 16px; margin-top: 14px; }
   .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .field.wide { grid-column: 1 / -1; }
   .field label { font-size: 12px; font-weight: 500; color: var(--muted); }
-  .field input:not([type=checkbox]), .field select, .field textarea { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; font-size: 13px; transition: border-color .15s, box-shadow .15s; }
-  .field textarea { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; line-height: 1.5; min-height: 120px; resize: vertical; white-space: pre; overflow: auto; }
+  .field input:not([type=checkbox]), .field select, .field textarea { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; font-size: 13px; transition: border-color var(--dur-1), box-shadow var(--dur-1); }
+  .field textarea { font-family: var(--mono); font-size: 12px; min-height: 120px; resize: vertical; white-space: pre; overflow: auto; }
   .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
   .field input::placeholder, .field textarea::placeholder { color: var(--faint); }
   .field .help { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
   .field.invalid textarea { border-color: var(--fail); }
   .paste-row { display: flex; gap: 6px; }
-  .field .paste-row input { flex: 1; min-width: 0; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+  .field .paste-row input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; }
   .yaml-foot { display: flex; align-items: baseline; gap: 10px; }
   .yaml-foot .navbtn { margin-left: auto; flex: none; }
   .btn.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
   .btn.primary:hover { background: var(--primary); opacity: .88; }
   .actions-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
-  .notice { font-size: 12.5px; line-height: 1.5; padding: 9px 12px; margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--fg-soft); }
+  .actions-row .navbtn { padding-block: 6px; }  /* 32px, the height of the .btn beside it */
+  .notice { font-size: 12.5px; padding: 9px 12px; margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--fg-soft); }
   .notice.warn { border-color: rgba(245, 158, 11, .5); background: rgba(245, 158, 11, .09); }
-  .notice code, .cmdline { font-family: ui-monospace, Menlo, monospace; }
+  .notice code, .cmdline { font-family: var(--mono); }
   .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--faint); vertical-align: middle; }
   .status-dot.running { background: var(--link); animation: pulse 1.2s ease-in-out infinite; }
   .status-dot.done { background: var(--pass); }
   .status-dot.error { background: var(--fail); }
-  @keyframes pulse { 50% { opacity: .3; } }
-  .log-pane { margin: 0; max-height: 520px; padding: 12px 14px; border: 1px solid var(--md-pre-border); border-radius: 10px; background: var(--md-pre-bg); color: var(--md-pre-text); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .log-pane { margin: 0; max-height: 520px; border: 1px solid var(--md-pre-border); border-radius: 10px; background: var(--md-pre-bg); color: var(--md-pre-text); white-space: pre-wrap; overflow-wrap: anywhere; }
   .cmdline { font-size: 12px; color: var(--fg-soft); background: var(--surface-2); border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere; user-select: all; }
   tr.tr-selected td { background: var(--surface-2); }
+  tr.tr-selected td:first-child { box-shadow: inset 2px 0 0 var(--fg); }
   .job-actions { display: flex; gap: 4px; flex-wrap: wrap; }
-  #jobsTable { min-width: 760px; }
-  #jobsTable + .empty, #jobsTable .subscore { white-space: nowrap; }
+  .job-actions .navbtn { padding: 3px 9px; font-size: 12px; }  /* keeps its shadow, so .navbtn:focus-visible still shows */
+  .job-actions :is([data-job-del], [data-sched-del]):hover { color: var(--fail); border-color: var(--fail-border); background: var(--fail-bg); }
+  #jobsTable, #schedTable { min-width: 760px; }
   .jobs-wrap { overflow-x: auto; }
   .jobs-wrap th { position: static; }  /* sticky inside a scroll container would float mid-table */
   #logConfig { max-height: 320px; margin-top: 8px; }
   .scen-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .scen-head input { max-width: 260px; }
-  .scen-list { max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
+  .scen-list { max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
   .scen-row { display: flex; align-items: baseline; gap: 9px; padding: 5px 10px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; cursor: pointer; }
   .scen-row:last-child { border-bottom: none; }
   .scen-row:hover { background: var(--surface-2); }
@@ -473,14 +508,101 @@
   .scen-row .scen-tag { flex: none; font-size: 11px; color: var(--faint); }
   .scen-empty { padding: 14px; text-align: center; color: var(--muted); font-size: 12.5px; }
   #agentInfo.err { color: var(--fail); font-size: 12px; }
+  .sched-form { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
+  .sched-days { display: flex; flex-wrap: wrap; gap: 6px 16px; padding-top: 4px; }
+  .field .sched-days label { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 400; color: var(--fg); cursor: pointer; }
+
+  /* ---------- motion: opacity / transform only, one easing curve (--ease-out) ---------- */
+  @keyframes view-in      { from { opacity: 0; transform: translateY(6px); } }
+  @keyframes view-in-next { from { opacity: 0; transform: translateX(8px); } }
+  @keyframes view-in-prev { from { opacity: 0; transform: translateX(-8px); } }
+  @keyframes fade-in      { from { opacity: 0; } }
+  @keyframes pop-in       { from { opacity: 0; transform: translateY(-4px); } }
+  @keyframes toast-in     { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+  @keyframes toast-out    { to { opacity: 0; transform: translateY(4px) scale(.98); } }
+  @keyframes pulse        { 50% { opacity: .4; } }  /* the running dot, the skeleton and "thinking…" */
+  @keyframes spin         { to { transform: rotate(360deg); } }
+  @keyframes grow-x       { from { transform: scaleX(0); } }
+  @keyframes star-pop     { 40% { transform: scale(1.35); } }
+  @keyframes saved-flash  { from { border-color: var(--pass-border); background-color: var(--pass-bg); } }  /* colour only: one field, once, on a user save */
+
+  /* route changes (route / setView): the old page dims while the next one loads, the skeleton only shows after 180 ms,
+     and each route plays one entrance; in-place updates and polling never add .view-enter */
+  .skel-wrap { animation: fade-in var(--dur-2) var(--ease-out) backwards; }
+  #cmpBody > .skel-wrap { animation-delay: .15s; }  /* invisible for 150 ms: a fast /api/compare never shows it */
+  #main.stale { opacity: .55; pointer-events: none; transition: opacity var(--dur-2) var(--ease-out) .1s; }  /* dims only if loading takes >100 ms */
+  #main.view-enter > * { animation: view-in var(--dur-3) var(--ease-out) backwards; }
+  #main.view-enter > :nth-child(2) { animation-delay: 30ms; }
+  #main.view-enter > :nth-child(3) { animation-delay: 60ms; }
+  #main.view-enter > :nth-child(4) { animation-delay: 90ms; }
+  #main.view-enter > :nth-child(n+5) { animation-delay: 120ms; }
+  #main.view-enter[data-dir="next"] > * { animation-name: view-in-next; }
+  #main.view-enter[data-dir="prev"] > * { animation-name: view-in-prev; }
+  #main.view-enter[data-dir="soft"] > * { animation-name: fade-in; animation-duration: var(--dur-2); animation-delay: 0s; }
+  #main.view-enter > .crumbs { animation-name: fade-in; }  /* after the data-dir rules (same specificity): the scenario ←/→ buttons must not slide under the cursor */
+  #cmpBody > .card { animation: view-in var(--dur-3) var(--ease-out) backwards; }  /* compare results land after the shell; only renderCompare writes #cmpBody */
+  /* staggerRows: a fresh run list / scenario table fades in row by row (first 20 rows, once per route or sidebar filter).
+     Opacity only: with border-collapse a translated row tears from its borders. Never used on the polled tables */
+  tbody.rows-enter > tr:nth-child(-n+20) { animation: fade-in var(--dur-3) var(--ease-out) var(--d, 0ms) backwards; }
+  tbody.rows-enter > tr:nth-child(-n+20) .ratio::after { animation: grow-x .5s var(--ease-out) calc(var(--d, 0ms) + 100ms) backwards; }
+
+  /* the Run test page polls every 2 s and rebuilds #jobRows, #schedRows and #logMeta: nothing in them transitions,
+     and the running dot keeps a shared phase (jobStatusHTML) instead of restarting */
+  #jobRows .navbtn, #schedRows .navbtn { transition: none; }
+  /* show-once: plays only on hidden -> shown. Keep the keyframe view-in: #logCard and #schedCard are direct children of #main */
+  #logCard:not([hidden]), #schedCard:not([hidden]), .sched-form:not([hidden]) { animation: view-in var(--dur-3) var(--ease-out) backwards; }
+
+  .toast.leaving { animation: toast-out .16s var(--ease-out) forwards; pointer-events: none; }
+
+  /* panel reveals: each plays only on hidden -> shown; closing stays instant. Re-renders that keep the
+     same hidden value (renderQuickFields on every keystroke, updateSchedPreview) never replay them */
+  .rc-pop:not([hidden]) { animation: pop-in var(--dur-1) var(--ease-out); }  /* translate only: a scale would skew the list's scrollIntoView */
+  :is(#yamlBox, #quickFields, #schedForm .field):not([hidden]) { animation: fade-in var(--dur-2) var(--ease-out); }
+  details[open] > summary ~ * { animation: fade-in var(--dur-2) var(--ease-out); }
+
+  /* AI chat and reports: only what a draw added slides in; a first report shows placeholder lines, a regenerate dims the old one */
+  .chat-msg.msg-in { animation: view-in var(--dur-2) var(--ease-out) backwards; }
+  .chat-msg .bubble.thinking { animation: pulse 1.4s ease-in-out infinite; }
+  .report-body:not([hidden]) { animation: view-in var(--dur-3) var(--ease-out); }
+  .report-body.refreshing { opacity: .45; }
+
+  /* action feedback */
+  .star.pop svg { animation: star-pop .32s var(--ease-out); }  /* on the svg: .starcell:hover .star owns the span's transform */
+  tr.row-leave { opacity: 0; transition: opacity .16s var(--ease-out); pointer-events: none; }  /* a hidden / unhidden run fades out of the list */
+  .just-saved { animation: saved-flash .9s var(--ease-out); }
+  .copy-feedback:not(:empty) { animation: fade-in var(--dur-1) var(--ease-out); }
+
+  /* busy (setBusy): disabled plus a spinner while an async action runs; the label never changes */
+  .btn[aria-busy="true"] { opacity: .8; }
+  .navbtn[aria-busy="true"] { color: var(--muted); }
+  :is(.btn, .navbtn)[aria-busy="true"]::before {
+    content: ''; display: inline-block; flex: none; box-sizing: border-box; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px;
+    border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite;
+  }
+  .btn[aria-busy="true"]::before { width: 12px; height: 12px; margin: 0 1.5px; }  /* the 15px slot of the icon it replaces */
+  .btn[aria-busy="true"] > svg { display: none; }
+  #syncBtn[aria-busy="true"]::before { content: none; }
+  #syncBtn[aria-busy="true"] > svg { display: block; animation: spin .9s linear infinite; }  /* its refresh icon spins instead */
+
+  /* press feedback, and the one focus ring inputs, .navbtn, .rc-btn and .more-chev already use */
+  :is(.btn, .navbtn, .icon-btn, .seg button):active { scale: .97; }  /* the scale property composes with .cmp-swap's rotate(90deg) */
+  :is(.btn, .icon-btn, .side-item, .seg button, .preset, .toast-close):focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--dur-2); }  /* theme toggle cross-fade */
 
   /* ---------- responsive ---------- */
+  @media (max-width: 1280px) {  /* the run list and compare tables outgrow their card below this width */
+    .table-wrap.wide { overflow-x: auto; }
+    .table-wrap.wide > table { min-width: 760px; }
+    .table-wrap.wide .run-name { display: inline-block; min-width: 220px; }
+    .table-wrap.wide th { position: static; }  /* sticky inside a scroll container would float mid-table */
+  }
   @media (max-width: 900px) {
-    #sidebar { position: fixed; left: 0; top: 0; transform: translateX(-100%); transition: transform .2s ease; }
-    body.nav-open #sidebar { transform: none; box-shadow: 0 0 48px rgba(0, 0, 0, .35); }
-    .backdrop { position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, .4); }
-    body:not(.nav-open) .backdrop { display: none; }
-    body.nav-open .backdrop { display: block; }
+    #sidebar { position: fixed; left: 0; top: 0; transform: translateX(-100%); visibility: hidden;
+      transition: transform var(--dur-3) var(--ease-out), visibility 0s linear var(--dur-3); }  /* hidden once slid out: not tabbable off-canvas */
+    body.nav-open #sidebar { transform: none; visibility: visible; transition: transform var(--dur-3) var(--ease-out); box-shadow: 0 0 48px rgba(0, 0, 0, .35); }
+    .backdrop { display: block; position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, .4); opacity: 0; pointer-events: none; transition: opacity var(--dur-2) var(--ease-out); }
+    body.nav-open .backdrop { opacity: 1; pointer-events: auto; }
     .menu-btn { display: inline-flex; }
     #topbar { padding: 0 14px; }
     main { padding: 16px 14px 56px; }
@@ -492,8 +614,16 @@
     .table-wrap .run-name { display: inline-block; min-width: 220px; }
     th { position: static; }
     .filelist { columns: 1; }
-    .tool-call.inline { margin: 10px 8px; }
+    .tool-call { margin: 10px 8px; }
     .turn > div { max-width: 90%; }
+  }
+
+  /* keep LAST: under reduced motion every animation and transition ends at once */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important; animation-delay: 0s !important;
+      animation-iteration-count: 1 !important; transition-duration: .01ms !important;
+    }
   }
 </style>
 </head>
@@ -523,6 +653,10 @@
 
 <script>
 const $main = document.getElementById('main');
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)');  // live: an OS change applies without a reload
+const smoothScroll = () => REDUCED.matches ? 'auto' : 'smooth';
+// disabled plus a spinner while an async action runs (labels never change)
+const setBusy = (btn, on) => { btn.disabled = on; on ? btn.setAttribute('aria-busy', 'true') : btn.removeAttribute('aria-busy'); };
 const svgIcon = paths => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const ICONS = {
   star: svgIcon('<path d="M12 2.5l2.94 5.95 6.57.96-4.76 4.63 1.13 6.54L12 17.5l-5.88 3.08 1.12-6.54-4.75-4.63 6.57-.96z"/>'),
@@ -541,25 +675,22 @@ const ICONS = {
   check: svgIcon('<polyline points="20 6 9 17 4 12"/>'),
   swap: svgIcon('<path d="M4 9h13l-3.5-3.5M17 9l-3.5 3.5"/><path d="M20 15H7l3.5-3.5M7 15l3.5 3.5"/>'),
   play: svgIcon('<polygon points="6 4 20 12 6 20 6 4"/>'),
+  clock: svgIcon('<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>'),
 };
 let RUNS = null;
 let STARS = new Set();
-let HIDDEN = new Set();
 let NOTES = {};
 let LLM_MODEL = '';  // the model behind Ask AI, reported by /api/runs
 
 const dataHref = path => '/data/' + path.split('/').map(encodeURIComponent).join('/');
+const scenHref = (runPath, id) => '#/scenario/' + encodeURIComponent(runPath + '/' + id);
 
 async function toggleStar(path, rerender) {
   const starred = !STARS.has(path);
   starred ? STARS.add(path) : STARS.delete(path);
   rerender();
-  const fd = new FormData();
-  fd.append('path', path);
-  fd.append('starred', starred);
   try {
-    const r = await fetch('/api/star', { method: 'POST', body: fd });
-    if (!r.ok) throw new Error(r.status);
+    await postForm('/api/star', formData({ path, starred }));
   } catch (e) {
     starred ? STARS.delete(path) : STARS.add(path);  // roll back on failure
     rerender();
@@ -568,7 +699,7 @@ async function toggleStar(path, rerender) {
 const starIcon = path => `<span class="star ${STARS.has(path) ? 'on' : ''}">${ICONS.star}</span>`;
 
 // Hidden runs are a per-browser preference: kept in localStorage and never sent to the
-// server, so every computer (and every visitor of a shared link) has its own list.
+// server, so every computer has its own list.
 const HIDDEN_KEY = 'viewer_hidden_runs';
 
 function loadHiddenRuns() {
@@ -579,7 +710,7 @@ function loadHiddenRuns() {
     return new Set();  // storage blocked (private mode): hiding lasts for this page only
   }
 }
-HIDDEN = loadHiddenRuns();
+const HIDDEN = loadHiddenRuns();
 
 function toggleHidden(path, rerender) {
   HIDDEN.has(path) ? HIDDEN.delete(path) : HIDDEN.add(path);
@@ -592,19 +723,19 @@ const hideIcon = path => HIDDEN.has(path)
   ? `<span class="eye on" title="Hidden on this computer — click to show it again">${ICONS.eyeOff}</span>`
   : `<span class="eye" title="Hide this run from the list on this computer">${ICONS.eyeOff}</span>`;
 
+// a one-shot green flash on a note field that just saved
+const flashSaved = el => {
+  el.classList.add('just-saved');
+  el.addEventListener('animationend', () => el.classList.remove('just-saved'), { once: true });
+};
+
 async function saveRunNote(path, value) {
   const note = value.trim();
   const previous = NOTES[path] || '';
   if (note === previous) return note;
   note ? NOTES[path] = note : delete NOTES[path];
-  const fd = new FormData();
-  fd.append('path', path);
-  fd.append('note', note);
   try {
-    const r = await fetch('/api/note', { method: 'POST', body: fd });
-    const res = await r.json();
-    if (!r.ok) throw new Error(res.detail || r.status);
-    return res.note;
+    return (await postForm('/api/note', formData({ path, note }))).note;
   } catch (e) {
     previous ? NOTES[path] = previous : delete NOTES[path];
     throw e;
@@ -898,18 +1029,28 @@ function filteredRuns() {
 const copyNameBtn = name => `<button class="copy-run-name" type="button" data-run-name="${esc(name)}"
   title="Copy run name" aria-label="Copy run name ${esc(name)}"><span>${esc(name)}</span><span class="copy-icon" aria-hidden="true">${ICONS.copy}</span><span class="copy-feedback" aria-live="polite"></span></button>`;
 
+// the part from -<N>trials- on (timestamp + run id) only tells runs of one config apart: muted
+const runNameHTML = name => {
+  const m = String(name ?? '').match(/^(.+?)(-\d+trials-.*)$/);
+  return m ? `${esc(m[1])}<span class="run-suffix">${esc(m[2])}</span>` : esc(name);
+};
+// a 56px bar under the Scenarios badge, so 69/70 and 0/70 no longer look alike
+const ratioBar = (passed, total) => total
+  ? `<span class="ratio" style="--r:${Math.min(1, Math.max(0, (Number(passed) || 0) / total)).toFixed(3)}" aria-hidden="true"></span>`
+  : '';
+
 function runRowHTML(r) {
   return `
   <tr class="rowlink" data-href="#/run/${encodeURIComponent(r.path)}">
     <td class="starcell" data-path="${esc(r.path)}">${starIcon(r.path)}</td>
     <td class="eyecell" data-path="${esc(r.path)}">${hideIcon(r.path)}</td>
-    <td class="mono muted nowrap">${esc(r.timestamp || '?')}</td>
-    <td class="mono runcell"><span class="run-name">${esc(r.run_name)}</span></td>
+    <td class="mono muted">${esc(r.timestamp || '?')}</td>
+    <td class="mono"><span class="run-name">${runNameHTML(r.run_name)}</span></td>
     <td>${esc(r.agent_name || '—')}</td>
     <td>${modalityTag(r.modality)}${userSimTag(r.user_simulator)}</td>
     <td>${r.has_results
-        ? `<span class="${r.scenarios_passed === r.scenarios_total ? 'badge pass' : 'badge fail'}">${r.scenarios_passed}/${r.scenarios_total}</span>`
-          + (r.scenarios_errored ? ` <span class="muted">(${r.scenarios_errored} err)</span>` : '')
+        ? runScenarioBadge(r) + (r.scenarios_errored ? ` <span class="muted">(${r.scenarios_errored} err)</span>` : '')
+          + ratioBar(r.scenarios_passed, r.scenarios_total)
         : `<span class="badge na">no results (${r.scenario_count} dirs)</span>`}</td>
     <td>${fmtScore(r.primary_score)}</td>
     <td>${fmtScore(r.eval_final)}</td>
@@ -918,20 +1059,33 @@ function runRowHTML(r) {
 }
 
 async function renderList() {
+  const seq = routeSeq;
   await loadRuns();
+  if (seq !== routeSeq) return;  // navigated away while the index (re)loaded (sync and import call this too)
   renderSideNav();
-  $main.innerHTML = `
+  setView(`
   <div class="card table-card">
-    <div class="list-meta"><span class="count" id="listCount"></span><span class="hint" id="listHint"></span></div>
-    <div class="table-wrap">
+    <div class="list-meta"><span class="count" id="listCount"></span><span class="hint" id="listHint">drag run folders anywhere to import</span></div>
+    <div class="table-wrap wide">
       <table id="runTable">
         <thead id="runHead"></thead>
         <tbody id="runRows"></tbody>
       </table>
     </div>
     <div class="empty" id="listEmpty" hidden></div>
-  </div>`;
+  </div>`);
   updateRunRows();
+}
+
+// One-shot fade of a fresh table's first 20 rows (step > 0: staggered by step ms). Only route() (run list,
+// scenario table) and the sidebar filters call it, never the polled jobs / schedules tables; the update*Rows
+// re-renders strip it, so search, sort and star toggles never replay it.
+function staggerRows(tbody, step = 16) {
+  if (!tbody) return;
+  [...tbody.rows].slice(0, 20).forEach((tr, i) => tr.style.setProperty('--d', i * step + 'ms'));
+  tbody.classList.add('rows-enter');
+  clearTimeout(tbody._enterT);
+  tbody._enterT = setTimeout(() => tbody.classList.remove('rows-enter'), 20 * step + 700);  // after the last row's ratio bar has grown
 }
 
 // Refreshes only the table + counters; the shell (and the topbar search box) stay put,
@@ -939,14 +1093,15 @@ async function renderList() {
 function updateRunRows() {
   const head = document.getElementById('runHead');
   if (!head) return;  // not on the list view
+  const tbody = document.getElementById('runRows');
+  tbody.classList.remove('rows-enter');
   const { rows, pool, hiddenCount } = filteredRuns();
   const sorted = sortRows(rows, runSorters, listState.sort, listState.dir);
   head.innerHTML = `<tr><th></th><th></th>${sortableTh('timestamp', 'Time (UTC)', listState)}${sortableTh('run_name', 'Run', listState)}${sortableTh('agent_name', 'Agent', listState)}${sortableTh('modality', 'Mode', listState)}${sortableTh('scenarios', 'Scenarios', listState)}${sortableTh('primary_score', 'Primary', listState)}${sortableTh('eval_final', 'Eval final', listState)}<th>Note</th></tr>`;
-  document.getElementById('runRows').innerHTML = sorted.map(runRowHTML).join('');
+  tbody.innerHTML = sorted.map(runRowHTML).join('');
   document.getElementById('listCount').textContent =
     `${sorted.length} / ${pool.length} ${listState.view === 'hidden' ? 'hidden runs' : 'runs'}`
     + (listState.view !== 'hidden' && hiddenCount ? ` · ${hiddenCount} hidden on this computer` : '');
-  document.getElementById('listHint').textContent = 'drag run folders anywhere to import';
   const empty = document.getElementById('listEmpty');
   empty.hidden = !!sorted.length;
   empty.textContent = listState.view === 'hidden'
@@ -979,7 +1134,7 @@ function renderSideNav() {
   const starredN = RUNS.filter(r => STARS.has(r.path) && !HIDDEN.has(r.path)).length;
   const viewItem = (view, icon, label, n) =>
     `<button class="side-item" type="button" data-view="${view}">${icon}<span>${label}</span><span class="side-n">${n}</span></button>`;
-  nav.innerHTML = `
+  const html = `
     <div class="side-sec">Views</div>
     ${viewItem('all', ICONS.list, 'All runs', RUNS.length - hiddenN)}
     ${viewItem('starred', ICONS.star, 'Starred', starredN)}
@@ -994,6 +1149,7 @@ function renderSideNav() {
     <button class="side-item" type="button" data-agent="">${ICONS.bot}<span>All agents</span><span class="side-n">${RUNS.length}</span></button>
     ${agentFamilies().map(([g, n]) =>
       `<button class="side-item" type="button" data-agent="${esc(g)}">${ICONS.bot}<span title="${esc(g)}">${esc(g)}</span><span class="side-n">${n}</span></button>`).join('')}`;
+  if (nav._html !== html) { nav.innerHTML = html; nav._html = html; }  // same counts: keep the nodes so active / hover can ease
   updateSideNav();
 }
 
@@ -1022,7 +1178,7 @@ let CUR_RUN = null;  // { path, scenarios } while a run page is on screen
 
 function scenRowHTML(runPath) {
   return s => `
-  <tr class="rowlink" data-href="#/scenario/${encodeURIComponent(runPath + '/' + s.id)}">
+  <tr class="rowlink" data-href="${scenHref(runPath, s.id)}">
     <td class="mono">${esc(s.id)}</td>
     <td>${passBadge(s.passed)}</td>
     <td>${fmtScore(s.goal_score)}${s.tau2_breakdown ? `<div class="subscore">${
@@ -1039,16 +1195,20 @@ function updateScenRows() {
   const head = document.getElementById('scenHead');
   if (!head || !CUR_RUN) return;
   head.innerHTML = `<tr>${sortableTh('id', 'Scenario', scenState)}${sortableTh('passed', 'Result', scenState)}${sortableTh('goal_score', 'Goal score', scenState)}${sortableTh('end_reason', 'End reason', scenState)}${sortableTh('turn_count', 'Turns', scenState)}${sortableTh('duration_ms', 'Duration', scenState)}</tr>`;
-  document.getElementById('scenRows').innerHTML =
+  const tbody = document.getElementById('scenRows');
+  tbody.classList.remove('rows-enter');
+  tbody.innerHTML =
     sortRows(CUR_RUN.scenarios, scenSorters, scenState.sort, scenState.dir)
       .map(scenRowHTML(CUR_RUN.path)).join('');
 }
 
 async function renderRun(path) {
+  const seq = routeSeq;
   const [d] = await Promise.all([
     getRun(path),
     loadRuns(),  // ensures STARS is populated on direct page loads
   ]);
+  if (seq !== routeSeq) return;
   const res = d.results, ev = d.evaluation;
   const chips = [];
   if (res) {
@@ -1062,7 +1222,7 @@ async function renderRun(path) {
   CUR_RUN = { path, scenarios: d.scenarios };
   scenState.sort = 'id';
   scenState.dir = 1;
-  $main.innerHTML = `
+  setView(`
   <div class="crumbs"><a href="#">All runs</a> / ${esc(path)}</div>
   <div class="card">
     <div class="detail-heading">
@@ -1079,23 +1239,7 @@ async function renderRun(path) {
     <div class="chips">${chips.map(([k, v]) => `<div class="chip"><div class="k">${k}</div><div class="v">${typeof v === 'number' ? fmtScore(v) : esc(v ?? '—')}</div></div>`).join('')}</div>
     ${res ? '' : '<p class="muted">This run has no results.json (likely errored or interrupted) — scenario directories are still browsable below.</p>'}
   </div>
-  <div class="card">
-    <div class="report-head">
-      <h3>✨ AI Run 报告</h3>
-      <span class="muted" id="reportStatus" style="font-size:12px" aria-live="polite"></span>
-      <button class="navbtn" id="reportBtn" type="button">生成报告</button>
-    </div>
-    <div class="muted" style="font-size:12.5px;margin-top:6px">一键让 AI 生成整个 run 的详细报告：总体结果、按根因分组的失败原因分布（含图）、高频问题详解（引用具体场景）和改进建议。</div>
-    <div id="reportBody" class="markdown-body report-body" hidden></div>
-  </div>
-  <div class="card">
-    <h3 style="margin-top:0">🤖 Ask AI about this run</h3>
-    <div id="chatLog" class="chat-log"></div>
-    <div class="chat-input">
-      <input id="chatText" placeholder="自由提问更细节的问题…">
-      <button class="navbtn" id="chatSend" type="button">Send</button>
-    </div>
-  </div>
+  ${aiCardsHTML('AI Run 报告', '一键让 AI 生成整个 run 的详细报告：总体结果、按根因分组的失败原因分布（含图）、高频问题详解（引用具体场景）和改进建议。', 'run')}
   <div class="card table-card">
     <div class="card-head"><h3>Scenarios (${d.scenarios.length})</h3></div>
     <div class="table-wrap">
@@ -1106,7 +1250,7 @@ async function renderRun(path) {
     </div>
   </div>
   ${res ? `<div class="card">${jsonPreview('Raw results.json', res)}</div>` : ''}
-  ${ev ? `<div class="card">${jsonPreview('Raw talk_bench_evaluation_result.json', ev)}</div>` : ''}`;
+  ${ev ? `<div class="card">${jsonPreview('Raw talk_bench_evaluation_result.json', ev)}</div>` : ''}`);
 
   updateScenRows();
   initReport(path, '/api/run_report', '生成中…（大 run 可能需要 1–3 分钟）');
@@ -1115,15 +1259,16 @@ async function renderRun(path) {
     const input = document.getElementById('runNote');
     const status = document.getElementById('runNoteStatus');
     const button = document.getElementById('saveRunNoteBtn');
-    button.disabled = true;
+    setBusy(button, true);
     status.textContent = 'Saving…';
     try {
       input.value = await saveRunNote(path, input.value);
       status.textContent = 'Saved';
+      flashSaved(input);
     } catch (e) {
       status.textContent = 'Save failed: ' + e.message;
     } finally {
-      button.disabled = false;
+      setBusy(button, false);
     }
   });
 }
@@ -1149,8 +1294,7 @@ const cmpShortName = r => `${r.agent_name || r.path.split('-1trials-')[0]}${r.mo
 // The other side of the comparison worth defaulting to: same domain and task count,
 // opposite modality — the only pairing where a text-vs-voice delta means anything.
 function defaultCounterpart(anchor) {
-  const runs = [...(RUNS || [])].filter(r => r.scenario_count && r.path !== anchor.path)
-    .sort((x, y) => (y.timestamp || '').localeCompare(x.timestamp || ''));
+  const runs = (RUNS || []).filter(r => r.scenario_count && r.path !== anchor.path);  // RUNS is newest-first
   const sameDomain = r => (r.domains || []).some(d => (anchor.domains || []).includes(d));
   const sameTasks = r => sameDomain(r) && r.scenario_count === anchor.scenario_count;
   const crossModal = r => r.modality && anchor.modality && r.modality !== anchor.modality;
@@ -1162,8 +1306,7 @@ function defaultCounterpart(anchor) {
 }
 
 function defaultComparePair() {
-  const runs = [...(RUNS || [])].filter(r => r.scenario_count)
-    .sort((x, y) => (y.timestamp || '').localeCompare(x.timestamp || ''));
+  const runs = (RUNS || []).filter(r => r.scenario_count);
   const a = runs.find(r => r.modality === 'text') || runs[0];
   return a ? [a.path, defaultCounterpart(a)?.path || ''] : ['', ''];
 }
@@ -1196,8 +1339,7 @@ function cmpPickerGroups(side, selected, otherPath, query) {
   const rows = (RUNS || [])
     .filter(r => !HIDDEN.has(r.path) || r.path === selected || r.path === otherPath)
     .filter(r => !q || runSearchText(r).includes(q))
-    .sort((x, y) => (STARS.has(y.path) - STARS.has(x.path))
-      || (y.timestamp || '').localeCompare(x.timestamp || ''));
+    .sort((x, y) => STARS.has(y.path) - STARS.has(x.path));  // stable, so newest-first within each group
   const other = (RUNS || []).find(r => r.path === otherPath);
   if (!other) return [['', rows]];
   const sharesDomain = r => (r.domains || []).some(d => (other.domains || []).includes(d));
@@ -1343,7 +1485,7 @@ function cmpMetricRow(label, va, vb, { fmt = fmtScore, better = 'high', note = '
   if (na !== null && nb !== null) {
     const d = nb - na;
     const cls = !better || Math.abs(d) < 1e-9 ? '' : (better === 'high') === (d > 0) ? 'up' : 'down';
-    const shown = fmt === fmtDur ? fmtDur(Math.abs(d)) : fmtScore(Math.abs(d));
+    const shown = fmt(Math.abs(d));
     delta = `<span class="cmp-delta ${cls}">${d > 0 ? '+' : d < 0 ? '−' : ''}${shown}</span>`;
   }
   const cell = v => v == null ? '<span class="muted">—</span>' : fmt(v);
@@ -1365,6 +1507,8 @@ function cmpSummaryHTML(d) {
     [`Only ${esc(cmpShortName(b))}`, counts.b_only + pct(counts.b_only)],
     ['Both fail', counts.both_fail + pct(counts.both_fail)],
   ];
+  const voiceOnly = { note: crossModal ? 'voice-only metric' : '' };
+  const notComparable = { better: crossModal ? null : 'high', note: crossModal ? 'not comparable across modalities' : '' };
   const rows = [
     cmpMetricRow('Passed (shared scenarios)', rate(a.stats), rate(b.stats),
       { note: `${a.stats.passed}/${a.stats.total} vs ${b.stats.passed}/${b.stats.total}` }),
@@ -1378,14 +1522,10 @@ function cmpSummaryHTML(d) {
     cmpMetricRow('Resolution', ev(a, 'resolution'), ev(b, 'resolution')),
     cmpMetricRow('Customer effort', ev(a, 'customer_effort'), ev(b, 'customer_effort')),
     cmpMetricRow('Conversation quality', ev(a, 'conversation_quality'), ev(b, 'conversation_quality')),
-    cmpMetricRow('Responsiveness', ev(a, 'responsiveness'), ev(b, 'responsiveness'),
-      { note: crossModal ? 'voice-only metric' : '' }),
-    cmpMetricRow('Voice consistency', ev(a, 'voice_consistency'), ev(b, 'voice_consistency'),
-      { note: crossModal ? 'voice-only metric' : '' }),
-    cmpMetricRow('Experience', ev(a, 'experience'), ev(b, 'experience'),
-      { better: crossModal ? null : 'high', note: crossModal ? 'not comparable across modalities' : '' }),
-    cmpMetricRow('Eval final', ev(a, 'final'), ev(b, 'final'),
-      { better: crossModal ? null : 'high', note: crossModal ? 'not comparable across modalities' : '' }),
+    cmpMetricRow('Responsiveness', ev(a, 'responsiveness'), ev(b, 'responsiveness'), voiceOnly),
+    cmpMetricRow('Voice consistency', ev(a, 'voice_consistency'), ev(b, 'voice_consistency'), voiceOnly),
+    cmpMetricRow('Experience', ev(a, 'experience'), ev(b, 'experience'), notComparable),
+    cmpMetricRow('Eval final', ev(a, 'final'), ev(b, 'final'), notComparable),
   ];
   const reasons = side => Object.entries(side.stats.end_reasons || {})
     .map(([k, n]) => `${esc(k)} ${n}`).join(' · ') || '—';
@@ -1405,7 +1545,7 @@ function cmpSummaryHTML(d) {
   </div>
   <div class="card table-card">
     <div class="card-head"><h3>Aggregates over the ${shared} shared scenarios</h3></div>
-    <div class="table-wrap"><table>
+    <div class="table-wrap cmp-agg"><table>
       <thead><tr><th>Metric</th><th>${esc(cmpShortName(a))}</th><th class="cmp-side">${esc(cmpShortName(b))}</th><th>Δ (B − A)</th></tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table></div>
@@ -1426,7 +1566,7 @@ function updateCmpRows() {
   head.innerHTML = `<tr>${sortableTh('id', 'Scenario', cmpState)}
     ${sortableTh('a_passed', 'Result', cmpState)}${sortableTh('a_goal', 'Goal', cmpState)}<th>End reason</th>${sortableTh('a_turns', 'Turns', cmpState)}${sortableTh('a_dur', 'Duration', cmpState)}
     ${sortableTh('b_passed', 'Result', cmpState, 'cmp-side')}${sortableTh('b_goal', 'Goal', cmpState)}<th>End reason</th>${sortableTh('b_turns', 'Turns', cmpState)}${sortableTh('b_dur', 'Duration', cmpState)}</tr>`;
-  const link = (path, id, inner) => `<a href="#/scenario/${encodeURIComponent(path + '/' + id)}">${inner}</a>`;
+  const link = (path, id, inner) => `<a href="${scenHref(path, id)}">${inner}</a>`;
   document.getElementById('cmpRows').innerHTML = sortRows(rows, cmpSorters, cmpState.sort, cmpState.dir).map(r => `
     <tr>
       <td class="mono">${esc(r.id)}</td>
@@ -1442,7 +1582,9 @@ function updateCmpRows() {
 }
 
 async function renderCompare(params) {
+  const seq = routeSeq;
   await loadRuns();
+  if (seq !== routeSeq) return;
   let a = params.get('a') || '';
   let b = params.get('b') || '';
   if (!a && !b) [a, b] = defaultComparePair();
@@ -1451,10 +1593,10 @@ async function renderCompare(params) {
     const other = anchor ? defaultCounterpart(anchor)?.path || '' : '';
     if (a) b = other; else a = other;
   }
-  $main.innerHTML = `
+  setView(`
   <div class="crumbs"><a href="#">All runs</a> / Compare</div>
   <div class="card">
-    <h2 style="margin-top:0">Compare two runs</h2>
+    <h2>Compare two runs</h2>
     <p class="muted" style="font-size:12.5px;margin-top:-4px">
       Scenarios are aligned by id, so text and voice runs of the same task set line up row by row.</p>
     <div class="cmp-pickers">
@@ -1464,7 +1606,7 @@ async function renderCompare(params) {
       ${cmpPickerHTML('b', b)}
     </div>
   </div>
-  <div id="cmpBody"></div>`;
+  <div id="cmpBody"></div>`);
   initCmpPicker('a', a, b, path => cmpGoTo(path, b));
   initCmpPicker('b', b, a, path => cmpGoTo(a, path));
   document.getElementById('cmpSwap').addEventListener('click', () => cmpGoTo(b, a));
@@ -1480,6 +1622,7 @@ async function renderCompare(params) {
     body.innerHTML = `<div class="card"><b>Error:</b> ${esc(e.message)}</div>`;
     return;
   }
+  if (seq !== routeSeq) return;  // navigated away (or picked another pair) while it loaded
   CUR_CMP = d;
   cmpState.sort = 'id';
   cmpState.dir = 1;
@@ -1493,10 +1636,10 @@ async function renderCompare(params) {
   <div class="card table-card">
     <div class="list-meta">
       <span class="count" id="cmpCount"></span>
-      <label class="hint" style="margin-left:auto;display:flex;align-items:center;gap:6px;cursor:pointer">
+      <label class="hint" style="display:flex;align-items:center;gap:6px;cursor:pointer">
         <input type="checkbox" id="cmpDiffOnly"${cmpState.diffOnly ? ' checked' : ''}> only where the two disagree</label>
     </div>
-    <div class="table-wrap">
+    <div class="table-wrap wide">
       <table id="cmpTable">
         <thead><tr><th></th><th colspan="5">${esc(cmpShortName(d.a))}</th><th colspan="5" class="cmp-side">${esc(cmpShortName(d.b))}</th></tr></thead>
         <thead id="cmpHead"></thead>
@@ -1529,7 +1672,7 @@ function renderTimeline(conversation, toolLog, align) {
   const seekTs = (s, title, approx = false) => {
     const label = (approx ? '≈' : '') + fmtClock(s);
     return s >= 0 && s < align.duration
-      ? `<button class="ts seek" type="button" data-seek="${s.toFixed(2)}" title="${esc(title)} · click to play from here">${label}</button>`
+      ? `<button class="ts" type="button" data-seek="${s.toFixed(2)}" title="${esc(title)} · click to play from here">${label}</button>`
       : `<span class="ts" title="${esc(title)} · outside the recording">${label}</span>`;
   };
   const turnTs = t => {
@@ -1558,7 +1701,7 @@ function renderTimeline(conversation, toolLog, align) {
     }
     const c = it.d;
     return `
-    <div class="tool-call inline">
+    <div class="tool-call">
       ${toolTs(c)}
       🔧 <span class="name mono">${esc(c.tool_name)}</span>
       ${c.db_changed ? '<span class="badge pass" style="margin-left:8px">db changed</span>' : ''}
@@ -1655,7 +1798,7 @@ async function getRun(runPath) {
 }
 
 function scenarioNav(runPath, siblings, idx) {
-  const link = i => `#/scenario/${encodeURIComponent(runPath + '/' + siblings[i].id)}`;
+  const link = i => scenHref(runPath, siblings[i].id);
   const prev = idx > 0 ? siblings[idx - 1] : null;
   const next = idx >= 0 && idx < siblings.length - 1 ? siblings[idx + 1] : null;
   const mark = s => s.passed === true ? '✓ ' : s.passed === false ? '✗ ' : '';
@@ -1671,10 +1814,13 @@ function scenarioNav(runPath, siblings, idx) {
 }
 
 async function renderScenario(path) {
-  const d = await getJSON('/api/scenario?path=' + encodeURIComponent(path));
-  const runPath = path.split('/')[0];
-  const scenId = path.split('/')[1];
-  const run = await getRun(runPath).catch(() => null);
+  const seq = routeSeq;
+  const [runPath, scenId] = path.split('/');
+  const [d, run] = await Promise.all([
+    getJSON('/api/scenario?path=' + encodeURIComponent(path)),
+    getRun(runPath).catch(() => null),
+  ]);
+  if (seq !== routeSeq) return;
   const siblings = run?.scenarios || [];
   const scenIdx = siblings.findIndex(s => s.id === scenId);
   const sc = d.scenario || {}, meta = d.run_meta || {};
@@ -1682,7 +1828,7 @@ async function renderScenario(path) {
   const audioNames = Object.entries(d.audio).filter(([,ok]) => ok).map(([n]) => n);
   const align = audioNames.length ? d.audio_align : null;
 
-  $main.innerHTML = `
+  setView(`
   <div class="crumbs" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
     <span><a href="#">All runs</a> / <a href="#/run/${encodeURIComponent(runPath)}">${esc(runPath)}</a> / ${esc(scenId)}</span>
     ${siblings.length > 1 ? scenarioNav(runPath, siblings, scenIdx) : ''}
@@ -1702,85 +1848,64 @@ async function renderScenario(path) {
     ${jsonPreview('Full scenario JSON', sc)}
   </div>
 
-  ${audioNames.length ? `<div class="card"><h3 style="margin-top:0">Audio</h3><div class="audio-grid">
+  ${audioNames.length ? `<div class="card"><h3>Audio</h3><div class="audio-grid">
     ${audioNames.map(n => `<div><div class="muted" style="font-size:12px">${n}.wav</div>
-      <audio controls preload="none" src="/data/${encodeURIComponent(path).replace(/%2F/g,'/')}/${n}.wav"></audio></div>`).join('')}
+      <audio controls preload="none" src="${dataHref(`${path}/${n}.wav`)}"></audio></div>`).join('')}
   </div></div>` : ''}
 
-  <div class="card">
-    <div class="report-head">
-      <h3>✨ AI 场景报告</h3>
-      <span class="muted" id="reportStatus" style="font-size:12px" aria-live="polite"></span>
-      <button class="navbtn" id="reportBtn" type="button">生成报告</button>
-    </div>
-    <div class="muted" style="font-size:12.5px;margin-top:6px">一键让 AI 总结：这个任务要求什么、Agent 实际怎么做的（逐个 tool call）、做得好不好，并画出流程图。</div>
-    <div id="reportBody" class="markdown-body report-body" hidden></div>
-  </div>
-
-  <div class="card">
-    <h3 style="margin-top:0">🤖 Ask AI about this scenario</h3>
-    <div id="chatLog" class="chat-log"></div>
-    <div class="chat-input">
-      <input id="chatText" placeholder="自由提问更细节的问题…">
-      <button class="navbtn" id="chatSend" type="button">Send</button>
-    </div>
-  </div>
+  ${aiCardsHTML('AI 场景报告', '一键让 AI 总结：这个任务要求什么、Agent 实际怎么做的（逐个 tool call）、做得好不好，并画出流程图。', 'scenario')}
 
   <div class="card" id="transcript">
-    <h3 style="margin-top:0">Transcript
+    <h3>Transcript
       ${d.conversation ? `<span class="muted" style="font-weight:400">(${d.conversation.length} turns · ${d.tool_log?.length || 0} tool calls)</span>` : ''}</h3>
     ${align ? '<div class="muted" style="font-size:12.5px;margin:-4px 0 10px">Times are positions in the recording — click one to play the audio from there.</div>' : ''}
     ${renderTimeline(d.conversation, d.tool_log, align)}
   </div>
 
   <div class="card">
-    <h3 style="margin-top:0">Files (${d.files.length})</h3>
+    <h3>Files (${d.files.length})</h3>
     <div class="filelist">
       ${d.files.map(f => `<div><a class="mono" target="_blank" href="${dataHref(path + '/' + f.name)}">${esc(f.name)}</a> <span class="muted">${(f.size/1024).toFixed(0)} KB</span></div>`).join('')}
     </div>
-  </div>`;
+  </div>`);
 
   initReport(path);
   initChat(path);
   if (align) initAudioSync();
 
+  const go = i => { location.hash = scenHref(runPath, siblings[i].id); };
   const jump = document.getElementById('scenJump');
-  if (jump) jump.addEventListener('change', () =>
-    location.hash = '#/scenario/' + encodeURIComponent(runPath + '/' + siblings[+jump.value].id));
+  if (jump) jump.addEventListener('change', () => go(+jump.value));
   scenKeyNav = e => {
     if (e.target.closest('input, select, textarea, audio')) return;
-    if (e.key === 'ArrowLeft' && scenIdx > 0)
-      location.hash = '#/scenario/' + encodeURIComponent(runPath + '/' + siblings[scenIdx - 1].id);
-    if (e.key === 'ArrowRight' && scenIdx >= 0 && scenIdx < siblings.length - 1)
-      location.hash = '#/scenario/' + encodeURIComponent(runPath + '/' + siblings[scenIdx + 1].id);
+    if (e.key === 'ArrowLeft' && scenIdx > 0) go(scenIdx - 1);
+    if (e.key === 'ArrowRight' && scenIdx >= 0 && scenIdx < siblings.length - 1) go(scenIdx + 1);
   };
 }
 
 /* ---------- run import: drop run folders anywhere on the run list ---------- */
 let upToastTimer;
+// fade the toast out; without its id, a message arriving meanwhile opens a fresh toast instead of reviving this one
+const dismissToast = el => {
+  if (el.classList.contains('leaving')) return;
+  el.removeAttribute('id');
+  el.classList.add('leaving');
+  setTimeout(() => el.remove(), 160);
+};
 const setUpStatus = t => {
   let el = document.getElementById('toast');
-  if (!t) { el?.remove(); return; }
   if (!el) {
     el = document.createElement('div');
     el.id = 'toast';
     el.className = 'toast';
     el.setAttribute('role', 'status');
-    const msg = document.createElement('span');
-    msg.className = 'toast-msg';
-    el.appendChild(msg);
-    const close = document.createElement('button');
-    close.type = 'button';
-    close.className = 'toast-close';
-    close.setAttribute('aria-label', 'Close');
-    close.textContent = '×';
-    close.addEventListener('click', () => { clearTimeout(upToastTimer); el.remove(); });
-    el.appendChild(close);
+    el.innerHTML = '<span class="toast-msg"></span><button type="button" class="toast-close" aria-label="Close">×</button>';
+    el.querySelector('.toast-close').addEventListener('click', () => { clearTimeout(upToastTimer); dismissToast(el); });
     document.body.appendChild(el);
   }
   el.querySelector('.toast-msg').textContent = t;
   clearTimeout(upToastTimer);
-  upToastTimer = setTimeout(() => el.remove(), 6000);
+  upToastTimer = setTimeout(() => dismissToast(el), 6000);
 };
 
 async function postForm(url, fd) {
@@ -1789,31 +1914,30 @@ async function postForm(url, fd) {
   if (!r.ok) { const e = new Error(res.detail || r.status); e.status = r.status; throw e; }
   return res;
 }
+const formData = fields => {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) for (const x of [].concat(v)) fd.append(k, x);  // an array repeats its key
+  return fd;
+};
 
 // entries: [{rel: path inside the run dir, file}]
 async function syncOneRun(runName, entries, progressPrefix) {
-  const beginFd = ow => {
-    const fd = new FormData();
-    fd.append('run_name', runName); fd.append('overwrite', ow);
-    return fd;
-  };
+  const begin = overwrite => postForm('/api/upload_dir_begin', formData({ run_name: runName, overwrite }));
   let uploadId;
   try {
-    uploadId = (await postForm('/api/upload_dir_begin', beginFd(false))).upload_id;
+    uploadId = (await begin(false)).upload_id;
   } catch (e) {
     if (e.status !== 409) throw e;
     if (!confirm(`Run "${runName}" already exists. Replace it?`)) return 'skipped';
-    uploadId = (await postForm('/api/upload_dir_begin', beginFd(true))).upload_id;
+    uploadId = (await begin(true)).upload_id;
   }
   try {
     // upload in batches: at most 40 files or ~200 MB per request
     let batch = [], batchBytes = 0, sent = 0;
     const flush = async () => {
       if (!batch.length) return;
-      const fd = new FormData();
-      fd.append('upload_id', uploadId);
-      for (const e of batch) { fd.append('paths', e.rel); fd.append('files', e.file); }
-      await postForm('/api/upload_dir_chunk', fd);
+      await postForm('/api/upload_dir_chunk', formData({
+        upload_id: uploadId, paths: batch.map(e => e.rel), files: batch.map(e => e.file) }));
       sent += batch.length;
       setUpStatus(`${progressPrefix}"${runName}": ${sent}/${entries.length} files…`);
       batch = []; batchBytes = 0;
@@ -1823,11 +1947,10 @@ async function syncOneRun(runName, entries, progressPrefix) {
       batch.push(e); batchBytes += e.file.size;
     }
     await flush();
-    await postForm('/api/upload_dir_commit', (() => { const fd = new FormData(); fd.append('upload_id', uploadId); return fd; })());
+    await postForm('/api/upload_dir_commit', formData({ upload_id: uploadId }));
     return 'synced';
   } catch (e) {
-    const fd = new FormData(); fd.append('upload_id', uploadId);
-    fetch('/api/upload_dir_abort', { method: 'POST', body: fd });
+    fetch('/api/upload_dir_abort', { method: 'POST', body: formData({ upload_id: uploadId }) });
     throw e;
   }
 }
@@ -1892,7 +2015,17 @@ async function collectEntry(entry) {
 document.addEventListener('dragover', e => {
   if (!location.hash.startsWith('#/')) e.preventDefault();
 });
+// highlight the run list while files are dragged over it (dragenter / dragleave also fire for every child crossed)
+let dragDepth = 0;
+const endDrag = () => { dragDepth = 0; document.body.classList.remove('drop-hint'); };
+document.addEventListener('dragenter', e => {
+  if (location.hash.startsWith('#/') || ![...(e.dataTransfer?.types || [])].includes('Files')) return;
+  dragDepth++;
+  document.body.classList.add('drop-hint');
+});
+document.addEventListener('dragleave', () => { if (dragDepth && --dragDepth === 0) endDrag(); });
 document.addEventListener('drop', async e => {
+  endDrag();
   if (location.hash.startsWith('#/')) return;
   e.preventDefault();
   const dirs = [...e.dataTransfer.items].map(item => item.webkitGetAsEntry?.()).filter(entry => entry?.isDirectory);
@@ -1910,7 +2043,6 @@ document.addEventListener('drop', async e => {
 /* ---------- mermaid diagrams (loaded from CDN only when a diagram appears) ---------- */
 let _mermaidPromise = null;
 function loadMermaid() {
-  if (window.mermaid) return Promise.resolve(window.mermaid);
   if (!_mermaidPromise) {
     _mermaidPromise = new Promise((resolve, reject) => {
       const s = document.createElement('script');
@@ -1925,12 +2057,27 @@ function loadMermaid() {
 
 // Replace ```mermaid code blocks inside root with rendered SVG diagrams.
 // On load/parse failure the source block stays visible with a note, never throws.
+const _mermaidSVG = new Map();  // theme + source -> { id, svg }: chat redraws and revisited reports reuse it instead of flashing the source
 let _mermaidSeq = 0;
+// mermaid scopes the svg id, its <style> and its marker ids under the render id; give each placed copy a fresh one
+// so a diagram shown twice never duplicates ids. (?![0-9]): mmd1 must not match inside mmd12
+const _mermaidCopy = hit => hit.svg.replace(new RegExp(hit.id + '(?![0-9])', 'g'), 'mmd' + (++_mermaidSeq));
 async function renderMermaidIn(root) {
-  const blocks = [...root.querySelectorAll('pre > code.language-mermaid')]
-    .filter(code => !code.dataset.mermaidDone);
+  const theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'neutral';
+  const place = (pre, svg) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'mermaid-diagram';
+    wrap.innerHTML = svg;
+    pre.replaceWith(wrap);
+  };
+  const blocks = [...root.querySelectorAll('pre > code.language-mermaid')].filter(code => {
+    if (code.dataset.mermaidDone) return false;
+    code.dataset.mermaidDone = '1';
+    const hit = _mermaidSVG.get(theme + '\n' + code.textContent);
+    if (hit) place(code.parentElement, _mermaidCopy(hit));  // synchronous, before the first await: no flash
+    return !hit;
+  });
   if (!blocks.length) return;
-  blocks.forEach(code => { code.dataset.mermaidDone = '1'; });
   const note = (pre, text) => {
     const el = document.createElement('div');
     el.className = 'muted';
@@ -1948,7 +2095,7 @@ async function renderMermaidIn(root) {
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'strict',
-    theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'neutral',
+    theme,
     fontFamily: 'inherit',
   });
   for (const code of blocks) {
@@ -1957,16 +2104,33 @@ async function renderMermaidIn(root) {
     const id = 'mmd' + (++_mermaidSeq);
     try {
       const { svg } = await mermaid.render(id, code.textContent);
-      const wrap = document.createElement('div');
-      wrap.className = 'mermaid-diagram';
-      wrap.innerHTML = svg;
-      pre.replaceWith(wrap);
+      _mermaidSVG.set(theme + '\n' + code.textContent, { id, svg });
+      place(pre, svg);
     } catch (err) {
       document.getElementById('d' + id)?.remove();  // mermaid may leave its temp node behind
       note(pre, '流程图渲染失败（mermaid 语法错误），以下为源码');
     }
   }
 }
+
+const aiCardsHTML = (reportTitle, reportHint, subject) => `
+  <div class="card">
+    <div class="report-head">
+      <h3>✨ ${reportTitle}</h3>
+      <span class="muted" id="reportStatus" style="font-size:12px" aria-live="polite"></span>
+      <button class="navbtn" id="reportBtn" type="button">生成报告</button>
+    </div>
+    <div class="muted" style="font-size:12.5px;margin-top:6px">${reportHint}</div>
+    <div id="reportBody" class="markdown-body report-body" hidden></div>
+  </div>
+  <div class="card">
+    <h3>🤖 Ask AI about this ${subject}</h3>
+    <div id="chatLog" class="chat-log"></div>
+    <div class="chat-input">
+      <input id="chatText" placeholder="自由提问更细节的问题…">
+      <button class="navbtn" id="chatSend" type="button">Send</button>
+    </div>
+  </div>`;
 
 /* ---------- one-click AI reports (scenario and run) ---------- */
 const REPORTS = {};  // markdown per run/scenario path, kept for the session
@@ -1984,23 +2148,22 @@ function initReport(path, endpoint = '/api/scenario_report', eta = '生成中…
   };
   if (REPORTS[path]) show(REPORTS[path]);
   btn.addEventListener('click', async () => {
-    btn.disabled = true;
+    setBusy(btn, true);
     status.textContent = eta;
+    // a regenerate dims the old report; a first one shows placeholder lines instead of an empty card
+    if (REPORTS[path]) body.classList.add('refreshing');
+    else { body.hidden = false; body.innerHTML = '<div class="skel" style="width:40%"></div><div class="skel"></div><div class="skel" style="width:85%"></div>'; }
     try {
-      const r = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-      });
-      const res = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(res.detail || r.status);
+      const res = await postJSON(endpoint, { path });
       REPORTS[path] = res.report;
       status.textContent = `由 ${displayModelName(LLM_MODEL)} 生成`;
       show(res.report);
     } catch (e) {
       status.textContent = '⚠ ' + e.message;
+      if (!REPORTS[path]) body.hidden = true;  // same end state as before: nothing shown
     }
-    btn.disabled = false;
+    body.classList.remove('refreshing');
+    setBusy(btn, false);
   });
 }
 
@@ -2013,17 +2176,19 @@ function initChat(path) {
   const btn = document.getElementById('chatSend');
   const history = CHATS[path] ||= [];
 
-  const draw = (thinking = false) => {
+  // fresh: how many messages at the end this draw added (they slide in; older ones never re-animate)
+  const draw = (thinking = false, fresh = 0) => {
     const model = esc(displayModelName(LLM_MODEL));
     log.innerHTML = history.map(m => `
       <div class="chat-msg ${m.role}">
         <div class="who">${m.role === 'user' ? 'You' : model}</div>
         <div class="bubble ${m.role === 'assistant' ? 'markdown-body' : ''}">${m.role === 'assistant' ? renderMarkdown(m.content) : esc(m.content)}</div>
       </div>`).join('')
-      + (thinking ? `<div class="chat-msg assistant"><div class="who">${model}</div><div class="bubble muted">thinking…</div></div>` : '');
-    log.scrollTop = log.scrollHeight;
+      + (thinking ? `<div class="chat-msg assistant"><div class="who">${model}</div><div class="bubble muted thinking">thinking…</div></div>` : '');
+    if (fresh) [...log.children].slice(-fresh).forEach(el => el.classList.add('msg-in'));  // guarded: slice(-0) would mark them all
     log.style.display = history.length || thinking ? 'block' : 'none';
     renderMermaidIn(log);
+    log.scrollTop = log.scrollHeight;
   };
   draw();
 
@@ -2032,22 +2197,16 @@ function initChat(path) {
     if (!text || btn.disabled) return;
     input.value = '';
     history.push({ role: 'user', content: text });
-    btn.disabled = true;
-    draw(true);
+    setBusy(btn, true);
+    draw(true, 2);  // the question and the thinking bubble
     try {
-      const r = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, messages: history }),
-      });
-      const res = await r.json();
-      if (!r.ok) throw new Error(res.detail || r.status);
+      const res = await postJSON('/api/chat', { path, messages: history });
       history.push({ role: 'assistant', content: res.reply });
     } catch (e) {
       history.push({ role: 'assistant', content: '⚠ ' + e.message });
     }
-    btn.disabled = false;
-    draw();
+    setBusy(btn, false);
+    draw(false, 1);  // the reply
     input.focus();
   };
   btn.addEventListener('click', send);
@@ -2077,7 +2236,9 @@ document.getElementById('themeBtn').addEventListener('click', () => {
   const order = ['system', 'light', 'dark'];
   const next = order[(order.indexOf(themePref()) + 1) % order.length];
   try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* private mode: theme lasts for this page */ }
-  applyTheme();
+  // cross-fade the whole page instead of snapping every token at once
+  if (document.startViewTransition && !REDUCED.matches) document.startViewTransition(applyTheme).ready.catch(() => {});
+  else applyTheme();
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 applyTheme();
@@ -2096,7 +2257,7 @@ document.getElementById('sideNav').addEventListener('click', e => {
   else if (item.dataset.modality !== undefined) listState.modality = item.dataset.modality;
   else listState.agent_name = item.dataset.agent;
   if (location.hash.startsWith('#/')) location.hash = '';
-  else updateRunRows();
+  else { updateRunRows(); staggerRows(document.getElementById('runRows'), 0); }  // a quick fade: the filter applied
 });
 
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
@@ -2120,12 +2281,10 @@ window.addEventListener('keydown', e => {
 
 const syncBtn = document.getElementById('syncBtn');
 syncBtn.addEventListener('click', async () => {
-  syncBtn.disabled = true;
+  setBusy(syncBtn, true);
   setUpStatus('syncing from ai-ds-research checkouts…');
   try {
-    const r = await fetch('/api/sync_sources', { method: 'POST' });
-    const res = await r.json();
-    if (!r.ok) throw new Error(res.detail || r.status);
+    const res = await postForm('/api/sync_sources');
     const changed = res.added.length + res.updated.length;
     const names = [...res.added, ...res.updated.map(n => n + ' (updated)')];
     setUpStatus(changed
@@ -2140,7 +2299,7 @@ syncBtn.addEventListener('click', async () => {
   } catch (e) {
     setUpStatus('sync error: ' + e.message);
   }
-  syncBtn.disabled = false;
+  setBusy(syncBtn, false);
 });
 
 const refreshRunMarks = () => {
@@ -2169,9 +2328,21 @@ async function handleCopyClick(button) {
 
 $main.addEventListener('click', e => {
   const star = e.target.closest('.starcell');
-  if (star) { toggleStar(star.dataset.path, refreshRunMarks); return; }
+  if (star) {
+    const path = star.dataset.path;
+    toggleStar(path, refreshRunMarks);  // re-renders synchronously, before its first await
+    // pop the freshly rendered star(s) that just turned on; un-starring and a rolled-back POST never pop
+    $main.querySelectorAll(`.starcell[data-path="${CSS.escape(path)}"] .star.on`).forEach(el => el.classList.add('pop'));
+    return;
+  }
   const eye = e.target.closest('.eyecell');
-  if (eye) { toggleHidden(eye.dataset.path, refreshRunMarks); return; }
+  if (eye) {
+    // the row fades out first: on the run list a click always takes it out of the list being shown
+    const tr = eye.closest('tr'), path = eye.dataset.path, toggle = () => toggleHidden(path, refreshRunMarks);
+    if (!tr || REDUCED.matches) toggle();
+    else { tr.classList.add('row-leave'); setTimeout(toggle, 160); }
+    return;
+  }
   const copyBtn = e.target.closest('.copy-run-name');
   if (copyBtn) { handleCopyClick(copyBtn); return; }
   const th = e.target.closest('th[data-sort]');
@@ -2211,6 +2382,7 @@ $main.addEventListener('focusout', async e => {
   try {
     input.value = await saveRunNote(path, input.value);
     input.title = 'Ctrl/⌘ + Enter or click elsewhere to save';
+    flashSaved(input);
   } catch (err) {
     input.value = NOTES[path] || '';
     input.classList.add('save-error');
@@ -2223,7 +2395,7 @@ $main.addEventListener('focusout', async e => {
 
 /* ---------- run test: edit an agent.yaml and launch talk-bench run ---------- */
 // The page maps onto exactly this command, run inside the talk-bench checkout:
-//   uv run talk-bench run --config <agent.yaml> --domain X --split Y --source tau2|talk_bench [--scenario-ids a,b]
+//   uv run talk-bench run --config <agent.yaml> --domain X --split Y --source tau2|talk_bench [--scenario-ids a,b] [--speech-complexity C]
 // or, with the tau2 user simulator picked, the same arguments through tau2_user_sim/launch.py
 // (`uv run python <viewer>/tau2_user_sim/launch.py run …`), which swaps tau2-bench's native
 // user simulator into the voice scenarios of that one process.
@@ -2294,33 +2466,6 @@ ${auth}` },
 }
 
 const AGENT_PRESETS = [
-  { id: 'cascaded', label: 'Cascaded voice (LLM + TTS + ASR)', modality: 'voice', module: 'voice_agent.cascaded.CascadedAgent',
-    yaml: `agent:
-  name: my-cascaded-agent
-  module: voice_agent.cascaded.CascadedAgent
-  params:
-    llm_model: azure/gpt-4.1
-    tts_model: azure-speech-tts/en-US-DavisNeural
-    tts_voice: en-US-DavisNeural
-    tts_sample_rate: 24000
-    asr_model: azure-speech/en-US
-    greeting: "Hello, how can I help you?"
-` },
-  { id: 'cascaded-text', label: 'Text LLM agent (cascaded, no audio)', modality: 'text', module: 'voice_agent.text_bridge.VoiceAgentTextBridge',
-    yaml: `# The cascaded agent driven over text: no TTS/ASR involved.
-agent:
-  name: my-text-agent
-  module: voice_agent.text_bridge.VoiceAgentTextBridge
-  params:
-    agent:
-      module: voice_agent.cascaded.CascadedAgent
-      params:
-        llm_model: azure/gpt-4.1
-        tts_model: identity/
-        tts_sample_rate: 16000
-        asr_model: identity/
-        greeting: "Hello, how can I help you?"
-` },
   { id: 'openai-realtime', label: 'OpenAI Realtime', modality: 'voice', module: 'voice_agent.openai_realtime.OpenAIRealtimeAgent',
     yaml: `agent:
   name: my-openai-realtime
@@ -2401,7 +2546,7 @@ const testState = {
   options: null,       // /api/test/options payload
   tab: 'presets',      // presets | import | archived
   preset: null,        // id of the preset the editor was last filled from
-  showYaml: false,     // a Talkdesk agent's full YAML is expanded (other agents always show it)
+  showYaml: false,     // a compact agent's (Talkdesk / ElevenLabs / Gemini Live) full YAML is expanded (other agents always show it)
   parsed: null,        // agent block of the editor's YAML, as the server parsed it
   project: null,       // the checkout the server routes that module to (parse_config's `project`)
   jobs: [],
@@ -2413,9 +2558,14 @@ const testState = {
   catalog: [],         // scenarios the current source/domain/split resolve to
   catalogKey: '',
   picked: new Set(),   // scenario ids chosen for --scenario-ids (empty = the whole split)
+  schedules: [],       // /api/test/schedules
+  schedTz: '',         // the server's time zone, which cron times are read in
+  editingSchedule: null,  // id of the schedule the editor and schedule form were filled from
+  schedPreviewKey: '',
 };
 let testPollTimer = null;
 const jobScenarioIds = j => j.scenario_ids || [];
+const jobRunning = j => j.status === 'running' || j.status === 'cancelling';
 
 const pickedScenarioIds = () => testState.catalog.filter(s => testState.picked.has(s.id)).map(s => s.id);
 
@@ -2435,8 +2585,8 @@ const fmtElapsed = (from, to) => {
 const shellQuote = t => /^[\w.\/:=,+@%\-]+$/.test(t) ? t : `'${t.replace(/'/g, `'\\''`)}'`;
 const apiDetail = res => typeof res.detail === 'string' ? res.detail : JSON.stringify(res.detail);
 
-async function postJSON(url, body) {
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+async function postJSON(url, body, method = 'POST') {
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
   const res = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(apiDetail(res) || String(r.status));
   return res;
@@ -2554,6 +2704,7 @@ function yamlSetValue(text, key, value) {
     lines.splice(p + 1, 0, `${childIndent(lines, p)}${key}: ${q}`);
     return lines.join('\n');
   }
+  if (lines.some(l => new RegExp(`^[ \\t]*${parent}:`).test(l))) return null;  // flow-style (`params: {a: 1}`): a second block would be a duplicate key
   // no parent block yet: open one next to params (mcp) or after module (params)
   const params = lines.findIndex(l => /^[ \t]*params:/.test(l));
   const mod = lines.findIndex(l => /^[ \t]*module:/.test(l));
@@ -2572,7 +2723,7 @@ function yamlSetValue(text, key, value) {
 function yamlRemoveMcp(text) {
   const lines = text.split('\n');
   const i = lines.findIndex(l => /^[ \t]*mcp:[ \t]*(#.*)?$/.test(l));
-  if (i < 0) return text;
+  if (i < 0) return lines.some(l => /^[ \t]*mcp:/.test(l)) ? null : text;  // flow-style mcp: {…}
   const own = indentOf(lines[i]).length;
   let j = i + 1;
   while (j < lines.length && (!lines[j].trim() || indentOf(lines[j]).length > own)) j++;
@@ -2676,21 +2827,21 @@ function updateAgentNotices() {
   const a = testState.parsed, p = testProject();
   const help = document.getElementById('checkoutHelp');
   if (help) help.innerHTML = checkoutHelpHTML(p);
-  const notes = [];  // [extra class, html]
+  const notes = [];  // warnings, as html
   const holes = placeholderPaths(a);
   if (holes.length) {
     // a collapsed YAML may hold placeholders outside the fields (the Talkdesk STG account_id)
     const c = compactAgent(document.getElementById('agentYaml')?.value);
     const inYaml = c && !testState.showYaml && holes.some(h => !c.fields.some(k => QUICK_FIELDS[k].path === h));
-    notes.push(['warn', `Placeholders still to fill in: <code>${holes.map(esc).join('</code>, <code>')}</code>.`
-      + (inYaml ? ' Some are only in the full YAML: <button class="navbtn" type="button" data-yaml-open>Edit full YAML</button>' : '')]);
+    notes.push(`Placeholders still to fill in: <code>${holes.map(esc).join('</code>, <code>')}</code>.`
+      + (inYaml ? ' Some are only in the full YAML: <button class="navbtn" type="button" data-yaml-open>Edit full YAML</button>' : ''));
   }
   const pkg = a?.module ? a.module.split('.')[0] : '';
   if (pkg && p && !(p.packages || []).includes(pkg)) {
-    notes.push(['warn', `No local checkout's workspace provides the <b>${esc(pkg)}</b> package, so the test runs in <b>${esc(p.name)}</b> and fails at import unless that package is installed in <span class="mono">${esc(p.id)}/.venv</span>.`]);
+    notes.push(`No local checkout's workspace provides the <b>${esc(pkg)}</b> package, so the test runs in <b>${esc(p.name)}</b> and fails at import unless that package is installed in <span class="mono">${esc(p.id)}/.venv</span>.`);
   }
-  box.innerHTML = notes.map(([cls, n]) => `<div class="notice${cls ? ' ' + cls : ''}">${n}</div>`).join('');
-  updateUserSimHelp();
+  box.innerHTML = notes.map(n => `<div class="notice warn">${n}</div>`).join('');
+  updateCmdPreview();  // the parsed agent decides the checkout; also refreshes the user-sim help
 }
 
 /* run settings: --source / --domain / --split — the command runs in the checkout that provides the agent module */
@@ -2783,7 +2934,6 @@ function applySettings(s) {
   if (s.user_simulator) set('sUserSim', s.user_simulator);
   if (s.speech_complexity !== undefined) set('sComplexity', s.speech_complexity || '');
   refreshDomainOptions(s.domain, s.split);
-  updateAgentNotices();
   if (s.scenario_ids) loadScenarioCatalog(s.scenario_ids);
 }
 
@@ -2804,7 +2954,7 @@ function refreshDomainOptions(keepDomain, keepSplit) {
    to every domain that defines it */
 function splitsFor(source, domain) {
   const bySource = currentProject()?.domains?.[source] || {};
-  if (domain !== 'all') return (bySource[domain] || []).map(s => ({ ...s, domains: 1 }));
+  if (domain !== 'all') return bySource[domain] || [];
   const acc = new Map();
   for (const list of Object.values(bySource)) for (const s of list) {
     const cur = acc.get(s.split) || { split: s.split, count: 0, domains: 0 };
@@ -2845,7 +2995,7 @@ function updateUserSimHelp() {
 function updateCmdPreview() {
   const el = document.getElementById('cmdPreview');
   if (!el) return;
-  const p = currentProject();
+  const p = testProject();
   const v = id => document.getElementById(id).value.trim();
   const ids = pickedScenarioIds();
   const tau2Sim = v('sUserSim') === 'tau2';
@@ -2873,7 +3023,7 @@ function renderAgentSource() {
     box.innerHTML = `
       <div class="actions-row" style="margin-top:0">
         <label class="navbtn" style="cursor:pointer">Choose a YAML / JSON file…<input type="file" id="impFile" accept=".yaml,.yml,.json" hidden></label>
-        <select id="impSample" style="max-width:420px;padding:5px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px">
+        <select id="impSample" style="max-width:420px">
           <option value="">Load a sample…</option>
           ${(currentProject()?.projects || []).map(p => {
             const list = (currentProject()?.samples || []).filter(s => s.project === p.name);
@@ -2927,27 +3077,32 @@ async function loadJobIntoEditor(id) {
   const j = d.job;
   fillAgentYaml(d.config_yaml || '');
   applySettings({ source: j.source, domain: j.domain, split: j.split, scenario_ids: jobScenarioIds(j), user_simulator: j.user_simulator || 'talk_bench', speech_complexity: j.speech_complexity || '' });
-  document.getElementById('agentCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById('agentCard').scrollIntoView({ behavior: smoothScroll(), block: 'start' });
   setAgentStatus(`loaded from the test started ${fmtWhen(j.started)}`);
 }
 
 /* jobs table + log */
 function jobStatusHTML(j) {
-  const running = j.status === 'running' || j.status === 'cancelling';
-  const cls = running ? 'running' : j.status === 'done' ? 'done' : j.status === 'error' ? 'error' : '';
+  const running = jobRunning(j);
+  const cls = running ? 'running' : j.status === 'done' || j.status === 'error' ? j.status : '';
   const label = j.status === 'cancelling' ? 'stopping…'
     : j.status === 'done' ? (j.score && j.score.passed === j.score.total ? 'all passed' : 'done')
     : j.status;
-  return `<span class="status-dot ${cls}"></span>${esc(label)}`;
+  // a running dot is recreated on every poll: start it at the shared phase so its pulse never restarts
+  const phase = running ? ` style="animation-delay:-${Math.round(performance.now() % 1200)}ms"` : '';
+  return `<span class="status-dot ${cls}"${phase}></span>${esc(label)}`;
+}
+
+function jobResultHTML(j) {
+  return j.score
+    ? `<span class="badge ${j.score.passed === j.score.total ? 'pass' : 'fail'}">${j.score.passed}/${j.score.total} · ${j.score.pct.toFixed(0)}%</span>`
+    : j.error ? `<span class="badge fail" title="${esc(j.error)}">${esc(j.status === 'interrupted' ? 'interrupted' : 'error')}</span>`
+    : jobRunning(j) ? '<span class="muted">…</span>' : '<span class="muted">—</span>';
 }
 
 function jobRowHTML(j) {
-  const running = j.status === 'running' || j.status === 'cancelling';
+  const running = jobRunning(j), ids = jobScenarioIds(j);
   const prog = j.progress?.total ? `${j.progress.done}/${j.progress.total}` : j.progress?.done ? String(j.progress.done) : '—';
-  const result = j.score
-    ? `<span class="badge ${j.score.passed === j.score.total ? 'pass' : 'fail'}">${j.score.passed}/${j.score.total} · ${j.score.pct.toFixed(0)}%</span>`
-    : j.error ? `<span class="badge fail" title="${esc(j.error)}">${esc(j.status === 'interrupted' ? 'interrupted' : 'error')}</span>`
-    : running ? '<span class="muted">…</span>' : '<span class="muted">—</span>';
   const actions = [
     `<button class="navbtn" type="button" data-job-log="${j.id}">Log</button>`,
     running ? `<button class="navbtn" type="button" data-job-cancel="${j.id}">Stop</button>` : '',
@@ -2960,15 +3115,16 @@ function jobRowHTML(j) {
   return `
   <tr class="${testState.selected === j.id ? 'tr-selected' : ''}">
     <td class="nowrap">${jobStatusHTML(j)}</td>
-    <td><b>${esc(j.agent_name)}</b><div class="subscore">${esc(shortModule(j.module))}${j.resume_of ? ' · resume' : ''}</div></td>
+    <td><b>${esc(j.agent_name)}</b><div class="subscore">${esc(shortModule(j.module))}${j.resume_of ? ' · resume' : ''}</div>${
+      j.schedule_name ? `<div class="subscore" title="Started by the schedule “${esc(j.schedule_name)}”">scheduled · ${esc(j.schedule_name)}</div>` : ''}</td>
     <td class="nowrap">${esc(j.source)}${j.project_name && j.project_name !== 'talk-bench' ? `<div class="subscore">${esc(j.project_name)}</div>` : ''}${
       j.user_simulator === 'tau2' ? '<div class="subscore">τ² user simulator</div>' : ''}${
       j.speech_complexity ? `<div class="subscore">complexity ${esc(j.speech_complexity)}</div>` : ''}</td>
-    <td class="nowrap">${esc(j.domain)} / ${esc(j.split)}${jobScenarioIds(j).length
-      ? `<div class="subscore" title="${esc(jobScenarioIds(j).join(', '))}">${jobScenarioIds(j).length} scenario id${jobScenarioIds(j).length === 1 ? '' : 's'}</div>` : ''}</td>
+    <td class="nowrap">${esc(j.domain)} / ${esc(j.split)}${ids.length
+      ? `<div class="subscore" title="${esc(ids.join(', '))}">${ids.length} scenario id${ids.length === 1 ? '' : 's'}</div>` : ''}</td>
     <td class="nowrap"><span class="mono muted">${esc(fmtWhen(j.started))}</span><div class="subscore">${fmtElapsed(j.started, j.finished)}</div></td>
     <td class="nowrap">${prog}</td>
-    <td>${result}</td>
+    <td>${jobResultHTML(j)}</td>
     <td><div class="job-actions">${actions}</div></td>
   </tr>`;
 }
@@ -2979,8 +3135,7 @@ function renderJobRows() {
   const rows = document.getElementById('jobRows');
   if (!rows) return;
   // collapsed: the newest few, plus any older one that is still running or whose log is open
-  const collapsed = testState.jobs.filter((j, i) => i < JOBS_COLLAPSED
-    || j.status === 'running' || j.status === 'cancelling' || j.id === testState.selected);
+  const collapsed = testState.jobs.filter((j, i) => i < JOBS_COLLAPSED || jobRunning(j) || j.id === testState.selected);
   const hidden = testState.jobs.length - collapsed.length;
   rows.innerHTML = (testState.showAllJobs ? testState.jobs : collapsed).map(jobRowHTML).join('');
   document.getElementById('jobsMoreWrap').hidden = !hidden;
@@ -2989,7 +3144,7 @@ function renderJobRows() {
   more.title = testState.showAllJobs ? 'Show fewer' : `Show all ${testState.jobs.length} tests`;
   more.setAttribute('aria-label', more.title);
   more.setAttribute('aria-expanded', testState.showAllJobs);
-  const running = testState.jobs.filter(j => j.status === 'running' || j.status === 'cancelling').length;
+  const running = testState.jobs.filter(jobRunning).length;
   document.getElementById('jobsHint').textContent = running ? `${running} running` : '';
   document.getElementById('jobsEmpty').hidden = !!testState.jobs.length;
 }
@@ -2997,26 +3152,30 @@ function renderJobRows() {
 async function refreshJobs(force) {
   const d = await getJSON('/api/test/jobs');
   const json = JSON.stringify(d.jobs);
-  const anyRunning = d.jobs.some(j => j.status === 'running' || j.status === 'cancelling');
+  const anyRunning = d.jobs.some(jobRunning);
   if (!force && json === testState.jobsJSON && !anyRunning) return;  // elapsed time ticks while running
   // a job that just copied its run into the archive changes the run list and sidebar counts
   const synced = j => j.run_path ? `${j.id}:${j.synced_at}` : '';
   const before = new Set(testState.jobs.map(synced).filter(Boolean));
   const newlySynced = d.jobs.some(j => synced(j) && !before.has(synced(j)));
+  // a test a schedule just started moves that schedule's next / last run
+  const fromSchedule = d.jobs.some(j => j.schedule_id && !testState.jobs.some(o => o.id === j.id));
   testState.jobsJSON = json;
   testState.jobs = d.jobs;
   renderJobRows();
-  if (newlySynced && testState.jobs.length) {
+  renderSchedRows();  // last-run results follow the jobs
+  if (fromSchedule) refreshSchedules().catch(() => {});
+  if (newlySynced) {
     invalidateRuns();
     loadRuns().then(renderSideNav).catch(() => {});
   }
 }
 
 async function pollJobLog() {
-  const id = testState.selected;
+  const id = testState.selected, offset = testState.logOffset;
   if (!id) return;
-  const d = await getJSON(`/api/test/jobs/${encodeURIComponent(id)}?offset=${testState.logOffset}`);
-  if (testState.selected !== id) return;
+  const d = await getJSON(`/api/test/jobs/${encodeURIComponent(id)}?offset=${offset}`);
+  if (testState.selected !== id || testState.logOffset !== offset) return;  // another poll already read this chunk
   if (d.next_offset < testState.logOffset) testState.logText = '';  // log file was reset
   if (d.log) testState.logText += d.log;
   testState.logOffset = d.next_offset;
@@ -3028,20 +3187,21 @@ function renderLogCard(d) {
   const card = document.getElementById('logCard');
   if (!card) return;
   const j = d.job;
+  const setText = (id, t) => { const el = document.getElementById(id); if (el.textContent !== t) el.textContent = t; };  // unchanged text keeps the user's selection
   card.hidden = false;
   document.getElementById('logTitle').textContent = `${j.agent_name} · ${j.domain}/${j.split}`;
   document.getElementById('logMeta').innerHTML = `${jobStatusHTML(j)} · ${fmtElapsed(j.started, j.finished)}`
     + (j.exit_code != null ? ` · exit ${j.exit_code}` : '')
     + (j.progress?.total ? ` · ${j.progress.done}/${j.progress.total} scenarios` : '')
     + (j.error ? ` · <span style="color:var(--fail)">${esc(j.error)}</span>` : '');
-  document.getElementById('logCmd').textContent = j.cmd?.length ? `cd ${shellQuote(j.cwd || '.')} && ${j.cmd.map(shellQuote).join(' ')}` : '';
+  setText('logCmd', j.cmd?.length ? `cd ${shellQuote(j.cwd || '.')} && ${j.cmd.map(shellQuote).join(' ')}` : '');
   document.getElementById('logRun').innerHTML = j.run_dir
     ? `Run directory <span class="mono">${esc(j.run_dir)}</span>`
       + (j.run_path ? ` · <a href="#/run/${encodeURIComponent(j.run_path)}">open in the viewer</a>${j.synced_at ? ` <span class="muted">(copied ${fmtElapsed(j.synced_at)} ago)</span>` : ''}` : ' · not copied into the archive yet')
     : 'talk-bench has not created the run directory yet.';
-  if (d.config_yaml != null) document.getElementById('logConfig').textContent = d.config_yaml;
+  if (d.config_yaml != null) setText('logConfig', d.config_yaml);
   const pane = document.getElementById('logPane');
-  pane.textContent = testState.logText || '(no output yet)';
+  setText('logPane', testState.logText || '(no output yet)');
   if (document.getElementById('logFollow').checked) pane.scrollTop = pane.scrollHeight;
 }
 
@@ -3054,29 +3214,37 @@ function selectJob(id, scroll = true) {
   card.hidden = false;
   document.getElementById('logPane').textContent = 'loading…';
   pollJobLog().catch(e => { document.getElementById('logPane').textContent = '⚠ ' + e.message; });
-  if (scroll) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (scroll) card.scrollIntoView({ behavior: smoothScroll(), block: 'start' });
 }
 
 function startTestPolling() {
   clearInterval(testPollTimer);
+  let tick = 0;
   testPollTimer = setInterval(async () => {
     if (!document.getElementById('jobRows')) { clearInterval(testPollTimer); testPollTimer = null; return; }
     try {
       await refreshJobs();
       if (testState.selected) await pollJobLog();
+      if (++tick % 10 === 0) await refreshSchedules();  // next-run times, waiting state
     } catch (_) { /* transient — the next tick retries */ }
   }, 2000);
 }
 
+// what Start test sends — and what a schedule saves; null while the editor is empty
+function testPayload() {
+  const text = document.getElementById('agentYaml').value;
+  if (!text.trim()) return null;
+  const v = id => document.getElementById(id).value.trim();
+  return { config_text: text, source: v('sSource'), domain: v('sDomain'), split: v('sSplit') || 'base', scenario_ids: pickedScenarioIds(), user_simulator: v('sUserSim'),
+    speech_complexity: v('sSource') === 'tau2' ? v('sComplexity') || null : null };
+}
+
 async function startTest() {
   const status = document.getElementById('startStatus');
-  const text = document.getElementById('agentYaml').value;
-  if (!text.trim()) { status.textContent = 'The agent.yaml editor is empty.'; return; }
-  const v = id => document.getElementById(id).value.trim();
-  const payload = { config_text: text, source: v('sSource'), domain: v('sDomain'), split: v('sSplit') || 'base', scenario_ids: pickedScenarioIds(), user_simulator: v('sUserSim'),
-    speech_complexity: v('sSource') === 'tau2' ? v('sComplexity') || null : null };
+  const payload = testPayload();
+  if (!payload) { status.textContent = 'The agent.yaml editor is empty.'; return; }
   const btn = document.getElementById('startTestBtn');
-  btn.disabled = true;
+  setBusy(btn, true);
   status.textContent = 'starting…';
   try {
     const res = await postJSON('/api/test/jobs', payload);
@@ -3086,31 +3254,223 @@ async function startTest() {
   } catch (e) {
     status.textContent = '⚠ ' + e.message;
   }
-  btn.disabled = false;
+  setBusy(btn, false);
+}
+
+/* scheduled tests: the editor's test plus a cron expression in the server's local time;
+   the viewer starts it when due (see "scheduled tests" in app/main.py) */
+const SCHED_DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
+const SCHED_HOURS = [1, 2, 3, 4, 6, 8, 12];  // divisors of 24: the cadence carries across midnight
+const pad2 = n => String(n).padStart(2, '0');
+
+// the form's repeat modes as cron, and back; anything else is a custom cron
+function cronFromForm() {
+  const v = id => document.getElementById(id).value;
+  const [h, m] = (v('schTime') || '02:00').split(':').map(Number);
+  const mode = v('schRepeat');
+  if (mode === 'daily') return `${m} ${h} * * *`;
+  if (mode === 'weekdays') return `${m} ${h} * * 1-5`;
+  if (mode === 'weekly') {
+    const days = [...document.querySelectorAll('#schDays input:checked')].map(i => i.value);
+    return days.length ? `${m} ${h} * * ${days.join(',')}` : '';
+  }
+  if (mode === 'hours') { const n = Number(v('schEvery')); return `${m} ${n === 1 ? '*' : `${h % n}-23/${n}`} * * *`; }
+  return v('schCron').trim().split(/\s+/).join(' ');
+}
+
+function cronMode(cron) {
+  const f = String(cron || '').trim().split(/\s+/);
+  if (f.length === 5) f[4] = f[4].toLowerCase().replace(/sun|mon|tue|wed|thu|fri|sat/g, d => 'sunmontuewedthufrisat'.indexOf(d) / 3);
+  const c = f.join(' ');
+  let x;
+  if ((x = c.match(/^(\d{1,2}) (\d{1,2}) \* \* \*$/))) return { mode: 'daily', h: +x[2], m: +x[1] };
+  if ((x = c.match(/^(\d{1,2}) (\d{1,2}) \* \* 1-5$/))) return { mode: 'weekdays', h: +x[2], m: +x[1] };
+  if ((x = c.match(/^(\d{1,2}) (\d{1,2}) \* \* ([0-7](?:,[0-7])*)$/))) return { mode: 'weekly', h: +x[2], m: +x[1], days: x[3].split(',').map(d => +d % 7) };
+  if ((x = c.match(/^(\d{1,2}) \* \* \* \*$/))) return { mode: 'hours', every: 1, h: 0, m: +x[1] };
+  if ((x = c.match(/^(\d{1,2}) (\d{1,2})-23\/(\d{1,2}) \* \* \*$/)) && SCHED_HOURS.includes(+x[3]) && +x[2] < +x[3]) return { mode: 'hours', every: +x[3], h: +x[2], m: +x[1] };
+  return { mode: 'cron', cron: c };
+}
+
+function describeCron(cron) {
+  const p = cronMode(cron), at = `${pad2(p.h)}:${pad2(p.m)}`;
+  if (p.mode === 'daily') return `Every day at ${at}`;
+  if (p.mode === 'weekdays') return `Weekdays at ${at}`;
+  if (p.mode === 'weekly') return `${SCHED_DAYS.filter(([d]) => p.days.includes(d)).map(([, n]) => n).join(', ')} at ${at}`;
+  if (p.mode === 'hours') return p.every === 1 ? `Every hour at :${pad2(p.m)}` : `Every ${p.every} h from ${at}`;
+  return 'Custom cron';
+}
+
+function schedFormHTML() {
+  return `
+  <div class="sched-form" id="schedForm" hidden>
+    <h3 style="margin:0" id="schTitle">Schedule this test</h3>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">Saves the agent.yaml and scenario settings above. The viewer starts the test at these times while it is running; a run it missed (viewer stopped, Mac asleep) starts once when it is back.</p>
+    <div class="form-grid">
+      <div class="field"><label for="schName">Name</label><input id="schName" maxlength="120" placeholder="agent · domain/split" autocomplete="off"></div>
+      <div class="field"><label for="schRepeat">Repeat</label><select id="schRepeat">
+        <option value="daily">Every day</option><option value="weekdays">Weekdays (Mon–Fri)</option>
+        <option value="weekly">On chosen days</option><option value="hours">Every few hours</option>
+        <option value="cron">Custom (cron)</option></select></div>
+      <div class="field" id="schEveryField"><label for="schEvery">Every</label><select id="schEvery">
+        ${SCHED_HOURS.map(n => `<option value="${n}">${n} hour${n === 1 ? '' : 's'}</option>`).join('')}</select></div>
+      <div class="field" id="schTimeField"><label for="schTime" id="schTimeLabel">At</label><input type="time" id="schTime" value="02:00"></div>
+      <div class="field" id="schCronField"><label for="schCron">minute hour day-of-month month day-of-week</label>
+        <input id="schCron" class="mono" placeholder="0 2 * * 1-5" spellcheck="false" autocomplete="off"></div>
+      <div class="field wide" id="schDaysField"><label>Days</label><div class="sched-days" id="schDays">
+        ${SCHED_DAYS.map(([d, n]) => `<label><input type="checkbox" value="${d}"${d >= 1 && d <= 5 ? ' checked' : ''}>${n}</label>`).join('')}</div></div>
+    </div>
+    <div class="cmdline" id="schPreview" style="margin-top:12px"></div>
+    <div class="actions-row">
+      <button class="btn primary" type="button" id="schSave">${ICONS.clock}Save schedule</button>
+      <button class="navbtn" type="button" id="schCancel">Cancel</button>
+      <span class="muted" id="schStatus" style="font-size:12.5px" aria-live="polite"></span>
+    </div>
+  </div>`;
+}
+
+async function updateSchedPreview() {
+  const el = document.getElementById('schPreview');
+  if (!el) return;
+  const mode = document.getElementById('schRepeat').value;
+  document.getElementById('schEveryField').hidden = mode !== 'hours';
+  document.getElementById('schTimeField').hidden = mode === 'cron';
+  document.getElementById('schCronField').hidden = mode !== 'cron';
+  document.getElementById('schDaysField').hidden = mode !== 'weekly';
+  document.getElementById('schTimeLabel').textContent = mode === 'hours' ? 'Starting at' : 'At';
+  const cron = cronFromForm();
+  testState.schedPreviewKey = cron;
+  if (!cron) {
+    el.textContent = mode === 'weekly' ? 'Tick at least one day.' : 'Type a cron expression, e.g. 0 2 * * 1-5 (02:00 on weekdays).';
+    return;
+  }
+  const r = await fetch(`/api/test/schedules/preview?cron=${encodeURIComponent(cron)}`);
+  const d = await r.json().catch(() => ({}));
+  if (testState.schedPreviewKey !== cron) return;  // changed meanwhile
+  el.textContent = r.ok ? `cron ${d.cron} · next ${d.next.join(' · ')} · server time ${d.tz}` : '⚠ ' + (apiDetail(d) || r.status);
+}
+const updateSchedPreviewSoon = debounce(() => updateSchedPreview().catch(() => {}), 250);
+
+function openSchedForm(s = null) {
+  testState.editingSchedule = s?.id || null;
+  const set = (id, v) => { document.getElementById(id).value = v; };
+  document.getElementById('schTitle').textContent = s ? `Edit schedule “${s.name}”` : 'Schedule this test';
+  document.getElementById('schSave').innerHTML = `${ICONS.clock}${s ? 'Update schedule' : 'Save schedule'}`;
+  set('schName', s?.name || '');
+  const p = cronMode(s?.cron || '0 2 * * *');
+  set('schRepeat', p.mode);
+  if (p.mode !== 'cron') set('schTime', `${pad2(p.h)}:${pad2(p.m)}`);
+  if (p.mode === 'hours') set('schEvery', String(p.every));
+  if (p.mode === 'weekly') document.querySelectorAll('#schDays input').forEach(i => { i.checked = p.days.includes(+i.value); });
+  set('schCron', s?.cron || '');
+  document.getElementById('schStatus').textContent = '';
+  document.getElementById('schedForm').hidden = false;
+  updateSchedPreview().catch(() => {});
+  renderSchedRows();
+}
+
+function closeSchedForm() {
+  testState.editingSchedule = null;
+  document.getElementById('schedForm').hidden = true;
+  renderSchedRows();
+}
+
+async function saveSchedule() {
+  const status = document.getElementById('schStatus');
+  const test = testPayload();
+  if (!test) { status.textContent = 'The agent.yaml editor is empty.'; return; }
+  const id = testState.editingSchedule;
+  const editing = testState.schedules.find(s => s.id === id);
+  const body = { name: document.getElementById('schName').value.trim(), cron: cronFromForm(), enabled: editing ? editing.enabled : true, test };
+  const btn = document.getElementById('schSave');
+  setBusy(btn, true);
+  status.textContent = 'saving…';
+  try {
+    const r = id ? await postJSON(`/api/test/schedules/${encodeURIComponent(id)}`, body, 'PUT')
+      : await postJSON('/api/test/schedules', body);
+    closeSchedForm();
+    document.getElementById('startStatus').textContent = `${id ? 'updated' : 'scheduled'} “${r.schedule.name}”`
+      + (r.schedule.next_run_local ? ` — next run ${r.schedule.next_run_local}` : ' (paused)');
+    await refreshSchedules();
+    document.getElementById('schedCard').scrollIntoView({ behavior: smoothScroll(), block: 'nearest' });
+  } catch (e) {
+    status.textContent = '⚠ ' + e.message;
+  }
+  setBusy(btn, false);
+}
+
+async function editSchedule(id) {
+  const s = (await getJSON(`/api/test/schedules/${encodeURIComponent(id)}`)).schedule, t = s.test;
+  fillAgentYaml(t.config_text);
+  applySettings(t);
+  openSchedForm(s);
+  setAgentStatus(`loaded the schedule “${s.name}” — change anything, then Update schedule`);
+  document.getElementById('agentCard').scrollIntoView({ behavior: smoothScroll(), block: 'start' });
+}
+
+function schedLastRunHTML(s) {
+  const l = s.last_run;
+  if (!l) return '<span class="muted">—</span>';
+  const j = l.status === 'started' ? testState.jobs.find(x => x.id === l.job_id) : null;
+  const res = l.status === 'skipped' ? `<span class="badge na" title="${esc(l.detail || '')}">skipped</span>`
+    : l.status === 'error' ? `<span class="badge fail" title="${esc(l.detail || '')}">not started</span>`
+    : !j ? '<span class="muted">started</span>'
+    : jobRunning(j) ? jobStatusHTML(j) : jobResultHTML(j);
+  return `${res}<div class="subscore">${esc(l.at_local || '')}</div>`;
+}
+
+function schedRowHTML(s) {
+  const t = s.test || {}, ids = (t.scenario_ids || []).length, lastJob = s.last_run?.job_id;
+  const actions = [
+    `<button class="navbtn" type="button" data-sched-run="${s.id}" title="Start this test now; the schedule is unchanged">Run now</button>`,
+    `<button class="navbtn" type="button" data-sched-edit="${s.id}" title="Load into the editor above to change it">Edit…</button>`,
+    `<button class="navbtn" type="button" data-sched-toggle="${s.id}" data-enabled="${s.enabled ? 1 : 0}">${s.enabled ? 'Pause' : 'Resume'}</button>`,
+    lastJob && testState.jobs.some(j => j.id === lastJob) ? `<button class="navbtn" type="button" data-sched-log="${lastJob}" title="Log of the test it started last">Log</button>` : '',
+    `<button class="navbtn" type="button" data-sched-del="${s.id}" title="Delete the schedule (tests it started are kept)" aria-label="Delete">×</button>`,
+  ].filter(Boolean).join('');
+  return `
+  <tr class="${testState.editingSchedule === s.id ? 'tr-selected' : ''}">
+    <td><span class="status-dot${s.enabled ? ' done' : ''}"></span><b>${esc(s.name)}</b>${s.enabled ? '' : '<div class="subscore">paused</div>'}</td>
+    <td>${esc(s.agent_name)}<div class="subscore">${esc(shortModule(s.module))}</div></td>
+    <td class="nowrap">${esc(t.domain)} / ${esc(t.split)}<div class="subscore">${esc(t.source)}${ids ? ` · ${ids} scenario id${ids === 1 ? '' : 's'}` : ''}${t.user_simulator === 'tau2' ? ' · τ² user' : ''}</div></td>
+    <td class="nowrap">${esc(describeCron(s.cron))}<div class="subscore mono">${esc(s.cron)}</div></td>
+    <td class="nowrap">${s.enabled ? esc(s.next_run_local || '—') : '<span class="muted">—</span>'}${s.waiting ? `<div class="subscore" title="${esc(s.waiting)}">waiting for a free slot</div>` : ''}</td>
+    <td class="nowrap">${schedLastRunHTML(s)}</td>
+    <td><div class="job-actions">${actions}</div></td>
+  </tr>`;
+}
+
+function renderSchedRows() {
+  const card = document.getElementById('schedCard');
+  if (!card) return;
+  card.hidden = !testState.schedules.length;
+  const rows = [...testState.schedules].sort((a, b) => !a.enabled - !b.enabled || (a.next_run || Infinity) - (b.next_run || Infinity));
+  document.getElementById('schedRows').innerHTML = rows.map(schedRowHTML).join('');
+  document.getElementById('schedHint').textContent = testState.schedTz ? `times are the server's local time, ${testState.schedTz}` : '';
+}
+
+async function refreshSchedules() {
+  const d = await getJSON('/api/test/schedules');
+  testState.schedules = d.schedules;
+  testState.schedTz = d.tz;
+  renderSchedRows();
 }
 
 async function renderTest(params) {
-  await loadRuns().catch(() => {});
+  const seq = routeSeq;
   let opts;
   try {
     opts = await getJSON('/api/test/options');
   } catch (e) {
-    $main.innerHTML = `<div class="card"><b>Error:</b> ${esc(e.message)}</div>`;
+    if (seq === routeSeq) setView(`<div class="card"><b>Error:</b> ${esc(e.message)}</div>`);
     return;
   }
-  testState.options = opts;
-  testState.selected = null;
-  testState.parsed = null;
-  testState.project = null;
-  testState.preset = null;
-  testState.showYaml = false;
-  testState.jobsJSON = '';
-  testState.showAllJobs = false;
-  testState.catalog = [];
-  testState.catalogKey = '';
-  testState.picked = new Set();
+  if (seq !== routeSeq) return;
+  Object.assign(testState, {
+    options: opts, selected: null, parsed: null, project: null, preset: null, showYaml: false, jobsJSON: '',
+    showAllJobs: false, catalog: [], catalogKey: '', picked: new Set(), editingSchedule: null,
+  });
   const project = opts.project || null;
-  $main.innerHTML = `
+  setView(`
   <div class="crumbs"><a href="#">All runs</a> / Run test</div>
   <div class="card">
     <h2 style="margin:0">Run a test</h2>
@@ -3119,7 +3479,7 @@ async function renderTest(params) {
   </div>
   <div class="card" id="agentCard">
     <div class="card-head" style="padding:0 0 12px;border-bottom:none;flex-wrap:wrap">
-      <h3 style="margin:0">1 · Agent</h3>
+      <h3>1 · Agent</h3>
       <div class="seg" id="agentTabs" style="margin-left:auto">
         <button type="button" data-tab="presets">Presets</button>
         <button type="button" data-tab="import">Import YAML / JSON</button>
@@ -3132,7 +3492,7 @@ async function renderTest(params) {
       <div class="field wide">
         <div class="field" id="yamlBox">
           <label for="agentYaml">agent.yaml</label>
-          <textarea id="agentYaml" rows="18" spellcheck="false" placeholder="agent:&#10;  name: my-agent&#10;  module: voice_agent.cascaded.CascadedAgent&#10;  params:&#10;    llm_model: azure/gpt-4.1"></textarea>
+          <textarea id="agentYaml" rows="18" spellcheck="false" placeholder="agent:&#10;  name: my-agent&#10;  module: voice_agent.openai_realtime.OpenAIRealtimeAgent&#10;  params:&#10;    model: gpt-realtime-2"></textarea>
         </div>
         <div class="yaml-foot">
           <span class="help" id="agentInfo"></span>
@@ -3148,7 +3508,18 @@ async function renderTest(params) {
     ${settingsFormHTML(project)}
     <div class="actions-row">
       <button class="btn primary" type="button" id="startTestBtn"${project ? '' : ' disabled'}>${ICONS.play}Start test</button>
+      <button class="btn" type="button" id="schedToggle"${project ? '' : ' disabled'} title="Run this test on a schedule instead">${ICONS.clock}Schedule…</button>
       <span class="muted" id="startStatus" style="font-size:12.5px" aria-live="polite"></span>
+    </div>
+    ${schedFormHTML()}
+  </div>
+  <div class="card table-card" id="schedCard" hidden>
+    <div class="list-meta"><span class="count">Scheduled tests</span><span class="hint" id="schedHint"></span></div>
+    <div class="table-wrap jobs-wrap">
+      <table id="schedTable">
+        <thead><tr><th>Schedule</th><th>Agent</th><th>Domain / split</th><th>Repeat</th><th>Next run</th><th>Last run</th><th></th></tr></thead>
+        <tbody id="schedRows"></tbody>
+      </table>
     </div>
   </div>
   <div class="card table-card">
@@ -3164,7 +3535,7 @@ async function renderTest(params) {
   </div>
   <div class="card" id="logCard" hidden>
     <div class="report-head">
-      <h3 id="logTitle" style="margin:0">Log</h3>
+      <h3 id="logTitle">Log</h3>
       <span class="muted" id="logMeta" style="font-size:12px"></span>
       <label class="muted" style="margin-left:auto;font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="logFollow" checked> follow output</label>
     </div>
@@ -3172,7 +3543,7 @@ async function renderTest(params) {
     <div class="muted" id="logRun" style="font-size:12px;margin-top:6px"></div>
     <details style="margin-top:8px"><summary>agent.yaml used for this test</summary><pre id="logConfig" class="mono"></pre></details>
     <pre class="log-pane" id="logPane" style="margin-top:10px"></pre>
-  </div>`;
+  </div>`);
 
   renderAgentSource();
   refreshDomainOptions();
@@ -3240,19 +3611,55 @@ async function renderTest(params) {
     else if (e.target.id === 'sDomain') refreshSplitOptions();
     else if (e.target.id === 'sSplit') { updateCmdPreview(); loadScenarioCatalog(); }
     else if (e.target.id === 'sUserSim' || e.target.id === 'sComplexity') updateCmdPreview();
-  });
-  settings.addEventListener('input', e => {
-    if (e.target.id === 'scenFilter') renderScenarioList();
-  });
-  settings.addEventListener('change', e => {
-    if (e.target.matches('#scenList input[type=checkbox]')) {
+    else if (e.target.matches('#scenList input[type=checkbox]')) {
       e.target.checked ? testState.picked.add(e.target.value) : testState.picked.delete(e.target.value);
       renderScenarioList();
     }
   });
+  settings.addEventListener('input', e => {
+    if (e.target.id === 'scenFilter') renderScenarioList();
+  });
   document.getElementById('scenAll').addEventListener('click', () => { shownScenarios().forEach(s => testState.picked.add(s.id)); renderScenarioList(); });
   document.getElementById('scenNone').addEventListener('click', () => { testState.picked = new Set(); renderScenarioList(); });
   document.getElementById('startTestBtn').addEventListener('click', startTest);
+
+  document.getElementById('schedToggle').addEventListener('click', () => document.getElementById('schedForm').hidden ? openSchedForm() : closeSchedForm());
+  const schedForm = document.getElementById('schedForm');
+  schedForm.addEventListener('change', e => {
+    // switching to a custom cron starts from what the form showed so far
+    if (e.target.id === 'schRepeat' && e.target.value === 'cron' && !document.getElementById('schCron').value.trim()) {
+      document.getElementById('schCron').value = testState.schedPreviewKey;
+    }
+    updateSchedPreview().catch(() => {});
+  });
+  schedForm.addEventListener('input', e => { if (e.target.id === 'schCron' || e.target.id === 'schTime') updateSchedPreviewSoon(); });
+  document.getElementById('schSave').addEventListener('click', saveSchedule);
+  document.getElementById('schCancel').addEventListener('click', () => closeSchedForm());
+  document.getElementById('schedTable').addEventListener('click', async e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const ds = b.dataset;
+    try {
+      if (ds.schedLog) { selectJob(ds.schedLog); return; }
+      if (ds.schedEdit) { await editSchedule(ds.schedEdit); return; }
+      if (ds.schedRun) {
+        b.disabled = true;
+        const r = await postJSON(`/api/test/schedules/${encodeURIComponent(ds.schedRun)}/run`);
+        await refreshJobs(true);
+        selectJob(r.job.id);
+      } else if (ds.schedToggle) {
+        await postJSON(`/api/test/schedules/${encodeURIComponent(ds.schedToggle)}/enabled`, { enabled: ds.enabled !== '1' });
+      } else if (ds.schedDel) {
+        if (!confirm('Delete this schedule? The tests it already started stay in the list.')) return;
+        await postJSON(`/api/test/schedules/${encodeURIComponent(ds.schedDel)}`, null, 'DELETE');
+        if (testState.editingSchedule === ds.schedDel) closeSchedForm();
+      }
+      await refreshSchedules();
+    } catch (err) {
+      b.disabled = false;
+      setUpStatus('⚠ ' + err.message);
+    }
+  });
 
   document.getElementById('jobsMore').addEventListener('click', () => { testState.showAllJobs = !testState.showAllJobs; renderJobRows(); });
   document.getElementById('jobsTable').addEventListener('click', async e => {
@@ -3267,7 +3674,6 @@ async function renderTest(params) {
       } else if (ds.jobSync) {
         b.disabled = true;
         await postJSON(`/api/test/jobs/${encodeURIComponent(ds.jobSync)}/sync`);
-        invalidateRuns();
       } else if (ds.jobResume) {
         const r = await postJSON(`/api/test/jobs/${encodeURIComponent(ds.jobResume)}/resume`);
         await refreshJobs(true);
@@ -3278,21 +3684,25 @@ async function renderTest(params) {
         return;
       } else if (ds.jobDel) {
         if (!confirm('Remove this test from the list? The run directory and the archived run are kept.')) return;
-        const r = await fetch(`/api/test/jobs/${encodeURIComponent(ds.jobDel)}`, { method: 'DELETE' });
-        if (!r.ok) throw new Error(apiDetail(await r.json().catch(() => ({}))) || r.status);
+        await postJSON(`/api/test/jobs/${encodeURIComponent(ds.jobDel)}`, null, 'DELETE');
         if (testState.selected === ds.jobDel) { testState.selected = null; document.getElementById('logCard').hidden = true; }
       }
       await refreshJobs(true);
     } catch (err) {
+      b.disabled = false;
       setUpStatus('⚠ ' + err.message);
     }
   });
 
   await refreshJobs(true).catch(e => setUpStatus('⚠ ' + e.message));
+  if (seq !== routeSeq) return;
+  await refreshSchedules().catch(e => setUpStatus('⚠ ' + e.message));
+  if (seq !== routeSeq) return;  // left the page meanwhile: never start polling for it
   startTestPolling();
 
   const from = params.get('from');
   if (from) await prefillFromRun(from).catch(e => setAgentStatus('⚠ ' + e.message));
+  if (seq !== routeSeq) return;
   const jobId = params.get('job');
   if (jobId && testState.jobs.some(j => j.id === jobId)) selectJob(jobId, false);
 }
@@ -3301,40 +3711,86 @@ async function renderTest(params) {
 let scenKeyNav = null;
 window.addEventListener('keydown', e => { if (scenKeyNav) scenKeyNav(e); });
 
-const SKELETON = `
+const SKELETON = `<div class="skel-wrap">
   <div class="card"><div class="skel" style="width:38%"></div><div class="skel" style="width:62%"></div><div class="skel" style="width:55%"></div></div>
-  <div class="card"><div class="skel" style="width:30%"></div><div class="skel"></div><div class="skel"></div><div class="skel" style="width:80%"></div></div>`;
+  <div class="card"><div class="skel" style="width:30%"></div><div class="skel"></div><div class="skel"></div><div class="skel" style="width:80%"></div></div></div>`;
 
 const setTopTitle = t => {
   document.getElementById('topTitle').textContent = t;
   document.title = (t === 'Runs' ? '' : t + ' · ') + 'talk-bench runs viewer';
 };
 
+// routeSeq counts route() calls. Every async render captures it before its awaits and stops after
+// each one if it changed, so a slow page never overwrites the page the user moved on to.
+let routeSeq = 0, enterPending = false, enterTimer = 0, lastHash = '';
+
+// Every render's first write into #main goes through here: it ends the dimmed "stale" page and, once per
+// route(), scrolls to the top and plays the entrance. In-place updates and polling never call it.
+function setView(html) {
+  $main.innerHTML = html;
+  $main.classList.remove('stale');
+  if (!enterPending) return;
+  enterPending = false;
+  window.scrollTo(0, 0);
+  $main.classList.add('view-enter');
+  clearTimeout(enterTimer);
+  enterTimer = setTimeout(() => $main.classList.remove('view-enter'), 600);
+}
+
+// 'next' / 'prev' when stepping through one run's scenarios, 'soft' when re-picking a compare pair
+function routeDirection(from, to) {
+  if (from.startsWith('#/compare') && to.startsWith('#/compare')) return 'soft';
+  const scen = h => h.startsWith('#/scenario/') ? h.slice('#/scenario/'.length).split('/') : null;
+  const a = scen(from), b = scen(to);
+  if (!a || !b || a[0] !== b[0]) return '';
+  const ids = (_runCache[a[0]]?.scenarios || []).map(s => s.id);
+  const d = ids.indexOf(b[1]) - ids.indexOf(a[1]);
+  return d > 0 ? 'next' : d < 0 ? 'prev' : '';
+}
+
 async function route() {
   const h = decodeURIComponent(location.hash);
+  const raw = location.hash, params = new URLSearchParams(raw.slice(raw.indexOf('?') + 1 || raw.length));
+  const seq = ++routeSeq;
   scenKeyNav = null;
   CUR_RUN = null;
   CUR_CMP = null;
   clearInterval(testPollTimer);
   testPollTimer = null;
   closeNav();
-  $main.innerHTML = SKELETON;
+  // Keep the old page up, dimmed and unclickable, while the next one loads; only a slow load gets the
+  // skeleton. Do what replacing it used to do at once: stop its audio and drop its focus.
+  $main.querySelectorAll('audio').forEach(a => a.pause());
+  if ($main.contains(document.activeElement)) document.activeElement.blur();
+  $main.classList.remove('view-enter');
+  $main.dataset.dir = routeDirection(lastHash, h);
+  lastHash = h;
+  enterPending = true;
+  let skelTimer = 0;
+  if (!$main.firstElementChild) $main.innerHTML = SKELETON;  // first load: nothing to keep
+  else {
+    $main.classList.add('stale');
+    skelTimer = setTimeout(() => {
+      if (seq !== routeSeq || !enterPending) return;  // superseded, or the new view is already up
+      $main.innerHTML = SKELETON;
+      $main.classList.remove('stale');
+    }, 180);
+  }
   try {
     // Sidebar data is best-effort here: a failing /api/runs must not block scenario
     // deep links (renderList still surfaces the error because it awaits loadRuns itself).
     await loadRuns().catch(() => {});
+    if (seq !== routeSeq) return;  // navigated again while the run index loaded
     renderSideNav();
     const onList = !h.startsWith('#/');
     document.getElementById('searchWrap').hidden = !onList;
     document.getElementById('syncBtn').hidden = !onList;
     if (h.startsWith('#/compare')) {
       setTopTitle('Compare');
-      const raw = location.hash;
-      await renderCompare(new URLSearchParams(raw.slice(raw.indexOf('?') + 1 || raw.length)));
+      await renderCompare(params);
     } else if (h.startsWith('#/test')) {
       setTopTitle('Run test');
-      const raw = location.hash;
-      await renderTest(new URLSearchParams(raw.slice(raw.indexOf('?') + 1 || raw.length)));
+      await renderTest(params);
     } else if (h.startsWith('#/scenario/')) {
       const p = h.slice('#/scenario/'.length);
       setTopTitle(p.split('/').pop());
@@ -3347,9 +3803,15 @@ async function route() {
       setTopTitle('Runs');
       await renderList();
     }
-    window.scrollTo(0, 0);
+    if (seq === routeSeq) {
+      window.scrollTo(0, 0);
+      // same task as the render, before the first paint: the rows never flash in and then hide
+      staggerRows(document.getElementById('runRows') || document.getElementById('scenRows'));
+    }
   } catch (e) {
-    $main.innerHTML = `<div class="card"><b>Error:</b> ${esc(e.message)}</div>`;
+    if (seq === routeSeq) setView(`<div class="card"><b>Error:</b> ${esc(e.message)}</div>`);
+  } finally {
+    clearTimeout(skelTimer);
   }
 }
 window.addEventListener('hashchange', route);
