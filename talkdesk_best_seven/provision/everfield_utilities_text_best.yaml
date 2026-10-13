@@ -1,0 +1,8 @@
+# Selected retained STANDARD essential-only sandbox checkpoint.
+# Credentials and domain-specific MCP URL come from environment; no live IDs bundled.
+agent_name: "talkbench-everfield-utilities-text-best"
+api_base_url: "https://api.talkdeskqa.com"
+mcp_name_prefix: "Everfield Utilities Text"
+mcp_description: "Isolated generated everfield_utilities test-domain tools"
+template_name: "retained-best/everfield-utilities-text-agent-template.json"
+external_tool_count_max: 30
