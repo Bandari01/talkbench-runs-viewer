@@ -84,6 +84,15 @@ the viewer through a tunnel, put the access control there (e.g. `ngrok http 8377
   while the wavs start at the timeline's `greeting_wait_start`, so `_audio_alignment` in `app/main.py`
   places each turn's speech from `latency_markers.ndjson` (user) and `vad_events.ndjson` (agent); a
   turn it can't place shows its finalization time, marked `≈`
+- A Talkdesk Autopilot scenario's transcript is laid out from `records.json` instead: one bubble per
+  message, in the platform's order (conversation.json can merge several messages into one turn), the
+  agent's internal hand-offs (DISPATCH / COORDINATOR / ACTION_AGENT / RESPOND) behind the
+  **内部流转** toggle, and tool calls only `tool_log.json` lists placed by time. `_record_spans`
+  places each message's speech from the VAD segments
+- **中文翻译** on the transcript puts a Simplified Chinese translation under each turn (same LLM as
+  Ask AI). It is saved as `.transcript_zh.json` beside `conversation.json` — a dotfile, so it stays
+  out of the file list and S3 — and shows straight away on later visits while the reader leaves
+  translations on; a scenario not translated yet is only translated on a click
 - **Compare runs**: two runs aligned by scenario id — both pass / only A / only B / both fail,
   aggregates over the shared scenarios, per-scenario table with an "only where the two disagree"
   filter. Text-vs-voice pairs are flagged: `Experience` and `Eval final` are not comparable across
