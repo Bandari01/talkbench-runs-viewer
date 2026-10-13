@@ -245,6 +245,8 @@
   .turn.user .bubble { background: var(--bubble-user); color: var(--bubble-user-fg); border-bottom-right-radius: 4px; }
   .turn.agent .bubble { background: var(--bubble-agent); border-bottom-left-radius: 4px; }
   .turn .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  .bubble .zh { margin-top: 6px; padding-top: 6px; border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); opacity: .8; }
+  .transcript-head { margin-bottom: 8px; }
   audio { width: 100%; margin: 4px 0 10px; }
   .audio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 18px; }
   .tool-call { border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 12px; margin: 10px 40px; font-size: 13px; background: var(--surface-2); }
@@ -253,8 +255,79 @@
   .ts { color: var(--faint); font-size: 11px; font-family: var(--mono); margin-right: 6px; }
   button.ts { background: none; border: 0; padding: 0; line-height: inherit; cursor: pointer; }
   button.ts:hover { color: var(--link); text-decoration: underline; }
+  .who .badge { margin-left: 2px; padding: 0 7px; font-size: 10.5px; }
+  .hop { margin: 4px 40px; padding: 1px 0 1px 10px; border-left: 2px solid var(--border); font-size: 12.5px; color: var(--muted); }
+  .hop-route { font-weight: 600; color: var(--fg-soft); }
+  .hop-text { white-space: pre-wrap; }
+  #transcript:not(.show-hops) .hop { display: none; }
+  .hop-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
   .turn .bubble { transition: box-shadow var(--dur-2) var(--ease-out); }  /* the audio-sync ring glides from turn to turn */
   .turn.playing .bubble { box-shadow: 0 0 0 2px var(--link); }
+
+  /* ---------- scenario page: task & grading panel ----------
+     .scen-page is a container: from 1000px of page width the panel is a second column, sticky under the
+     topbar with its own scroll; narrower, a bar stuck under the topbar that opens over the page. The narrow
+     layout stays block, not grid: a sticky grid item cannot leave its own row */
+  main:has(.scen-page) { max-width: 1560px; padding-bottom: 16px; }  /* the panel's column ends with the page: no 64px for it to slide up into */
+  .scen-page { container: scen / inline-size; }
+  .scen-main { min-width: 0; }
+  .scen-side { position: sticky; top: calc(var(--topbar-h) + 8px); z-index: 20; padding: 0; font-size: 13px; overflow: hidden; }
+  .tp-toggle {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 11px 16px; border: 0; background: none;
+    color: var(--fg); font: inherit; font-weight: 600; cursor: pointer; text-align: left;
+  }
+  .tp-toggle > span:first-child { margin-right: auto; }
+  .tp-toggle svg { color: var(--muted); transition: transform var(--dur-2) var(--ease-out); }
+  .scen-side:not(.collapsed) .tp-toggle svg { transform: rotate(180deg); }
+  .tp-toggle:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--ring); }
+  .tp-body { padding: 4px 16px 16px; max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--border-soft); scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
+  .scen-side.collapsed .tp-body { display: none; }
+  @container scen (min-width: 1000px) {
+    .scen-layout:not(.no-panel) { display: grid; grid-template-columns: minmax(0, 1fr) clamp(320px, 32%, 440px); gap: 0 16px; align-items: start; }
+    .scen-side { grid-column: 2; grid-row: 1; top: calc(var(--topbar-h) + 16px); z-index: auto; }
+    .scen-main { grid-column: 1; grid-row: 1; }
+    .tp-toggle { display: none; }
+    .scen-side.collapsed .tp-body { display: block; }
+    .tp-body { max-height: calc(100vh - var(--topbar-h) - 34px); padding: 16px 18px 18px; border-top: 0; }  /* 16px above and below, 2px of border */
+  }
+  .tp-h { display: flex; align-items: center; gap: 8px; margin: 22px 0 8px; padding-top: 14px; border-top: 1px solid var(--border-soft); font-size: 14px; }
+  .tp-body > .tp-h:first-child { margin-top: 10px; padding-top: 0; border-top: 0; }
+  @container scen (min-width: 1000px) { .tp-body > .tp-h:first-child { margin-top: 0; } }
+  .tp-trtools { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; font-weight: 400; color: var(--muted); }
+  .tp-trtools .navbtn { padding: 3px 10px; font-size: 12px; }
+  .tp-body .zh { display: block; margin-top: 4px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent); }
+  .tp-body .zh:not(:empty) { animation: fade-in var(--dur-2) var(--ease-out); }
+  .tp-reward { margin-left: auto; font-size: 12.5px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tp-goal { margin: 0 0 4px; font-size: 13.5px; font-weight: 500; }
+  .tp-k { margin: 12px 0 3px; font-size: 12px; font-weight: 500; color: var(--muted); }
+  .tp-text { margin: 0; white-space: pre-wrap; color: var(--fg-soft); }
+  .tp-kv { margin: 0; }
+  .tp-kv dt { margin-top: 5px; font-size: 11.5px; color: var(--faint); }
+  .tp-kv dd { margin: 0 0 2px; color: var(--fg-soft); white-space: pre-wrap; }
+  .tp-plain { margin: 0; padding-left: 18px; color: var(--fg-soft); }
+  .tp-limits { margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .tp-group { margin-top: 14px; }
+  .tp-group.off .tp-list { opacity: .65; }
+  .tp-ghead { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; font-size: 12.5px; font-weight: 600; }
+  .tp-ghead > span:first-child { margin-right: auto; }
+  .tp-off { font-size: 11.5px; font-weight: 400; color: var(--muted); }
+  .tp-list { list-style: none; margin: 0; padding: 0; }
+  .tp-item { padding: 6px 0; border-top: 1px solid var(--border-soft); color: var(--fg-soft); }
+  .tp-row { display: flex; gap: 6px; align-items: baseline; }
+  .tp-row > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+  .tp-item details > summary { color: inherit; font-size: inherit; font-weight: inherit; user-select: text; }
+  .tp-item details > summary::before { content: none; }
+  .tp-item details > summary:hover > span:last-child { text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
+  .tp-mark { flex: none; width: 14px; font-weight: 700; text-align: center; }
+  .tp-mark.ok { color: var(--pass); }
+  .tp-mark.bad { color: var(--fail); }
+  .tp-mark.unk { color: var(--faint); }
+  .tp-why { margin: 6px 0 2px 20px; padding: 2px 0 2px 10px; border-left: 2px solid var(--border); font-size: 12.5px; color: var(--muted); white-space: pre-wrap; }
+  .tp-name { font-size: 12px; font-weight: 600; color: var(--fg); }
+  .tp-extra { font-size: 11.5px; color: var(--muted); }
+  .tp-args { display: block; margin-top: 2px; font-family: var(--mono); font-size: 11.5px; }
+  .tp-args > span { display: block; }
+  .tp-loose { color: var(--faint); }
 
   /* ---------- scenario nav & buttons ---------- */
   .scen-nav { display: flex; align-items: center; gap: 8px; margin-left: auto; }
@@ -1798,11 +1871,20 @@ const fmtClock = s => {
 
 // With audio (`align` from /api/scenario) times are positions in the wavs: a turn shows where its
 // speech starts, a tool call when it ran; a turn whose speech wasn't located shows when it was
-// finalized, marked ≈. A text run has no wav, so its times count from the first event.
-function renderTimeline(conversation, toolLog, align) {
-  if (!conversation && !toolLog?.length) return '<p class="muted">No conversation.json</p>';
-  const t0 = (conversation || []).concat(toolLog || []).reduce(
-    (m, x) => x.timestamp != null && x.timestamp < m ? x.timestamp : m, Infinity);
+// finalized (logged, for records.json), marked ≈. A text run has no wav, so its times count from
+// the first event. `transcript` (from records.json, Talkdesk Autopilot runs) keeps each message
+// apart, in the platform's order, with the agent's internal hand-offs as notes; without it
+// conversation.json's turns and tool_log.json's calls are merged by time.
+function renderTimeline(d, align) {
+  let n = 0;
+  const items = d.transcript ? d.transcript.map(x => x.kind === 'turn' ? { ...x, i: n++ } : x) : [
+    ...(d.conversation || []).map((t, i) => ({ kind: 'turn', speaker: t.speaker, text: t.text, timestamp: t.timestamp,
+      label: `turn ${t.turn_index ?? ''}`, span: align?.spans[t.turn_index], i })),
+    ...(d.tool_log || []).map(c => ({ ...c, kind: 'tool' })),
+  // stable sort; items without a timestamp keep their original relative position at the end
+  ].sort((a, b) => (a.timestamp ?? Infinity) - (b.timestamp ?? Infinity));
+  if (!items.length) return '<p class="muted">No conversation.json</p>';
+  const t0 = items.reduce((m, x) => x.timestamp != null && x.timestamp < m ? x.timestamp : m, Infinity);
   const fmtT = ts => ts == null || t0 === Infinity ? '' : '+' + (ts - t0).toFixed(1) + 's';
   const seekTs = (s, title, approx = false) => {
     const label = (approx ? '≈' : '') + fmtClock(s);
@@ -1810,39 +1892,50 @@ function renderTimeline(conversation, toolLog, align) {
       ? `<button class="ts" type="button" data-seek="${s.toFixed(2)}" title="${esc(title)} · click to play from here">${label}</button>`
       : `<span class="ts" title="${esc(title)} · outside the recording">${label}</span>`;
   };
+  const atTs = (x, title) => !align ? `<span class="ts">${fmtT(x.timestamp)}</span>`
+    : x.timestamp == null ? '' : seekTs(x.timestamp - align.origin, title);
   const turnTs = t => {
     if (!align) return `<span class="ts">${fmtT(t.timestamp)}</span>`;
-    const span = align.spans[t.turn_index];
-    if (span) return seekTs(span[0], `speech ${fmtClock(span[0])}–${fmtClock(span[1])} in the recording`);
-    return t.timestamp == null ? '' : seekTs(t.timestamp - align.origin,
-      'when the turn was finalized — its speech was not located in the recording', true);
+    if (t.span) return seekTs(t.span[0], `speech ${fmtClock(t.span[0])}–${fmtClock(t.span[1])} in the recording`);
+    return t.timestamp == null ? '' : seekTs(t.timestamp - align.origin, (d.transcript
+      ? 'when Talkdesk logged the message' : 'when the turn was finalized') + ' — its speech was not located in the recording', true);
   };
-  const toolTs = c => !align ? `<span class="ts">${fmtT(c.timestamp)}</span>`
-    : c.timestamp == null ? '' : seekTs(c.timestamp - align.origin, 'when the tool was called');
-  const items = [
-    ...(conversation || []).map(t => ({ kind: 'turn', ts: t.timestamp, d: t })),
-    ...(toolLog || []).map(c => ({ kind: 'tool', ts: c.timestamp, d: c })),
-  ];
-  // stable sort; items without a timestamp keep their original relative position at the end
-  items.sort((a, b) => (a.ts ?? Infinity) - (b.ts ?? Infinity));
+  const exitBadge = x => x.exit ? ` <span class="badge fail" title="${esc(x.exit.message)}">exit: ${esc(x.exit.type)}</span>` : '';
+  let lastNote = null;
   return items.map(it => {
     if (it.kind === 'turn') {
-      const t = it.d, span = align?.spans[t.turn_index];
+      // an agent message sent for a reason other than a plain reply (duplicate_tool_call, block, …):
+      // the hand-off just before it usually says why
+      const why = it.action && it.action !== 'send_to_user'
+        ? `<span class="badge na"${lastNote?.action === it.action ? ` title="${esc(lastNote.text)}"` : ''}>${esc(it.action)}</span>` : '';
+      const who = [esc(it.speaker) + (it.by ? ` (${esc(it.by)})` : ''), [it.label, turnTs(it)].filter(Boolean).join(' ')]
+        .filter(Boolean).join(' · ');
       return `
-      <div class="turn ${t.speaker === 'user' ? 'user' : 'agent'}"${span ? ` data-span="${span.join(',')}"` : ''}>
-        <div><div class="who">${esc(t.speaker)} · turn ${t.turn_index ?? ''} ${turnTs(t)}</div>
-        <div class="bubble">${esc(t.text)}</div></div>
+      <div class="turn ${it.speaker === 'user' ? 'user' : 'agent'}"${it.span ? ` data-span="${it.span.join(',')}"` : ''}>
+        <div><div class="who">${who} ${why}${exitBadge(it)}</div>
+        <div class="bubble" data-i="${it.i}">${esc(it.text)}</div></div>
       </div>`;
     }
-    const c = it.d;
+    if (it.kind === 'note') {
+      lastNote = it;
+      return `
+    <div class="hop">
+      <div>${atTs(it, 'when Talkdesk logged the message')}<span class="hop-route">${esc(it.src)} → ${esc(it.dst)}</span>${it.action ? ` · <span class="mono">${esc(it.action)}</span>` : ''}${exitBadge(it)}</div>
+      ${it.text ? `<div class="hop-text">${esc(it.text)}</div>` : ''}
+    </div>`;
+    }
+    const error = it.result?.error ? it.result.error.message || JSON.stringify(it.result.error)
+      : it.success === false ? (typeof it.result === 'string' ? it.result : JSON.stringify(it.result)) : '';
     return `
     <div class="tool-call">
-      ${toolTs(c)}
-      🔧 <span class="name mono">${esc(c.tool_name)}</span>
-      ${c.db_changed ? '<span class="badge pass" style="margin-left:8px">db changed</span>' : ''}
-      ${c.result?.error ? `<span class="badge fail" style="margin-left:8px">error</span>` : ''}
-      ${c.result?.error ? `<div class="err">${esc(c.result.error.message || JSON.stringify(c.result.error))}</div>` : ''}
-      ${jsonPreview('args & result', {arguments: c.arguments, result: c.result})}
+      ${atTs(it, 'when the tool was called')}
+      🔧 <span class="name mono">${esc(it.tool_name)}</span>
+      ${it.by || it.duration_ms != null ? `<span class="muted">· ${[esc(it.by || ''), it.duration_ms != null ? fmtDur(it.duration_ms) : ''].filter(Boolean).join(' · ')}</span>` : ''}
+      ${it.db_changed ? '<span class="badge pass" style="margin-left:8px">db changed</span>' : ''}
+      ${error ? `<span class="badge fail" style="margin-left:8px">error</span>` : ''}
+      ${it.only_in_tool_log ? '<span class="badge na" style="margin-left:8px" title="talk-bench\'s tool server ran this call, but records.json does not list it; placed by time">not in records.json</span>' : ''}
+      ${error ? `<div class="err">${esc(error)}</div>` : ''}
+      ${jsonPreview('args & result', {arguments: it.arguments, result: it.result})}
     </div>`;
   }).join('');
 }
@@ -1953,7 +2046,143 @@ function renderScores(summary, sess, scenario) {
   ${sess ? jsonPreview('Raw session result (talk_bench_evaluation_result.json)', sess) : ''}`;
 }
 
+/* ---------- task & grading panel (scenario page, sticky beside the transcript) ---------- */
+/* scenario.json's task (what the simulated caller wants, is told and knows) and its grading
+   criteria, each marked with the judge's verdict where talk_bench_evaluation_result.json has one:
+   communicate / NL checks per criterion; actions only per factor, so a single action is ✗ just
+   when it was never called; DB state per factor. */
+const critText = c => typeof c === 'string' ? c : c?.text ?? JSON.stringify(c);
+const tpVal = v => typeof v === 'string' ? v : JSON.stringify(v);
+const TP_MARKS = { ok: '✓', bad: '✗', unk: '·' };
+const tpMark = (st, title = '') => st ? `<span class="tp-mark ${st}"${title ? ` title="${esc(title)}"` : ''}>${TP_MARKS[st]}</span>` : '';
+
+// tr: the text is prose that the panel's 中文翻译 translates (class "tr", see initTaskTranslation)
+function tpItem(text, st, why, title, tr = false) {
+  const body = `<span${tr ? ' class="tr"' : ''}>${text}</span>`;
+  if (!why) return `<li class="tp-item tp-row">${tpMark(st, title)}${body}</li>`;
+  return `<li class="tp-item"><details><summary class="tp-row" title="Click for the judge's reasoning">${tpMark(st, title)}${body}</summary>
+    <div class="tp-why tr">${esc(why)}</div></details></li>`;
+}
+
+// one grading channel: its name, the factor it scored (passed/total) and whether it counts toward the reward
+function tpGroup(title, items, factor, basis, key) {
+  if (!items.length) return '';
+  const off = basis && key && !basis.has(key);
+  const badge = factor == null ? '' : `<span class="badge ${factorOk(factor) ? 'pass' : 'fail'}">${fmtFactor(factor)}</span>`;
+  return `<div class="tp-group${off ? ' off' : ''}">
+    <div class="tp-ghead"><span>${title}</span>${off ? '<span class="tp-off" title="Not in this scenario\'s reward_basis: scored, but does not change the reward">not in reward</span>' : ''}${badge}</div>
+    <ul class="tp-list">${items.join('')}</ul></div>`;
+}
+
+function taskPanelHTML(d) {
+  const sc = d.scenario;
+  if (!sc || typeof sc !== 'object') return '';
+  const us = sc.user_scenario || {}, ev = sc.evaluation || {}, goal = sc.goal || {};
+  const tc = d.session_result?.task_completion || null;
+  const passed = d.scenario_summary?.passed ?? tc?.passed;
+
+  // ---- task: what the caller wants, how to play it, what it knows ----
+  const known = Object.entries(us.known_info || {}).filter(([, v]) => v != null && v !== '');
+  const unknown = [].concat(us.unknown_info || []).filter(Boolean);
+  const limits = [
+    goal.max_turns && `≤ ${goal.max_turns} turns`,
+    goal.max_duration_s && `≤ ${fmtDur(goal.max_duration_s * 1000)}`,
+    sc.difficulty && `difficulty: ${esc(sc.difficulty)}`,
+    ev.valid_outcomes?.length && `accepted endings: ${ev.valid_outcomes.map(esc).join(', ')}`,
+  ].filter(Boolean);
+  const reason = us.reason_for_call && us.reason_for_call !== goal.description ? us.reason_for_call : '';
+  const task = `
+    ${goal.description ? `<p class="tp-goal tr">${esc(goal.description)}</p>` : ''}
+    ${reason ? `<div class="tp-k">Reason for call</div><p class="tp-text tr">${esc(reason)}</p>` : ''}
+    ${us.task_instructions ? `<div class="tp-k">Caller instructions</div><p class="tp-text tr">${esc(us.task_instructions)}</p>` : ''}
+    ${known.length ? `<div class="tp-k">Caller knows</div><dl class="tp-kv">${known.map(([k, v]) =>
+      `${/^fact_?\d+$/.test(k) ? '' : `<dt>${esc(k.replace(/_/g, ' '))}</dt>`}<dd${typeof v === 'string' ? ' class="tr"' : ''}>${esc(tpVal(v))}</dd>`).join('')}</dl>` : ''}
+    ${unknown.length ? `<div class="tp-k">Caller doesn't know</div><ul class="tp-plain">${unknown.map(u =>
+      `<li${typeof u === 'string' ? ' class="tr"' : ''}>${esc(tpVal(u))}</li>`).join('')}</ul>` : ''}
+    ${limits.length ? `<div class="tp-limits">${limits.join(' · ')}</div>` : ''}`;
+
+  // ---- grading: every criterion, by channel ----
+  const basisList = (ev.reward_basis || []).map(b => String(b).toUpperCase());
+  const basis = basisList.length ? new Set(basisList) : null;
+  const factors = rewardBreakdown(d.session_result, false, criteriaTotals(sc)) || {};
+  const judged = (crits, checks, field) => crits.map((c, i) => {
+    const text = critText(c);
+    const chk = (checks || []).find(x => x[field] === text) || checks?.[i];
+    const st = !chk ? null : chk.met ? 'ok' : 'bad';
+    return tpItem(esc(text), st, chk?.justification, chk ? (chk.met ? 'met' : 'not met') : '', true);
+  });
+
+  const called = new Set((d.transcript || d.tool_log || []).filter(x => !d.transcript || x.kind === 'tool').map(x => x.tool_name));
+  const actionItem = a => {
+    const cmp = new Set(a.compare_args || []);
+    const args = Object.entries(a.arguments || {});
+    const result = Object.entries(a.expected_result || {});
+    const argHTML = `<span class="tp-args">${args.length ? args.map(([k, v]) =>
+      `<span${cmp.has(k) ? '' : ' class="tp-loose" title="not compared"'}>${esc(k)}: ${esc(tpVal(v))}</span>`).join('')
+      : '<span class="tp-loose">any arguments</span>'}${result.length ? `<span class="tp-loose" title="the call's result must contain these">→ ${
+      result.map(([k, v]) => `${esc(k)}: ${esc(tpVal(v))}`).join(', ')}</span>` : ''}</span>`;
+    const agent = !a.requestor || a.requestor === 'assistant';
+    const extra = [
+      a.action_id && `${esc(a.action_id)}${a.prerequisite_action_ids?.length ? ` · after ${a.prerequisite_action_ids.map(esc).join(', ')}` : ''}`,
+      !agent && `by ${esc(a.requestor)} · not scored`,
+    ].filter(Boolean);
+    let st = null, title = '';
+    if (agent && tc && typeof tc.action_score === 'number') {
+      if (tc.action_score >= 1) [st, title] = ['ok', 'all expected actions matched'];
+      else if (!called.has(a.name)) [st, title] = ['bad', 'never called'];
+      else [st, title] = ['unk', 'called — whether its arguments matched is not in the results'];
+    }
+    return tpItem(`<span class="mono tp-name">${esc(a.name)}</span>${extra.length ? ` <span class="tp-extra">${extra.join(' · ')}</span>` : ''}${argHTML}`, st, '', title);
+  };
+
+  const es = ev.expected_state;
+  const kv = o => Object.entries(o || {}).map(([k, v]) => `<span>${esc(k)} = ${esc(tpVal(v))}</span>`).join('');
+  const dbItems = !es || typeof es !== 'object' ? []
+    : Array.isArray(es.assertions) ? es.assertions.map(a => tpItem(
+        `<span class="mono tp-name">${esc(a.collection)}</span> <span class="tp-extra">${[a.change, a.cardinality?.replace(/_/g, ' ')].filter(Boolean).map(esc).join(' · ')}</span>
+         <span class="tp-args">${Object.keys(a.selector || {}).length ? `<span class="tp-loose">where ${Object.entries(a.selector).map(([k, v]) => `${esc(k)} = ${esc(tpVal(v))}`).join(', ')}</span>` : ''}${kv(a.expected)}</span>`))
+    : 'schema_version' in es ? []
+    : Object.entries(es).flatMap(([coll, ents]) => Object.entries(ents || {}).map(([id, fields]) => tpItem(
+        `<span class="mono tp-name">${esc(coll)}</span> <span class="tp-extra">${esc(id)}</span><span class="tp-args">${kv(fields)}</span>`)));
+
+  const forbidden = [
+    ...(ev.prohibited_actions || []).map(a => tpItem(`<span class="mono tp-name">${esc(a.name)}</span>${
+      Object.keys(a.arguments || {}).length ? `<span class="tp-args">${kv(a.arguments)}</span>` : ''}`)),
+    ...(ev.prohibited_communicate || []).map(c => tpItem(esc(critText(c)), null, '', '', true)),
+    ...(ev.planted_secret ? [tpItem(`planted secret must not leak: <span class="mono">${esc(tpVal(ev.planted_secret))}</span>`)] : []),
+  ];
+  const violated = tc && (tc.prohibited_violated || tc.prohibited_communicate_violated);
+  const forbiddenGroup = forbidden.length ? `<div class="tp-group">
+    <div class="tp-ghead"><span>Must not</span>${tc ? `<span class="badge ${violated ? 'fail' : 'pass'}">${violated ? 'violated' : 'held'}</span>` : ''}</div>
+    <ul class="tp-list">${forbidden.join('')}</ul></div>` : '';
+
+  const groups = [
+    tpGroup('Actions', (ev.expected_actions || []).map(actionItem), factors.ACTION, basis, 'ACTION'),
+    tpGroup('Communicate', judged(ev.communicate_info || [], tc?.communicate_checks, 'expected_info'), factors.COMMUNICATE, basis, 'COMMUNICATE'),
+    tpGroup('NL assertions', judged(ev.nl_assertions || [], tc?.nl_assertion_checks, 'assertion'), factors.NL_ASSERTION, basis, 'NL_ASSERTION'),
+    tpGroup('DB state', dbItems, factors.DB, basis, 'DB'),
+    forbiddenGroup,
+  ].join('');
+  const LABELS = { ACTION: 'Actions', COMMUNICATE: 'Communicate', NL_ASSERTION: 'NL assertions', DB: 'DB state' };
+
+  return `
+  <aside class="card scen-side collapsed" id="taskPanel" aria-label="Task and grading">
+    <button class="tp-toggle" type="button" aria-expanded="false" aria-controls="tpBody">
+      <span>Task &amp; grading</span>${passBadge(passed)}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button>
+    <div class="tp-body" id="tpBody">
+      <h3 class="tp-h">Task<span class="tp-trtools"><span id="tpTrStatus" aria-live="polite"></span>
+        <button class="navbtn" id="tpTrBtn" type="button">中文翻译</button></span></h3>
+      ${task}
+      <h3 class="tp-h">Grading
+        ${typeof tc?.reward === 'number' ? `<span class="tp-reward">reward ${fmtScore(tc.reward)}</span>` : ''}${passBadge(passed)}</h3>
+      ${basisList.length ? `<div class="tp-limits">Counts toward reward: ${basisList.map(b => LABELS[b] || esc(b)).join(' × ')}</div>` : ''}
+      ${groups || '<p class="muted">No grading criteria in scenario.json.</p>'}
+    </div>
+  </aside>`;
+}
+
 /* ---------- scenario detail ---------- */
+const HOPS_KEY = 'viewer_transcript_hops';  // '1' while this reader wants records.json's internal hand-offs shown
 const _runCache = {};
 async function getRun(runPath) {
   if (!_runCache[runPath]) _runCache[runPath] = await getJSON('/api/run?path=' + encodeURIComponent(runPath));
@@ -1991,12 +2220,19 @@ async function renderScenario(path) {
   const audioNames = Object.entries(d.audio).filter(([,ok]) => ok).map(([n]) => n);
   const align = audioNames.length ? d.audio_align : null;
   const inS3 = new Set(d.files.filter(f => f.cloud).map(f => f.name));
+  const turnCount = d.transcript ? d.transcript.filter(x => x.kind === 'turn').length : d.conversation?.length;
+  const toolCount = d.transcript ? d.transcript.filter(x => x.kind === 'tool').length : d.tool_log?.length || 0;
+  const hopsOn = (() => { try { return localStorage.getItem(HOPS_KEY) === '1'; } catch (e) { return false; } })();
+  const panel = taskPanelHTML(d);
 
   setView(`
   <div class="crumbs" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
     <span><a href="#">All runs</a> / <a href="#/run/${encodeURIComponent(runPath)}">${esc(runPath)}</a> / ${esc(scenId)}</span>
     ${siblings.length > 1 ? scenarioNav(runPath, siblings, scenIdx) : ''}
   </div>
+  <div class="scen-page"><div class="scen-layout${panel ? '' : ' no-panel'}">
+  ${panel}
+  <div class="scen-main">
   <div class="card">
     <div class="detail-heading">
       <h2>${esc(scenId)} <span class="muted" style="font-weight:400">· ${esc(sc.domain || '')}</span>
@@ -2008,7 +2244,7 @@ async function renderScenario(path) {
       <div class="chip"><div class="k">Persona</div><div class="v" style="font-size:14px">${esc([persona.age_group, persona.emotion, persona.patience && persona.patience + ' patience'].filter(Boolean).join(', ') || '—')}</div></div>
     </div>
     ${renderScores(d.scenario_summary, d.session_result, d.scenario)}
-    ${sc.goal?.description ? `<h3>Goal</h3><p>${esc(sc.goal.description)}</p>` : ''}
+    ${panel || !sc.goal?.description ? '' : `<h3>Goal</h3><p>${esc(sc.goal.description)}</p>`}
     ${jsonPreview('Full scenario JSON', sc)}
   </div>
 
@@ -2021,11 +2257,20 @@ async function renderScenario(path) {
 
   ${aiCardsHTML('AI 场景报告', '一键让 AI 总结：这个任务要求什么、Agent 实际怎么做的（逐个 tool call）、做得好不好，并画出流程图。', 'scenario')}
 
-  <div class="card" id="transcript">
-    <h3>Transcript
-      ${d.conversation ? `<span class="muted" style="font-weight:400">(${d.conversation.length} turns · ${d.tool_log?.length || 0} tool calls)</span>` : ''}</h3>
-    ${align ? '<div class="muted" style="font-size:12.5px;margin:-4px 0 10px">Times are positions in the recording — click one to play the audio from there.</div>' : ''}
-    ${renderTimeline(d.conversation, d.tool_log, align)}
+  <div class="card${hopsOn ? ' show-hops' : ''}" id="transcript">
+    <div class="report-head transcript-head">
+      <h3>Transcript
+        ${turnCount != null ? `<span class="muted" style="font-weight:400">(${turnCount} ${d.transcript ? 'messages' : 'turns'} · ${toolCount} tool calls)</span>` : ''}</h3>
+      ${d.transcript?.some(x => x.kind === 'note') ? `<label class="hop-toggle" title="records.json 里 Agent 内部各部分（DISPATCH、COORDINATOR、ACTION_AGENT、RESPOND…）之间的转交与回复">
+        <input type="checkbox" id="hopToggle"${hopsOn ? ' checked' : ''}> 内部流转</label>` : ''}
+      ${turnCount ? `<span class="muted" id="trStatus" style="font-size:12px" aria-live="polite"></span>
+      <button class="navbtn" id="trBtn" type="button">中文翻译</button>` : ''}
+    </div>
+    ${d.transcript || align ? `<div class="muted" style="font-size:12.5px;margin:-4px 0 10px">${[
+      d.transcript && 'One bubble per message, in records.json order.',
+      align && 'Times are positions in the recording — click one to play the audio from there.',
+    ].filter(Boolean).join(' ')}</div>` : ''}
+    ${renderTimeline(d, align)}
   </div>
 
   <div class="card">
@@ -2033,7 +2278,14 @@ async function renderScenario(path) {
     <div class="filelist">
       ${d.files.map(f => `<div><a class="mono" target="_blank" href="${dataHref(path + '/' + f.name)}">${esc(f.name)}</a> <span class="muted"${f.cloud ? ' title="Kept in S3; downloaded when opened"' : ''}>${(f.size/1024).toFixed(0)} KB${f.cloud ? ' · in S3' : ''}</span></div>`).join('')}
     </div>
-  </div>`);
+  </div>
+  </div></div></div>`);
+
+  // narrow screens: the panel is a bar stuck under the topbar that opens over the page
+  document.querySelector('#taskPanel .tp-toggle')?.addEventListener('click', e => {
+    const open = document.getElementById('taskPanel').classList.toggle('collapsed') === false;
+    e.currentTarget.setAttribute('aria-expanded', open);
+  });
 
   // a wav kept in S3 that cannot be downloaded (expired AWS login, …): say why under its player
   $main.querySelectorAll('.audio-grid audio').forEach(a => a.addEventListener('error', async () => {
@@ -2043,6 +2295,12 @@ async function renderScenario(path) {
   }, { once: true }));
   initReport(path);
   initChat(path);
+  initTranslation(path, d.transcript_zh);
+  initTaskTranslation(path, d.task_zh);
+  document.getElementById('hopToggle')?.addEventListener('change', e => {
+    document.getElementById('transcript').classList.toggle('show-hops', e.target.checked);
+    try { localStorage.setItem(HOPS_KEY, e.target.checked ? '1' : ''); } catch (err) { /* private mode */ }
+  });
   if (align) initAudioSync();
 
   const go = i => { location.hash = scenHref(runPath, siblings[i].id); };
@@ -2335,6 +2593,102 @@ function initReport(path, endpoint = '/api/scenario_report', eta = '生成中…
       if (!REPORTS[path]) body.hidden = true;  // same end state as before: nothing shown
     }
     body.classList.remove('refreshing');
+    setBusy(btn, false);
+  });
+}
+
+/* ---------- transcript translation: Simplified Chinese under each turn ---------- */
+const TR_KEY = 'viewer_transcript_zh';  // '1' while this reader wants translations shown
+const TRANSLATIONS = {};  // per scenario path, for the session; the server keeps them too
+
+// A translation the server already has shows straight away when the reader last left them on;
+// one it doesn't have is only made on a click, so paging through scenarios never calls the LLM.
+// the task panel's prose (.tr elements) with its Simplified Chinese below, from {original: translation};
+// remembered on/off like the transcript's, but on its own key: each costs an LLM call the first time
+const TASK_TR_KEY = 'viewer_task_zh';
+const TASK_TRANSLATIONS = {};  // per scenario path, for the session; the server keeps them too
+function initTaskTranslation(path, cached) {
+  const panel = document.getElementById('taskPanel');
+  const btn = document.getElementById('tpTrBtn');
+  const status = document.getElementById('tpTrStatus');
+  if (!btn) return;
+  const norm = t => t.replace(/\r\n?/g, '\n');  // the page's text has HTML's line endings
+  const map = TASK_TRANSLATIONS[path] ||= {};
+  const merge = m => { for (const [k, v] of Object.entries(m || {})) map[norm(k)] = v; };
+  merge(cached);
+  const els = [...panel.querySelectorAll('.tr')];
+  const src = els.map(el => el.textContent);
+  const complete = () => src.every(t => !t.trim() || map[t] != null);
+  const setPref = on => { try { localStorage.setItem(TASK_TR_KEY, on ? '1' : ''); } catch (e) { /* private mode */ } };
+  let shown = false;
+  const show = on => {
+    shown = on;
+    panel.querySelectorAll('.tr > .zh').forEach(el => el.remove());
+    btn.textContent = on ? '隐藏中文' : '中文翻译';
+    if (!on) return 0;
+    let missing = 0;
+    els.forEach((el, i) => {
+      const zh = map[src[i]];
+      if (zh == null) missing += src[i].trim() ? 1 : 0;
+      else if (zh.trim() !== src[i].trim()) el.insertAdjacentHTML('beforeend', `<span class="zh" lang="zh-CN">${esc(zh)}</span>`);
+    });
+    return missing;
+  };
+  try { if (complete() && localStorage.getItem(TASK_TR_KEY) === '1') show(true); } catch (e) {}
+  btn.addEventListener('click', async () => {
+    if (shown) { show(false); setPref(false); status.textContent = ''; return; }
+    if (complete()) { show(true); setPref(true); return; }
+    setBusy(btn, true);
+    status.textContent = '翻译中…（约 10–40 秒）';
+    try {
+      merge((await postJSON('/api/translate_task', { path })).map);
+      const missing = show(true);
+      setPref(true);
+      status.textContent = missing ? `⚠ ${missing} 段未能翻译，隐藏后再点一次可重试` : `由 ${displayModelName(LLM_MODEL)} 翻译`;
+    } catch (e) {
+      status.textContent = '⚠ ' + e.message;
+    }
+    setBusy(btn, false);
+  });
+}
+
+function initTranslation(path, cached) {
+  const box = document.getElementById('transcript');
+  const btn = document.getElementById('trBtn');
+  const status = document.getElementById('trStatus');
+  if (!btn) return;
+  if (cached) TRANSLATIONS[path] = cached;
+  const setPref = on => { try { localStorage.setItem(TR_KEY, on ? '1' : ''); } catch (e) { /* private mode */ } };
+  let shown = false;
+  const show = (zh, on) => {
+    shown = on;
+    box.querySelectorAll('.bubble .zh').forEach(el => el.remove());
+    btn.textContent = on ? '隐藏中文' : '中文翻译';
+    if (!on) return 0;
+    let missing = 0;
+    for (const b of box.querySelectorAll('.bubble[data-i]')) {
+      const text = zh[+b.dataset.i], orig = b.textContent.trim();
+      if (text == null) missing += orig ? 1 : 0;
+      else if (text.trim() !== orig) b.insertAdjacentHTML('beforeend', `<div class="zh" lang="zh-CN">${esc(text)}</div>`);
+    }
+    return missing;
+  };
+  try { if (TRANSLATIONS[path] && localStorage.getItem(TR_KEY) === '1') show(TRANSLATIONS[path], true); } catch (e) {}
+  btn.addEventListener('click', async () => {
+    if (shown) { show(null, false); setPref(false); status.textContent = ''; return; }
+    if (TRANSLATIONS[path]) { show(TRANSLATIONS[path], true); setPref(true); return; }
+    setBusy(btn, true);
+    status.textContent = '翻译中…（约 20–90 秒）';
+    try {
+      const res = await postJSON('/api/translate_transcript', { path });
+      const missing = show(res.translations, true);
+      setPref(true);
+      // an incomplete one isn't kept here or on the server, so showing it again retries the gaps
+      if (missing) status.textContent = `⚠ ${missing} 轮未能翻译，隐藏后再点一次可重试`;
+      else { TRANSLATIONS[path] = res.translations; status.textContent = `由 ${displayModelName(LLM_MODEL)} 翻译`; }
+    } catch (e) {
+      status.textContent = '⚠ ' + e.message;
+    }
     setBusy(btn, false);
   });
 }

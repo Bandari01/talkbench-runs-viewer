@@ -6,7 +6,7 @@ Data layout:
         talk_bench_evaluation_result.json   (may be missing)
         <scenario-id>/
             scenario.json, conversation.json, run_meta.json, tool_log.json,
-            conversation.wav, user.wav, agent.wav, *.ndjson, ...
+            records.json (Talkdesk Autopilot), conversation.wav, user.wav, agent.wav, *.ndjson, ...
 """
 
 from __future__ import annotations
@@ -411,6 +411,123 @@ def api_compare(a: str = Query(...), b: str = Query(...)):
     }
 
 
+# ---- transcript from records.json ----
+# A Talkdesk Autopilot scenario saves the platform's own log of the call as records.json: every
+# message between the caller (USER) and the agent's parts (DISPATCH, COORDINATOR, ACTION_AGENT,
+# RESPOND, …) and every tool call and execution, in order. conversation.json merges speech by the
+# voice pipeline's turn-taking instead, so several messages can land in one turn there; the
+# scenario page lays the transcript out from records.json when a scenario has one.
+
+def _utc_seconds(stamp: Any) -> float | None:
+    """A records.json created_utc ("2026-10-12T03:47:15.318537923": UTC, to the ns) as epoch s."""
+    m = re.fullmatch(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(\.\d+)?Z?", stamp) if isinstance(stamp, str) else None
+    if not m:
+        return None
+    return datetime.strptime(m[1], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc).timestamp() + float(m[2] or 0)
+
+
+def _maybe_json(value: Any) -> Any:
+    """Tool arguments and results arrive as JSON text: parsed when they parse."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            pass
+    return value
+
+
+def _record_tool(name: Any, arguments: Any, execution: dict | None, by: Any, ts: float | None) -> dict:
+    ex = execution or {}
+    return {
+        "kind": "tool",
+        "tool_name": name,
+        "arguments": _maybe_json(arguments),
+        "result": _maybe_json(ex.get("result")),
+        "success": ex.get("success"),
+        "duration_ms": ex.get("duration_millis"),
+        "by": _as_dict(by).get("name"),
+        "timestamp": ts,
+    }
+
+
+def _records_transcript(records: Any, tool_log: Any) -> list[dict] | None:
+    """records.json as transcript items, in its order: a "turn" per message from or to the caller,
+    a "note" per message between the agent's parts, a "tool" per call with its execution. Calls in
+    tool_log.json that records.json lacks (it can miss some) are slotted in by time. None when
+    records.json holds no message from or to the caller."""
+    if not isinstance(records, list):
+        return None
+    records = [r for r in records if isinstance(r, dict)]
+    executions = {
+        ex["tool_call_ref_id"]: ex for r in records
+        if isinstance(ex := r.get("tool_execution"), dict) and ex.get("tool_call_ref_id")
+    }
+    paired: set[str] = set()
+    items: list[dict] = []
+    for r in records:
+        ts = _utc_seconds(r.get("created_utc"))
+        msg, call, ex = r.get("message"), r.get("tool_call"), r.get("tool_execution")
+        if isinstance(msg, dict):
+            src, dst = str(msg.get("from") or ""), str(msg.get("to") or "")
+            item: dict[str, Any] = {"text": str(msg.get("msg") or ""), "timestamp": ts, "action": r.get("llm_action")}
+            if src == "USER" or dst == "USER":
+                item.update(kind="turn", speaker="user" if src == "USER" else "agent")
+                if src not in ("USER", "RESPOND", "COORDINATOR"):
+                    item["by"] = src  # e.g. OUTPUT_GUARDRAIL
+            else:
+                # agent names read better than roles (COORDINATOR is "Meridian Text Supervisor")
+                item.update(kind="note", src=_as_dict(msg.get("from_agent")).get("name") or src,
+                            dst=_as_dict(msg.get("to_agent")).get("name") or dst)
+            exit_ = r.get("exit")
+            if isinstance(exit_, dict) and exit_.get("type") not in (None, "ok"):
+                item["exit"] = {"type": exit_.get("type"), "message": exit_.get("error_message") or ""}
+            items.append(item)
+        elif isinstance(call, dict):
+            ref = call.get("tool_call_ref_id")
+            if ref in executions:
+                paired.add(ref)
+            items.append(_record_tool(call.get("tool_name"), call.get("arguments"), executions.get(ref),
+                                      call.get("to_be_executed_by"), ts))
+        elif isinstance(ex, dict) and ex.get("tool_call_ref_id") not in paired:
+            items.append(_record_tool(_as_dict(ex.get("tool")).get("tool_name"), None, ex, ex.get("executed_by"), ts))
+    if not any(it["kind"] == "turn" for it in items):
+        return None
+
+    # match tool_log.json's calls to records.json's in order (same tool, within 15 s): a match adds
+    # db_changed, the rest go in before the first record logged after them
+    unmatched = [it for it in items if it["kind"] == "tool"]
+    extra = []
+    for call in tool_log if isinstance(tool_log, list) else []:
+        if not isinstance(call, dict):
+            continue
+        ts = call.get("timestamp") if isinstance(call.get("timestamp"), (int, float)) else None
+        match = next((it for it in unmatched if it["tool_name"] == call.get("tool_name") and (
+            ts is None or it["timestamp"] is None or abs(it["timestamp"] - ts) <= 15)), None)
+        if match:
+            unmatched.remove(match)
+            match["db_changed"] = bool(call.get("db_changed"))
+        else:
+            extra.append({
+                "kind": "tool", "tool_name": call.get("tool_name"), "arguments": call.get("arguments"),
+                "result": call.get("result"), "db_changed": bool(call.get("db_changed")),
+                "timestamp": ts, "only_in_tool_log": True,
+            })
+    for x in sorted(extra, key=lambda x: x["timestamp"] if x["timestamp"] is not None else float("inf")):
+        at = next((i for i, it in enumerate(items) if x["timestamp"] is not None
+                   and it["timestamp"] is not None and it["timestamp"] > x["timestamp"]), len(items))
+        items.insert(at, x)
+    return items
+
+
+def _transcript_texts(conversation: Any, transcript: list[dict] | None) -> list[str] | None:
+    """The turn texts the scenario page shows, in order: records.json's when it has them."""
+    if transcript is not None:
+        return [it["text"] for it in transcript if it["kind"] == "turn"]
+    if not isinstance(conversation, list):
+        return None
+    return [str(t.get("text") or "") if isinstance(t, dict) else "" for t in conversation]
+
+
 # ---- transcript ↔ audio alignment ----
 # conversation.json stamps each turn with the wall clock at which it was finalized: the end of the
 # user's speech, or ~1.5 s after the agent's audio ends (when the ASR returns its final text). The
@@ -497,6 +614,51 @@ def _turn_spans(conversation: list, origin_s: float, markers: list, user_vad: li
     return spans
 
 
+def _record_spans(transcript: list[dict], origin_s: float, user_vad: list, agent_vad: list) -> None:
+    """Set "span" [start, end] on the wav clock on each records.json turn whose speech was found.
+
+    records.json times come from Talkdesk's clock, which tracks this machine's to well under a
+    second. A caller message is logged once Talkdesk's ASR returns it: it claims every user VAD
+    segment that had ended by then, and spans the last stretch of them without a 2 s pause (speech
+    before one is an utterance the ASR never returned). An agent message is logged just before it
+    is spoken and runs up to where the next one starts: from the first agent segment after it, or —
+    while the agent is still voicing an earlier message, as messages queue for the TTS — from the
+    pause nearest to where that message should end at this call's speaking rate."""
+    turns = [it for it in transcript if it["kind"] == "turn" and isinstance(it.get("timestamp"), (int, float))]
+    ui = 0
+    for it in turns:
+        if it["speaker"] != "user":
+            continue
+        t, j = it["timestamp"] - origin_s, ui
+        while j < len(user_vad) and user_vad[j][1] <= t + 0.3:
+            j += 1
+        if j > ui:
+            first = j - 1
+            while first > ui and user_vad[first][0] - user_vad[first - 1][1] < 2:
+                first -= 1
+            it["span"] = [round(user_vad[first][0], 3), round(user_vad[j - 1][1], 3)]
+            ui = j
+
+    agents = [it for it in turns if it["speaker"] == "agent"]
+    talking, last = 0.0, None  # the agent's speaking time, counting pauses between sentences (< 1 s)
+    for s, e in agent_vad:
+        talking += e - s + (s - last if last is not None and s - last < 1 else 0)
+        last = e
+    rate = min(max(sum(len(it["text"]) for it in agents) / talking, 10), 25) if talking else 15  # chars/s
+    starts, ai, due = [], 0, None  # due: where the last placed message should stop speaking
+    for it in agents:
+        t = it["timestamp"] - origin_s
+        later = [k for k in range(ai, len(agent_vad)) if agent_vad[k][0] >= t - 0.3]
+        if not later:
+            continue
+        queued = due is not None and due > t and any(s < t - 0.3 and e > t - 1 for s, e in agent_vad)
+        k = min(later, key=lambda k: abs(agent_vad[k][0] - due)) if queued else later[0]
+        starts.append((it, k))
+        ai, due = k + 1, agent_vad[k][0] + len(it["text"]) / rate
+    for (it, k), (_, nxt) in zip(starts, starts[1:] + [(None, len(agent_vad))]):
+        it["span"] = [round(agent_vad[k][0], 3), round(agent_vad[nxt - 1][1], 3)]
+
+
 def _wav_header(path: Path) -> tuple[int, int] | None:
     """(frame rate, frame count) of a wav; for one kept only in S3, from the S3 manifest."""
     try:
@@ -509,9 +671,10 @@ def _wav_header(path: Path) -> tuple[int, int] | None:
         return None
 
 
-def _audio_alignment(sdir: Path, conversation: list | None) -> dict | None:
+def _audio_alignment(sdir: Path, conversation: list | None, transcript: list[dict] | None = None) -> dict | None:
     """Where the transcript sits in the wavs: their wall-clock origin, length and per-turn speech
-    spans. None for a text run or a run without a timeline."""
+    spans — of conversation.json's turns, or set on the records.json transcript's turns when there
+    is one. None for a text run or a run without a timeline."""
     origin = _audio_origin(sdir)
     if origin is None:
         return None
@@ -519,10 +682,15 @@ def _audio_alignment(sdir: Path, conversation: list | None) -> dict | None:
     if header is None:
         return None
     rate, duration = header[0], header[1] / header[0]
+    spans = {}
     try:
-        spans = _turn_spans(conversation or [], origin[0], *_speech_segments(sdir, origin[1], rate))
+        markers, user_vad, agent_vad = _speech_segments(sdir, origin[1], rate)
+        if transcript is not None:
+            _record_spans(transcript, origin[0], user_vad, agent_vad)
+        else:
+            spans = _turn_spans(conversation or [], origin[0], markers, user_vad, agent_vad)
     except (AttributeError, KeyError, TypeError, ValueError):
-        spans = {}
+        pass
     return {"origin": origin[0], "duration": round(duration, 3), "spans": spans}
 
 
@@ -568,11 +736,14 @@ def api_scenario(path: str = Query(...)):
     files += [{"name": rel, "size": e["size"], "cloud": True} for rel, e in ARCHIVE.offloaded(sdir).items()]
     files.sort(key=lambda f: Path(f["name"]).parts)
     conversation = _load_json(sdir / "conversation.json")
+    tool_log = _load_json(sdir / "tool_log.json")
+    transcript = _records_transcript(_load_json(sdir / "records.json"), tool_log)
     return {
         "path": path,
         "scenario": _load_json(sdir / "scenario.json"),
         "conversation": conversation,
-        "tool_log": _load_json(sdir / "tool_log.json"),
+        "tool_log": tool_log,
+        "transcript": transcript,
         "run_meta": meta,
         "scenario_summary": scenario_summary,
         "session_result": session_result,
@@ -581,8 +752,9 @@ def api_scenario(path: str = Query(...)):
             name: ARCHIVE.exists(sdir / f"{name}.wav")
             for name in ("conversation", "user", "agent")
         },
-        "audio_align": _audio_alignment(sdir, conversation if isinstance(conversation, list) else None),
-        "transcript_zh": _cached_translation(sdir, _transcript_texts(sdir)),
+        "audio_align": _audio_alignment(sdir, conversation if isinstance(conversation, list) else None, transcript),
+        "transcript_zh": _cached_translation(sdir, _transcript_texts(conversation, transcript)),
+        "task_zh": _cached_task_translation(sdir),
     }
 
 
@@ -1420,9 +1592,9 @@ _TRANSLATE_SYSTEM = (
 )
 
 
-def _translate_batch(batch: list[tuple[int, str]]) -> dict[int, str]:
+def _translate_batch(batch: list[tuple[int, str]], system: str = _TRANSLATE_SYSTEM) -> dict[int, str]:
     payload = json.dumps([{"i": i, "text": text} for i, text in batch], ensure_ascii=False)
-    reply = _complete(_TRANSLATE_SYSTEM, [{"role": "user", "content": payload}], timeout=120)
+    reply = _complete(system, [{"role": "user", "content": payload}], timeout=240)
     array = re.search(r"\[.*\]", reply, re.S)  # tolerate a ```json fence or a stray sentence
     try:
         items = json.loads(array.group(0) if array else reply)
@@ -1437,11 +1609,29 @@ def _translate_batch(batch: list[tuple[int, str]]) -> dict[int, str]:
     }
 
 
-def _transcript_texts(sdir: Path) -> list[str] | None:
-    conversation = _load_json(sdir / "conversation.json")
-    if not isinstance(conversation, list):
-        return None
-    return [str(t.get("text") or "") if isinstance(t, dict) else "" for t in conversation]
+def _translate_all(texts: list[str], system: str) -> dict[int, str]:
+    """{index: translation} for the non-blank texts, in batches of ~_TRANSLATE_BATCH_CHARS run in
+    parallel, plus a second pass for any the model skipped; a text still missing is left out."""
+    batches: list[list[tuple[int, str]]] = [[]]
+    size = 0
+    for i, text in enumerate(texts):
+        if not text.strip():
+            continue
+        if batches[-1] and size + len(text) > _TRANSLATE_BATCH_CHARS:
+            batches.append([])
+            size = 0
+        batches[-1].append((i, text))
+        size += len(text)
+    done: dict[int, str] = {}
+    for _ in range(2):
+        todo = [[(i, t) for i, t in b if i not in done] for b in batches]
+        todo = [b for b in todo if b]
+        if not todo:
+            break
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for part in pool.map(lambda b: _translate_batch(b, system), todo):
+                done.update(part)
+    return done
 
 
 def _texts_key(texts: list[str]) -> str:
@@ -1458,30 +1648,13 @@ def _cached_translation(sdir: Path, texts: list[str] | None) -> list[str | None]
 @app.post("/api/translate_transcript")
 def api_translate_transcript(req: ReportRequest):
     sdir = _data_dir_at_depth(req.path, 2, "scenario")
-    texts = _transcript_texts(sdir)
+    texts = _transcript_texts(_load_json(sdir / "conversation.json"),
+                              _records_transcript(_load_json(sdir / "records.json"), None))
     if not texts:
         raise HTTPException(status_code=404, detail="no transcript to translate")
     if (cached := _cached_translation(sdir, texts)) is not None:
         return {"translations": cached}
-    batches: list[list[tuple[int, str]]] = [[]]
-    size = 0
-    for i, text in enumerate(texts):
-        if not text.strip():
-            continue
-        if batches[-1] and size + len(text) > _TRANSLATE_BATCH_CHARS:
-            batches.append([])
-            size = 0
-        batches[-1].append((i, text))
-        size += len(text)
-    done: dict[int, str] = {}
-    for _ in range(2):  # a second pass for turns the model skipped
-        todo = [[(i, t) for i, t in b if i not in done] for b in batches]
-        todo = [b for b in todo if b]
-        if not todo:
-            break
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            for part in pool.map(_translate_batch, todo):
-                done.update(part)
+    done = _translate_all(texts, _TRANSLATE_SYSTEM)
     translations = [done.get(i) for i in range(len(texts))]
     if all(t is not None or not text.strip() for t, text in zip(translations, texts)):
         try:  # an incomplete translation isn't kept, so the next click fills the gaps
@@ -1490,6 +1663,72 @@ def api_translate_transcript(req: ReportRequest):
         except OSError:
             pass  # read-only data dir: still shown, just not kept
     return {"translations": translations}
+
+
+# ---- task panel translation: Simplified Chinese under the task and grading texts ----
+# The scenario page's side panel shows scenario.json's task (goal, caller instructions, what the
+# caller knows) and grading criteria with the judge's reasoning. Its prose is translated on request
+# and kept as {original: translation} in a dotfile beside scenario.json, so a re-evaluated run (new
+# judge reasoning) only translates what is new. IDs, tool calls and DB fields are not prose: left out.
+
+TASK_TRANSLATION_FILE = ".task_zh.json"
+
+_TASK_TRANSLATE_SYSTEM = (
+    "You translate parts of a customer-service benchmark scenario into Simplified Chinese for an "
+    "engineer reviewing it: the task given to the User Simulator that plays the caller, the facts "
+    "it knows, the criteria an LLM judge grades the Agent on, and the judge's reasoning. The input "
+    "is a JSON array {\"i\": id, \"text\": original}. Reply with only a JSON array holding one "
+    "{\"i\": id, \"zh\": translation} per input item, with the same ids, and nothing else. "
+    "Translate each item faithfully and on its own, keeping every condition, number and ordering "
+    "word (before, after, only if, must not): never summarize, merge or judge them. Keep names of "
+    "people, places, airlines and products, IDs, codes, dates, amounts, booking and order numbers, "
+    "email addresses, phone numbers, tool and function names (snake_case) and quoted speech "
+    "exactly as written. Keep the terms Agent, User Simulator, tool call, ASR, LLM and API in "
+    "English; never translate Agent as '代理'. Return an item that is already in Chinese unchanged."
+)
+
+
+def _task_texts(scenario: Any, session: dict | None) -> list[str]:
+    """The prose the task panel shows, deduplicated in panel order (index.html taskPanelHTML)."""
+    sc = scenario if isinstance(scenario, dict) else {}
+    us = sc.get("user_scenario") or {}
+    ev = sc.get("evaluation") or {}
+    tc = (session or {}).get("task_completion") or {}
+    crit = lambda c: c if isinstance(c, str) else c.get("text") if isinstance(c, dict) else None  # noqa: E731
+    texts = [(sc.get("goal") or {}).get("description"), us.get("reason_for_call"), us.get("task_instructions")]
+    known = us.get("known_info")
+    texts += list(known.values()) if isinstance(known, dict) else []
+    texts += list(us.get("unknown_info") or [])
+    for key, checks in (("communicate_info", "communicate_checks"), ("nl_assertions", "nl_assertion_checks")):
+        texts += [crit(c) for c in ev.get(key) or []]
+        texts += [c.get("justification") for c in tc.get(checks) or [] if isinstance(c, dict)]
+    texts += [crit(c) for c in ev.get("prohibited_communicate") or []]
+    return list(dict.fromkeys(t for t in texts if isinstance(t, str) and t.strip()))
+
+
+def _cached_task_translation(sdir: Path) -> dict[str, str]:
+    cached = _load_json(sdir / TASK_TRANSLATION_FILE)
+    found = cached.get("map") if isinstance(cached, dict) else None
+    return found if isinstance(found, dict) else {}
+
+
+@app.post("/api/translate_task")
+def api_translate_task(req: ReportRequest):
+    sdir = _data_dir_at_depth(req.path, 2, "scenario")
+    _, _, session = _scenario_results(sdir)
+    texts = _task_texts(_load_json(sdir / "scenario.json"), session)
+    if not texts:
+        raise HTTPException(status_code=404, detail="no task text to translate")
+    known = _cached_task_translation(sdir)
+    todo = [t for t in texts if t not in known]
+    if todo:
+        done = _translate_all(todo, _TASK_TRANSLATE_SYSTEM)
+        known.update({todo[i]: zh for i, zh in done.items()})
+        try:  # kept even when incomplete: it is keyed by text, so the next click asks only for the gaps
+            _write_json(sdir / TASK_TRANSLATION_FILE, {"model": LLM_MODEL, "map": known})
+        except OSError:
+            pass  # read-only data dir: still shown, just not kept
+    return {"map": {t: known[t] for t in texts if t in known}, "missing": sum(t not in known for t in texts)}
 
 
 # ---- run test: launch talk-bench runs with a user-configured agent ----
