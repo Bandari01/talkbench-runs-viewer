@@ -269,6 +269,8 @@
   .navbtn:focus-visible { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
   .navbtn.disabled, .navbtn:disabled { color: var(--faint); pointer-events: none; box-shadow: none; }
   button.navbtn { cursor: pointer; font-family: inherit; }
+  .navbtn.danger { color: var(--fail); }
+  .navbtn.danger:hover { background: var(--fail-bg); border-color: var(--fail-border); }
   .more-chev { display: inline-flex; padding: 4px 10px; border: none; border-radius: 8px; background: none; color: var(--faint); cursor: pointer; }
   .more-chev:hover { background: var(--surface-2); color: var(--fg); }
   .more-chev:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
@@ -285,6 +287,10 @@
   .eye.on { color: var(--muted); }
   .eyecell { cursor: pointer; user-select: none; }
   .eyecell:hover .eye { color: var(--fg); }
+  .trash { color: var(--faint); display: inline-flex; transition: color var(--dur-1); }
+  .delcell { cursor: pointer; user-select: none; }
+  .delcell:hover .trash { color: var(--fail); }
+  tr.row-busy { opacity: .5; pointer-events: none; }  /* a run being deleted */
   .run-name { overflow-wrap: anywhere; }
   .run-suffix { color: var(--muted); }  /* -<N>trials-<timestamp>-run-<id>: repeats the Time column */
   .ratio { display: block; width: 56px; height: 3px; margin-top: 7px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
@@ -447,6 +453,7 @@
 
   .filelist { columns: 2; font-size: 12.5px; }
   .filelist div { break-inside: avoid; padding: 2px 0; }
+  .side-warn { margin-top: 6px; color: var(--fail); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 
   /* ---------- run test ---------- */
   .seg { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); flex-wrap: wrap; }
@@ -509,8 +516,6 @@
   .scen-empty { padding: 14px; text-align: center; color: var(--muted); font-size: 12.5px; }
   #agentInfo.err { color: var(--fail); font-size: 12px; }
   .sched-form { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
-  .sched-days { display: flex; flex-wrap: wrap; gap: 6px 16px; padding-top: 4px; }
-  .field .sched-days label { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 400; color: var(--fg); cursor: pointer; }
 
   /* ---------- motion: opacity / transform only, one easing curve (--ease-out) ---------- */
   @keyframes view-in      { from { opacity: 0; transform: translateY(6px); } }
@@ -555,7 +560,7 @@
   .toast.leaving { animation: toast-out .16s var(--ease-out) forwards; pointer-events: none; }
 
   /* panel reveals: each plays only on hidden -> shown; closing stays instant. Re-renders that keep the
-     same hidden value (renderQuickFields on every keystroke, updateSchedPreview) never replay them */
+     same hidden value (renderQuickFields on every keystroke) never replay them */
   .rc-pop:not([hidden]) { animation: pop-in var(--dur-1) var(--ease-out); }  /* translate only: a scale would skew the list's scrollIntoView */
   :is(#yamlBox, #quickFields, #schedForm .field):not([hidden]) { animation: fade-in var(--dur-2) var(--ease-out); }
   details[open] > summary ~ * { animation: fade-in var(--dur-2) var(--ease-out); }
@@ -676,11 +681,14 @@ const ICONS = {
   swap: svgIcon('<path d="M4 9h13l-3.5-3.5M17 9l-3.5 3.5"/><path d="M20 15H7l3.5-3.5M7 15l3.5 3.5"/>'),
   play: svgIcon('<polygon points="6 4 20 12 6 20 6 4"/>'),
   clock: svgIcon('<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>'),
+  resume: svgIcon('<polyline points="21 4 21 10 15 10"/><path d="M19.4 15a8 8 0 1 1-1.9-8.3L21 10"/>'),
+  trash: svgIcon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>'),
 };
 let RUNS = null;
 let STARS = new Set();
 let NOTES = {};
 let LLM_MODEL = '';  // the model behind Ask AI, reported by /api/runs
+let S3 = null;  // the S3 archive's upload status, reported by /api/runs (null: not configured)
 
 const dataHref = path => '/data/' + path.split('/').map(encodeURIComponent).join('/');
 const scenHref = (runPath, id) => '#/scenario/' + encodeURIComponent(runPath + '/' + id);
@@ -712,16 +720,41 @@ function loadHiddenRuns() {
 }
 const HIDDEN = loadHiddenRuns();
 
-function toggleHidden(path, rerender) {
-  HIDDEN.has(path) ? HIDDEN.delete(path) : HIDDEN.add(path);
+function saveHidden() {
   try {
     localStorage.setItem(HIDDEN_KEY, JSON.stringify([...HIDDEN].sort()));
   } catch (e) { /* keep the in-memory state even when it can't be persisted */ }
+}
+
+function toggleHidden(path, rerender) {
+  HIDDEN.has(path) ? HIDDEN.delete(path) : HIDDEN.add(path);
+  saveHidden();
   rerender();
 }
 const hideIcon = path => HIDDEN.has(path)
   ? `<span class="eye on" title="Hidden on this computer — click to show it again">${ICONS.eyeOff}</span>`
   : `<span class="eye" title="Hide this run from the list on this computer">${ICONS.eyeOff}</span>`;
+
+// Deleting a run removes the archived copy and, with S3 configured, its S3 copy; a checkout's copy
+// is kept and Sync skips the run from then on. Callers ask first (confirm before any busy state).
+const confirmDeleteRun = path => confirm(`Delete run "${path}"?\n\n`
+  + `This deletes the archived copy${S3 ? ' and its S3 copy' : ''}, its star and its note. A copy in an `
+  + 'ai-ds-research checkout is kept, and Sync will not bring the run back. This cannot be undone from the viewer.');
+
+async function deleteRun(path) {
+  const r = await fetch('/api/run?path=' + encodeURIComponent(path), { method: 'DELETE' });
+  const res = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(apiDetail(res) || String(r.status));
+  if (RUNS) RUNS = RUNS.filter(x => x.path !== path);
+  STARS.delete(path);
+  delete NOTES[path];
+  delete _runCache[path];
+  for (const store of [REPORTS, CHATS]) {
+    for (const k of Object.keys(store)) if (k === path || k.startsWith(path + '/')) delete store[k];
+  }
+  if (HIDDEN.delete(path)) saveHidden();
+  setUpStatus(`Deleted ${path}` + (res.s3_objects ? ` · ${res.s3_objects} S3 objects` : ''));
+}
 
 // a one-shot green flash on a note field that just saved
 const flashSaved = el => {
@@ -951,6 +984,7 @@ async function loadRuns() {
     STARS = new Set(d.stars || []);
     NOTES = d.notes || {};
     LLM_MODEL = d.llm_model || '';
+    S3 = d.s3 || null;
   }
   return RUNS;
 }
@@ -1044,6 +1078,7 @@ function runRowHTML(r) {
   <tr class="rowlink" data-href="#/run/${encodeURIComponent(r.path)}">
     <td class="starcell" data-path="${esc(r.path)}">${starIcon(r.path)}</td>
     <td class="eyecell" data-path="${esc(r.path)}">${hideIcon(r.path)}</td>
+    <td class="delcell" data-path="${esc(r.path)}"><span class="trash" title="Delete this run">${ICONS.trash}</span></td>
     <td class="mono muted">${esc(r.timestamp || '?')}</td>
     <td class="mono"><span class="run-name">${runNameHTML(r.run_name)}</span></td>
     <td>${esc(r.agent_name || '—')}</td>
@@ -1097,7 +1132,7 @@ function updateRunRows() {
   tbody.classList.remove('rows-enter');
   const { rows, pool, hiddenCount } = filteredRuns();
   const sorted = sortRows(rows, runSorters, listState.sort, listState.dir);
-  head.innerHTML = `<tr><th></th><th></th>${sortableTh('timestamp', 'Time (UTC)', listState)}${sortableTh('run_name', 'Run', listState)}${sortableTh('agent_name', 'Agent', listState)}${sortableTh('modality', 'Mode', listState)}${sortableTh('scenarios', 'Scenarios', listState)}${sortableTh('primary_score', 'Primary', listState)}${sortableTh('eval_final', 'Eval final', listState)}<th>Note</th></tr>`;
+  head.innerHTML = `<tr><th></th><th></th><th></th>${sortableTh('timestamp', 'Time (UTC)', listState)}${sortableTh('run_name', 'Run', listState)}${sortableTh('agent_name', 'Agent', listState)}${sortableTh('modality', 'Mode', listState)}${sortableTh('scenarios', 'Scenarios', listState)}${sortableTh('primary_score', 'Primary', listState)}${sortableTh('eval_final', 'Eval final', listState)}<th>Note</th></tr>`;
   tbody.innerHTML = sorted.map(runRowHTML).join('');
   document.getElementById('listCount').textContent =
     `${sorted.length} / ${pool.length} ${listState.view === 'hidden' ? 'hidden runs' : 'runs'}`
@@ -1129,7 +1164,11 @@ function modalityCounts() {
 function renderSideNav() {
   const nav = document.getElementById('sideNav');
   if (!nav || !RUNS) return;
-  document.getElementById('headerSub').textContent = RUNS.length + ' runs archived';
+  const foot = document.getElementById('headerSub');
+  foot.textContent = RUNS.length + ' runs archived' + (S3 ? ' · S3' + (S3.queued ? ` (uploading ${S3.queued})` : '') : '');
+  foot.title = S3 ? S3.uri : '';
+  const s3Problem = S3 && (S3.error || Object.entries(S3.failed || {}).map(([run, e]) => `${run}: ${e}`)[0]);
+  if (s3Problem) foot.insertAdjacentHTML('beforeend', `<div class="side-warn" title="${esc(s3Problem)}">S3 · ${esc(s3Problem)}</div>`);
   const hiddenN = RUNS.filter(r => HIDDEN.has(r.path)).length;
   const starredN = RUNS.filter(r => STARS.has(r.path) && !HIDDEN.has(r.path)).length;
   const viewItem = (view, icon, label, n) =>
@@ -1176,14 +1215,64 @@ const scenSorters = {
 };
 let CUR_RUN = null;  // { path, scenarios } while a run page is on screen
 
+/* talk_bench_evaluation's reward factors, in the order score_scenario multiplies them;
+   state integrity is a factor only when the run enforced it (otherwise report-only) */
+const REWARD_FACTORS = [['ACTION', 'action_score'], ['COMMUNICATE', 'communicate_score'],
+                        ['NL_ASSERTION', 'nl_assertions_score'], ['DB', 'db_state_score']];
+
+/* How many criteria sit behind each factor, from scenario.json — the same counts
+   score_scenario divides by: agent-owned expected_actions, communicate_info,
+   nl_assertions, and expected_state assertions (fields, for the legacy dict form). */
+function dbCriteriaCount(es) {
+  if (!es || typeof es !== 'object') return 0;
+  if ('schema_version' in es || 'assertions' in es) return Array.isArray(es.assertions) ? es.assertions.length : null;
+  let n = 0;
+  for (const entities of Object.values(es))
+    for (const fields of Object.values(entities || {})) n += Object.keys(fields || {}).length;
+  return n;
+}
+function criteriaTotals(sc) {
+  const ev = sc?.evaluation;
+  if (!ev) return null;
+  return {
+    ACTION: (ev.expected_actions || []).filter(a => !a.requestor || a.requestor === 'assistant').length,
+    COMMUNICATE: (ev.communicate_info || []).length,
+    NL_ASSERTION: (ev.nl_assertions || []).length,
+    DB: dbCriteriaCount(ev.expected_state),
+  };
+}
+
+/* {factor: score} or, once totals are known, {factor: [passed, total]}. Passed comes from
+   the judge checks (communicate / NL) or score × total (action / DB, both met/total); a
+   count that does not reproduce the stored score keeps the plain score instead. */
+function rewardBreakdown(sess, enforceIntegrity, totals) {
+  const tc = sess?.task_completion || {};
+  const checks = { COMMUNICATE: tc.communicate_checks, NL_ASSERTION: tc.nl_assertion_checks };
+  const out = {};
+  for (const [k, f] of REWARD_FACTORS) {
+    const score = tc[f];
+    if (typeof score !== 'number') continue;
+    const total = totals?.[k];
+    if (!Number.isInteger(total)) { out[k] = score; continue; }
+    const passed = checks[k] ? checks[k].filter(c => c.met).length : Math.round(score * total);
+    const expected = total ? passed / total : 1;
+    out[k] = Math.abs(expected - score) < 0.001 ? [passed, total] : score;
+  }
+  if (enforceIntegrity && typeof tc.state_integrity_score === 'number')
+    out.INTEGRITY = totals ? [tc.state_integrity_score >= 1 ? 1 : 0, 1] : tc.state_integrity_score;
+  return Object.keys(out).length ? out : null;
+}
+const fmtFactor = v => Array.isArray(v) ? `${v[0]}/${v[1]}` : fmtScore(v);
+const factorOk = v => Array.isArray(v) ? v[0] >= v[1] : v >= 1;
+
 function scenRowHTML(runPath) {
   return s => `
   <tr class="rowlink" data-href="${scenHref(runPath, s.id)}">
     <td class="mono">${esc(s.id)}</td>
     <td>${passBadge(s.passed)}</td>
-    <td>${fmtScore(s.goal_score)}${s.tau2_breakdown ? `<div class="subscore">${
-      Object.entries(s.tau2_breakdown).map(([k, v]) =>
-        `<span class="${v >= 1 ? 'ok' : 'bad'}">${esc(k)} ${fmtScore(v)}</span>`).join(' · ')
+    <td>${fmtScore(s.goal_score)}${s.breakdown ? `<div class="subscore">${
+      Object.entries(s.breakdown).map(([k, v]) =>
+        `<span class="${factorOk(v) ? 'ok' : 'bad'}">${esc(k)} ${fmtFactor(v)}</span>`).join(' · ')
     }</div>` : ''}</td>
     <td>${esc(s.end_reason ?? '—')}</td>
     <td>${s.turn_count ?? '—'}</td>
@@ -1200,6 +1289,18 @@ function updateScenRows() {
   tbody.innerHTML =
     sortRows(CUR_RUN.scenarios, scenSorters, scenState.sort, scenState.dir)
       .map(scenRowHTML(CUR_RUN.path)).join('');
+}
+
+/* The run payload carries no scenario.json, so the passed/total counts arrive after the
+   first paint: fetch each evaluated scenario's scenario.json, then redraw the rows once. */
+async function fillCriteriaCounts(path, seq, sessById, enforceIntegrity) {
+  const todo = CUR_RUN.scenarios.filter(s => !s.tau2_breakdown && sessById.has(s.id));
+  if (!todo.length) return;
+  const totals = await Promise.all(todo.map(s =>
+    fetch(dataHref(`${path}/${s.id}/scenario.json`)).then(r => r.ok ? r.json() : null).then(criteriaTotals, () => null)));
+  if (seq !== routeSeq || CUR_RUN?.path !== path) return;
+  todo.forEach((s, i) => { if (totals[i]) s.breakdown = rewardBreakdown(sessById.get(s.id), enforceIntegrity, totals[i]); });
+  updateScenRows();
 }
 
 async function renderRun(path) {
@@ -1219,7 +1320,12 @@ async function renderRun(path) {
     chips.push(['Eval final', ev.final], ['Resolution', ev.resolution], ['Experience', ev.experience],
                ['Responsiveness', ev.responsiveness], ['Conv. quality', ev.conversation_quality]);
   }
-  CUR_RUN = { path, scenarios: d.scenarios };
+  // runs with no tau2 breakdown (non-tau2 domains) show talk_bench_evaluation's factors instead
+  const sessById = new Map((ev?.session_results || []).map(r => [r.session_id, r]));
+  const enforceIntegrity = ev?.config_snapshot?.state_integrity_mode === 'enforce';
+  CUR_RUN = { path, scenarios: d.scenarios.map(s => ({
+    ...s, breakdown: s.tau2_breakdown || rewardBreakdown(sessById.get(s.id), enforceIntegrity),
+  })) };
   scenState.sort = 'id';
   scenState.dir = 1;
   setView(`
@@ -1229,6 +1335,7 @@ async function renderRun(path) {
       <h2><span class="starcell" id="runStar" data-path="${esc(path)}">${starIcon(path)}</span> ${esc(res?.agent_name || path)}</h2>
       ${res?.run_context?.agent_config ? `<a class="navbtn" href="#/test?from=${encodeURIComponent(path)}" title="Open the Run test page with this run's agent config and task set filled in">Re-run this agent…</a>` : ''}
       <a class="navbtn" href="#/compare?a=${encodeURIComponent(path)}">Compare with…</a>
+      <button class="navbtn danger" id="deleteRunBtn" type="button" title="Delete this run from the archive${S3 ? ' and S3' : ''}">Delete run</button>
     </div>
     <div class="muted mono">${copyNameBtn(path)}</div>
     <div class="run-note-detail">
@@ -1253,8 +1360,22 @@ async function renderRun(path) {
   ${ev ? `<div class="card">${jsonPreview('Raw talk_bench_evaluation_result.json', ev)}</div>` : ''}`);
 
   updateScenRows();
+  fillCriteriaCounts(path, seq, sessById, enforceIntegrity);
+  addResumeLink(path, seq);
   initReport(path, '/api/run_report', '生成中…（大 run 可能需要 1–3 分钟）');
   initChat(path);
+  document.getElementById('deleteRunBtn').addEventListener('click', async e => {
+    const button = e.currentTarget;
+    if (!confirmDeleteRun(path)) return;
+    setBusy(button, true);
+    try {
+      await deleteRun(path);
+      if (seq === routeSeq) location.hash = '#';
+    } catch (err) {
+      setBusy(button, false);
+      setUpStatus('⚠ ' + err.message);
+    }
+  });
   document.getElementById('saveRunNoteBtn').addEventListener('click', async () => {
     const input = document.getElementById('runNote');
     const status = document.getElementById('runNoteStatus');
@@ -1271,6 +1392,20 @@ async function renderRun(path) {
       setBusy(button, false);
     }
   });
+}
+
+
+// a run a checkout holds with scenarios left to run or score: offer --resume on the Run test page
+async function addResumeLink(path, seq) {
+  let r;
+  try { r = (await getJSON('/api/test/resumable?name=' + encodeURIComponent(path))).run; } catch (_) { return; }
+  const del = document.getElementById('deleteRunBtn');  // Delete stays the last button
+  if (seq !== routeSeq || !r || !del) return;
+  if (r.running_job) {
+    del.insertAdjacentHTML('beforebegin', `<a class="navbtn" href="#/test?job=${encodeURIComponent(r.running_job)}" title="A test started from the Run test page is writing this run">Running — view log</a>`);
+  } else if (r.started && (r.redo || r.rescore) && !r.scripted) {
+    del.insertAdjacentHTML('beforebegin', `<a class="navbtn" href="#/test?resume=${encodeURIComponent(path)}" title="talk-bench run --resume: ${esc(resumeCounts(r))}">Resume…</a>`);
+  }
 }
 
 
@@ -1753,20 +1888,47 @@ function breachBadge(b) {
   return {cls: 'pass', text: 'guardrail resisted'};
 }
 
-function renderScores(summary, sess) {
+/* state_integrity's out-of-scope DB changes, one row per entity: {collection, entity_id,
+   change_type, changed_paths}. A schema-v4 binding that failed to resolve is reported
+   under the pseudo-collection __logical_bindings__ with the reason as its only path. */
+const INTEGRITY_ENTITY_LABELS = { __list__: '(list)', __collection__: '(whole collection)' };
+function renderIntegrityViolations(violations) {
+  if (!violations?.length) return '';
+  const rows = violations.map(v => {
+    const binding = v.collection === '__logical_bindings__';
+    const paths = v.changed_paths || [];
+    return `<tr>
+      <td>${esc(binding ? 'unresolved binding' : v.change_type)}</td>
+      <td class="mono">${esc(binding ? '—' : v.collection)}</td>
+      <td class="mono">${esc(INTEGRITY_ENTITY_LABELS[v.entity_id] || v.entity_id)}</td>
+      <td class="${binding ? '' : 'mono'}">${paths.length ? paths.map(esc).join('<br>') : '<span class="muted">whole entity</span>'}</td>
+    </tr>`;
+  }).join('');
+  return `
+  <h3>State integrity violations (${violations.length})</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Change</th><th>Collection</th><th>Entity</th><th>Changed paths / reason</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+function renderScores(summary, sess, scenario) {
   if (!summary && !sess) return '';
   const tc = sess?.task_completion || {};
   const tools = summary?.tool_metrics || {};
+  // passed/total where scenario.json gives the criteria count, else the plain score
+  const factors = rewardBreakdown(sess, false, criteriaTotals(scenario)) || {};
+  const factor = (k, v) => Array.isArray(factors[k]) ? fmtFactor(factors[k]) : v;
   const entries = [
     ['Goal score', summary?.goal_score],
     ...Object.entries(summary?.tau2_reward_breakdown || {}).map(([k, v]) => ['tau2 ' + k, v]),
     ['tau2 goal', summary?.tau2_goal_score],
     ['Native goal', summary?.native_goal_score],
     ['Reward', tc.reward],
-    ['Action', tc.action_score],
-    ['Communicate', tc.communicate_score],
-    ['NL assertions', tc.nl_assertions_score],
-    ['DB state', tc.db_state_score],
+    ['Action', factor('ACTION', tc.action_score)],
+    ['Communicate', factor('COMMUNICATE', tc.communicate_score)],
+    ['NL assertions', factor('NL_ASSERTION', tc.nl_assertions_score)],
+    ['DB state', factor('DB', tc.db_state_score)],
     ['State integrity', tc.state_integrity_score],
     ['Tool recall', tools.recall],
     ['Tool precision', tools.precision],
@@ -1786,6 +1948,7 @@ function renderScores(summary, sess) {
   </div>
   ${flags.map(f => `<div><span class="badge fail" style="margin-top:6px">${esc(f)}</span></div>`).join('')}
   ${breach ? `<div><span class="badge ${breach.cls}" style="margin-top:6px">${esc(breach.text)}</span></div>` : ''}
+  ${renderIntegrityViolations(tc.state_integrity_violations)}
   ${summary ? jsonPreview('Raw scenario result (results.json)', summary) : ''}
   ${sess ? jsonPreview('Raw session result (talk_bench_evaluation_result.json)', sess) : ''}`;
 }
@@ -1827,6 +1990,7 @@ async function renderScenario(path) {
   const persona = sc.user_persona || {};
   const audioNames = Object.entries(d.audio).filter(([,ok]) => ok).map(([n]) => n);
   const align = audioNames.length ? d.audio_align : null;
+  const inS3 = new Set(d.files.filter(f => f.cloud).map(f => f.name));
 
   setView(`
   <div class="crumbs" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -1843,12 +2007,14 @@ async function renderScenario(path) {
       <div class="chip"><div class="k">Duration</div><div class="v" style="font-size:14px">${fmtDur(meta.total_duration_ms)}</div></div>
       <div class="chip"><div class="k">Persona</div><div class="v" style="font-size:14px">${esc([persona.age_group, persona.emotion, persona.patience && persona.patience + ' patience'].filter(Boolean).join(', ') || '—')}</div></div>
     </div>
-    ${renderScores(d.scenario_summary, d.session_result)}
+    ${renderScores(d.scenario_summary, d.session_result, d.scenario)}
     ${sc.goal?.description ? `<h3>Goal</h3><p>${esc(sc.goal.description)}</p>` : ''}
     ${jsonPreview('Full scenario JSON', sc)}
   </div>
 
-  ${audioNames.length ? `<div class="card"><h3>Audio</h3><div class="audio-grid">
+  ${audioNames.length ? `<div class="card"><h3>Audio</h3>
+    ${audioNames.some(n => inS3.has(n + '.wav')) ? '<div class="muted" style="font-size:12.5px;margin:-4px 0 10px">Kept in S3: each file downloads the first time it plays, which can take a few seconds.</div>' : ''}
+    <div class="audio-grid">
     ${audioNames.map(n => `<div><div class="muted" style="font-size:12px">${n}.wav</div>
       <audio controls preload="none" src="${dataHref(`${path}/${n}.wav`)}"></audio></div>`).join('')}
   </div></div>` : ''}
@@ -1865,10 +2031,16 @@ async function renderScenario(path) {
   <div class="card">
     <h3>Files (${d.files.length})</h3>
     <div class="filelist">
-      ${d.files.map(f => `<div><a class="mono" target="_blank" href="${dataHref(path + '/' + f.name)}">${esc(f.name)}</a> <span class="muted">${(f.size/1024).toFixed(0)} KB</span></div>`).join('')}
+      ${d.files.map(f => `<div><a class="mono" target="_blank" href="${dataHref(path + '/' + f.name)}">${esc(f.name)}</a> <span class="muted"${f.cloud ? ' title="Kept in S3; downloaded when opened"' : ''}>${(f.size/1024).toFixed(0)} KB${f.cloud ? ' · in S3' : ''}</span></div>`).join('')}
     </div>
   </div>`);
 
+  // a wav kept in S3 that cannot be downloaded (expired AWS login, …): say why under its player
+  $main.querySelectorAll('.audio-grid audio').forEach(a => a.addEventListener('error', async () => {
+    const r = await fetch(a.src, { headers: { Range: 'bytes=0-0' } }).catch(() => null);
+    const why = r && !r.ok ? (await r.json().catch(() => ({}))).detail || `HTTP ${r.status}` : 'could not play this file';
+    a.insertAdjacentHTML('afterend', `<div style="font-size:12px;color:var(--fail)">${esc(why)}</div>`);
+  }, { once: true }));
   initReport(path);
   initChat(path);
   if (align) initAudioSync();
@@ -2287,10 +2459,11 @@ syncBtn.addEventListener('click', async () => {
     const res = await postForm('/api/sync_sources');
     const changed = res.added.length + res.updated.length;
     const names = [...res.added, ...res.updated.map(n => n + ' (updated)')];
-    setUpStatus(changed
+    setUpStatus((changed
       ? `added ${res.added.length} · updated ${res.updated.length}`
         + (names.length <= 6 ? `: ${names.join(', ')}` : '')
-      : `everything up to date (${res.unchanged} runs)`);
+      : `everything up to date (${res.unchanged} runs)`)
+      + (res.skipped_deleted ? ` · ${res.skipped_deleted} deleted runs skipped` : ''));
     if (changed) {
       invalidateRuns();
       if (!location.hash.startsWith('#/')) renderList();
@@ -2341,6 +2514,21 @@ $main.addEventListener('click', e => {
     const tr = eye.closest('tr'), path = eye.dataset.path, toggle = () => toggleHidden(path, refreshRunMarks);
     if (!tr || REDUCED.matches) toggle();
     else { tr.classList.add('row-leave'); setTimeout(toggle, 160); }
+    return;
+  }
+  const del = e.target.closest('.delcell');
+  if (del) {
+    const tr = del.closest('tr');
+    if (!confirmDeleteRun(del.dataset.path)) return;
+    tr.classList.add('row-busy');
+    deleteRun(del.dataset.path).then(() => {
+      // fades out like a hidden run, then the list re-renders without it
+      if (REDUCED.matches) refreshRunMarks();
+      else { tr.classList.add('row-leave'); setTimeout(refreshRunMarks, 160); }
+    }, err => {
+      tr.classList.remove('row-busy');
+      setUpStatus('⚠ ' + err.message);
+    });
     return;
   }
   const copyBtn = e.target.closest('.copy-run-name');
@@ -2558,10 +2746,9 @@ const testState = {
   catalog: [],         // scenarios the current source/domain/split resolve to
   catalogKey: '',
   picked: new Set(),   // scenario ids chosen for --scenario-ids (empty = the whole split)
-  schedules: [],       // /api/test/schedules
-  schedTz: '',         // the server's time zone, which cron times are read in
+  schedules: [],       // /api/test/schedules: tests waiting for their start time
   editingSchedule: null,  // id of the schedule the editor and schedule form were filled from
-  schedPreviewKey: '',
+  resumable: [],       // /api/test/resumable: runs in the checkouts with scenarios left for --resume
 };
 let testPollTimer = null;
 const jobScenarioIds = j => j.scenario_ids || [];
@@ -3100,7 +3287,7 @@ function jobResultHTML(j) {
     : jobRunning(j) ? '<span class="muted">…</span>' : '<span class="muted">—</span>';
 }
 
-function jobRowHTML(j) {
+function jobRowHTML(j, resumable) {
   const running = jobRunning(j), ids = jobScenarioIds(j);
   const prog = j.progress?.total ? `${j.progress.done}/${j.progress.total}` : j.progress?.done ? String(j.progress.done) : '—';
   const actions = [
@@ -3108,15 +3295,16 @@ function jobRowHTML(j) {
     running ? `<button class="navbtn" type="button" data-job-cancel="${j.id}">Stop</button>` : '',
     j.run_path ? `<a class="navbtn" href="#/run/${encodeURIComponent(j.run_path)}">Open run</a>` : '',
     j.run_dir && (running || !j.run_path) ? `<button class="navbtn" type="button" data-job-sync="${j.id}" title="Copy the run directory into this archive now">${j.run_path ? 'Sync now' : 'Import'}</button>` : '',
-    !running && j.run_dir && j.status !== 'done' ? `<button class="navbtn" type="button" data-job-resume="${j.id}" title="talk-bench run --resume: redo unfinished scenarios">Resume</button>` : '',
+    resumable.has(j.id) ? `<button class="navbtn" type="button" data-job-resume="${j.id}" title="talk-bench run --resume: ${
+      j.status === 'done' ? `run the ${j.errored} errored scenario${j.errored === 1 ? '' : 's'} again` : 'redo unfinished scenarios'}">Resume</button>` : '',
     `<button class="navbtn" type="button" data-job-again="${j.id}" title="Load this agent.yaml and these settings into the editor">Run again…</button>`,
     !running ? `<button class="navbtn" type="button" data-job-del="${j.id}" title="Remove from this list (the run itself is kept)" aria-label="Remove">×</button>` : '',
   ].filter(Boolean).join('');
   return `
   <tr class="${testState.selected === j.id ? 'tr-selected' : ''}">
     <td class="nowrap">${jobStatusHTML(j)}</td>
-    <td><b>${esc(j.agent_name)}</b><div class="subscore">${esc(shortModule(j.module))}${j.resume_of ? ' · resume' : ''}</div>${
-      j.schedule_name ? `<div class="subscore" title="Started by the schedule “${esc(j.schedule_name)}”">scheduled · ${esc(j.schedule_name)}</div>` : ''}</td>
+    <td><b>${esc(j.agent_name)}</b><div class="subscore">${esc(shortModule(j.module))}${j.resume_of || j.cmd?.includes('--resume') ? ' · resume' : ''}</div>${
+      j.scheduled_for ? `<div class="subscore" title="Scheduled for ${esc(fmtLocal(j.scheduled_for))} (${esc(BROWSER_TZ)})">scheduled · ${esc(j.schedule_name)}</div>` : ''}</td>
     <td class="nowrap">${esc(j.source)}${j.project_name && j.project_name !== 'talk-bench' ? `<div class="subscore">${esc(j.project_name)}</div>` : ''}${
       j.user_simulator === 'tau2' ? '<div class="subscore">τ² user simulator</div>' : ''}${
       j.speech_complexity ? `<div class="subscore">complexity ${esc(j.speech_complexity)}</div>` : ''}</td>
@@ -3137,7 +3325,14 @@ function renderJobRows() {
   // collapsed: the newest few, plus any older one that is still running or whose log is open
   const collapsed = testState.jobs.filter((j, i) => i < JOBS_COLLAPSED || jobRunning(j) || j.id === testState.selected);
   const hidden = testState.jobs.length - collapsed.length;
-  rows.innerHTML = (testState.showAllJobs ? testState.jobs : collapsed).map(jobRowHTML).join('');
+  // Resume sits on the newest test of each run dir, once it ended with scenarios left (errored ones count)
+  const seen = new Set(), resumable = new Set();
+  for (const j of testState.jobs) {
+    if (!j.run_dir || seen.has(j.run_dir)) continue;
+    seen.add(j.run_dir);
+    if (!jobRunning(j) && (j.status !== 'done' || j.errored)) resumable.add(j.id);
+  }
+  rows.innerHTML = (testState.showAllJobs ? testState.jobs : collapsed).map(j => jobRowHTML(j, resumable)).join('');
   document.getElementById('jobsMoreWrap').hidden = !hidden;
   const more = document.getElementById('jobsMore');
   more.classList.toggle('open', testState.showAllJobs);
@@ -3158,13 +3353,15 @@ async function refreshJobs(force) {
   const synced = j => j.run_path ? `${j.id}:${j.synced_at}` : '';
   const before = new Set(testState.jobs.map(synced).filter(Boolean));
   const newlySynced = d.jobs.some(j => synced(j) && !before.has(synced(j)));
-  // a test a schedule just started moves that schedule's next / last run
-  const fromSchedule = d.jobs.some(j => j.schedule_id && !testState.jobs.some(o => o.id === j.id));
+  // a test a schedule just started leaves the scheduled list
+  const fromSchedule = d.jobs.some(j => j.scheduled_for && !testState.jobs.some(o => o.id === j.id));
+  // a test that just ended may have left scenarios to resume, or finished the ones listed
+  const ended = testState.jobs.some(o => jobRunning(o) && d.jobs.some(j => j.id === o.id && !jobRunning(j)));
   testState.jobsJSON = json;
   testState.jobs = d.jobs;
   renderJobRows();
-  renderSchedRows();  // last-run results follow the jobs
   if (fromSchedule) refreshSchedules().catch(() => {});
+  if (ended) refreshResumable().catch(() => {});
   if (newlySynced) {
     invalidateRuns();
     loadRuns().then(renderSideNav).catch(() => {});
@@ -3225,7 +3422,7 @@ function startTestPolling() {
     try {
       await refreshJobs();
       if (testState.selected) await pollJobLog();
-      if (++tick % 10 === 0) await refreshSchedules();  // next-run times, waiting state
+      if (++tick % 10 === 0) await refreshSchedules();  // "in …" countdown, waiting / error state
     } catch (_) { /* transient — the next tick retries */ }
   }, 2000);
 }
@@ -3257,69 +3454,115 @@ async function startTest() {
   setBusy(btn, false);
 }
 
-/* scheduled tests: the editor's test plus a cron expression in the server's local time;
-   the viewer starts it when due (see "scheduled tests" in app/main.py) */
-const SCHED_DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
-const SCHED_HOURS = [1, 2, 3, 4, 6, 8, 12];  // divisors of 24: the cadence carries across midnight
-const pad2 = n => String(n).padStart(2, '0');
+/* resume: `talk-bench run --resume <run dir>` for a run in a checkout that has scenarios left —
+   errored, never finished or never scored — whichever page or terminal started it */
+const resumeCounts = r => [
+  r.planned != null ? `${r.finished}/${r.planned} finished` : `${r.finished} finished`,
+  r.redo ? `${r.redo} to run again` : '',
+  r.rescore ? `${r.rescore} to score` : '',
+].filter(Boolean).join(' · ');
+// files written lately and no results.json: talk-bench may still be running it from a terminal
+const resumeRecent = r => !r.running_job && !r.has_results && Date.now() / 1000 - r.last_write < 180;
 
-// the form's repeat modes as cron, and back; anything else is a custom cron
-function cronFromForm() {
-  const v = id => document.getElementById(id).value;
-  const [h, m] = (v('schTime') || '02:00').split(':').map(Number);
-  const mode = v('schRepeat');
-  if (mode === 'daily') return `${m} ${h} * * *`;
-  if (mode === 'weekdays') return `${m} ${h} * * 1-5`;
-  if (mode === 'weekly') {
-    const days = [...document.querySelectorAll('#schDays input:checked')].map(i => i.value);
-    return days.length ? `${m} ${h} * * ${days.join(',')}` : '';
+function resumeCardHTML() {
+  return `
+  <div class="card" id="resumeCard">
+    <div class="report-head"><h3>Resume a partial run</h3><span class="muted" id="resumeHint" style="font-size:12px"></span></div>
+    <p class="muted" style="font-size:12px;margin:6px 0 0"><code>--resume</code> runs a run's errored and unfinished scenarios again and scores the unscored ones, with the agent and task set its <code>run_config.json</code> recorded, and merges them into the same results.json. Listed: the runs in the checkouts that have such scenarios, wherever they were started from.</p>
+    <div class="form-grid"><div class="field wide">
+      <label for="resumeSel">Run</label>
+      <select id="resumeSel"><option value="">loading…</option></select>
+      <span class="help" id="resumeInfo"></span>
+    </div></div>
+    <div class="cmdline" id="resumeCmd" style="margin-top:12px" hidden></div>
+    <div class="actions-row">
+      <button class="btn primary" type="button" id="resumeBtn" disabled>${ICONS.resume}Resume</button>
+      <span class="muted" id="resumeStatus" style="font-size:12.5px" aria-live="polite"></span>
+    </div>
+  </div>`;
+}
+
+function renderResumeCard(pick) {
+  const sel = document.getElementById('resumeSel');
+  if (!sel) return;
+  const runs = testState.resumable, keep = pick ?? sel.value;
+  sel.innerHTML = runs.length
+    ? '<option value="">pick a run…</option>' + runs.map(r => `<option value="${esc(r.name)}">${esc(r.agent_name)} · ${esc(r.domain)}/${esc(r.split)} · ${esc((r.timestamp || '').slice(0, 16))} · ${esc(resumeCounts(r))}${r.running_job ? ' · running' : ''}</option>`).join('')
+    : '<option value="">no run in the checkouts has scenarios left to resume</option>';
+  sel.disabled = !runs.length;
+  sel.value = runs.some(r => r.name === keep) ? keep : '';
+  document.getElementById('resumeHint').textContent = runs.length ? `${runs.length} run${runs.length === 1 ? '' : 's'}` : '';
+  updateResumeInfo();
+}
+
+function updateResumeInfo() {
+  const r = testState.resumable.find(x => x.name === document.getElementById('resumeSel').value);
+  const info = document.getElementById('resumeInfo'), cmd = document.getElementById('resumeCmd');
+  cmd.hidden = !r;
+  document.getElementById('resumeBtn').disabled = !r || !!r.running_job || r.scripted;
+  if (!r) { info.textContent = ''; return; }
+  const p = (currentProject()?.projects || []).find(x => x.id === r.project);
+  cmd.textContent = `cd ${shellQuote(r.project)} && ${(r.user_simulator === 'tau2' ? p?.tau2_launcher : p?.launcher) || 'uv run talk-bench'} run --resume ${shellQuote(r.run_dir)}`;
+  info.innerHTML = [
+    esc(resumeCounts(r)),
+    r.has_results ? '' : 'no results.json yet',
+    r.user_simulator === 'tau2' ? 'τ² user simulator' : '',
+    r.in_archive ? `<a href="#/run/${encodeURIComponent(r.name)}">open the run</a>` : '',
+    r.running_job ? `<b>a test is running in it</b> — <a href="#" data-resume-log="${esc(r.running_job)}">show its log</a>` : '',
+    resumeRecent(r) ? `<span style="color:var(--star)">files changed ${fmtElapsed(r.last_write)} ago — if talk-bench is still running it from a terminal, wait for that to end</span>` : '',
+    r.scripted ? 'made with scripted_user_sim, which this page does not launch' : '',
+  ].filter(Boolean).join(' · ');
+}
+
+async function refreshResumable(pick) {
+  const d = await getJSON('/api/test/resumable');
+  testState.resumable = d.runs;
+  renderResumeCard(pick);
+}
+
+async function startResume() {
+  const r = testState.resumable.find(x => x.name === document.getElementById('resumeSel').value);
+  if (!r) return;
+  if (resumeRecent(r) && !confirm(`This run's files changed ${fmtElapsed(r.last_write)} ago. If talk-bench is still running it outside this page, resuming now runs the same scenarios twice. Resume anyway?`)) return;
+  const status = document.getElementById('resumeStatus'), btn = document.getElementById('resumeBtn');
+  setBusy(btn, true);
+  status.textContent = 'starting…';
+  try {
+    const res = await postJSON('/api/test/resume_run', { name: r.name });
+    status.textContent = `resuming ${res.job.agent_name} on ${res.job.domain}/${res.job.split}`;
+    await refreshJobs(true);
+    selectJob(res.job.id);
+    await refreshResumable().catch(() => {});
+  } catch (e) {
+    status.textContent = '⚠ ' + e.message;
   }
-  if (mode === 'hours') { const n = Number(v('schEvery')); return `${m} ${n === 1 ? '*' : `${h % n}-23/${n}`} * * *`; }
-  return v('schCron').trim().split(/\s+/).join(' ');
+  setBusy(btn, false);
+  updateResumeInfo();  // a run now being resumed keeps the button disabled
 }
 
-function cronMode(cron) {
-  const f = String(cron || '').trim().split(/\s+/);
-  if (f.length === 5) f[4] = f[4].toLowerCase().replace(/sun|mon|tue|wed|thu|fri|sat/g, d => 'sunmontuewedthufrisat'.indexOf(d) / 3);
-  const c = f.join(' ');
-  let x;
-  if ((x = c.match(/^(\d{1,2}) (\d{1,2}) \* \* \*$/))) return { mode: 'daily', h: +x[2], m: +x[1] };
-  if ((x = c.match(/^(\d{1,2}) (\d{1,2}) \* \* 1-5$/))) return { mode: 'weekdays', h: +x[2], m: +x[1] };
-  if ((x = c.match(/^(\d{1,2}) (\d{1,2}) \* \* ([0-7](?:,[0-7])*)$/))) return { mode: 'weekly', h: +x[2], m: +x[1], days: x[3].split(',').map(d => +d % 7) };
-  if ((x = c.match(/^(\d{1,2}) \* \* \* \*$/))) return { mode: 'hours', every: 1, h: 0, m: +x[1] };
-  if ((x = c.match(/^(\d{1,2}) (\d{1,2})-23\/(\d{1,2}) \* \* \*$/)) && SCHED_HOURS.includes(+x[3]) && +x[2] < +x[3]) return { mode: 'hours', every: +x[3], h: +x[2], m: +x[1] };
-  return { mode: 'cron', cron: c };
-}
-
-function describeCron(cron) {
-  const p = cronMode(cron), at = `${pad2(p.h)}:${pad2(p.m)}`;
-  if (p.mode === 'daily') return `Every day at ${at}`;
-  if (p.mode === 'weekdays') return `Weekdays at ${at}`;
-  if (p.mode === 'weekly') return `${SCHED_DAYS.filter(([d]) => p.days.includes(d)).map(([, n]) => n).join(', ')} at ${at}`;
-  if (p.mode === 'hours') return p.every === 1 ? `Every hour at :${pad2(p.m)}` : `Every ${p.every} h from ${at}`;
-  return 'Custom cron';
-}
+/* scheduled tests: the editor's test, started once at a chosen time — picked in this browser's
+   time zone and sent as epoch seconds; the viewer starts it when due (see "scheduled tests" in app/main.py) */
+const pad2 = n => String(n).padStart(2, '0');
+const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// <input type=datetime-local> value (wall time in this browser) <-> epoch seconds
+const toLocalInput = ts => {
+  const d = new Date(ts * 1000);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
+const fromLocalInput = v => v ? new Date(v).getTime() / 1000 : NaN;
+const fmtLocal = ts => `${WEEKDAYS[new Date(ts * 1000).getDay()]} ${toLocalInput(ts).replace('T', ' ')}`;
 
 function schedFormHTML() {
   return `
   <div class="sched-form" id="schedForm" hidden>
     <h3 style="margin:0" id="schTitle">Schedule this test</h3>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">Saves the agent.yaml and scenario settings above. The viewer starts the test at these times while it is running; a run it missed (viewer stopped, Mac asleep) starts once when it is back.</p>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">Saves the agent.yaml and scenario settings above and starts the test once, at this time. If the viewer is stopped or the Mac asleep then, it starts as soon as the viewer is back.</p>
     <div class="form-grid">
       <div class="field"><label for="schName">Name</label><input id="schName" maxlength="120" placeholder="agent · domain/split" autocomplete="off"></div>
-      <div class="field"><label for="schRepeat">Repeat</label><select id="schRepeat">
-        <option value="daily">Every day</option><option value="weekdays">Weekdays (Mon–Fri)</option>
-        <option value="weekly">On chosen days</option><option value="hours">Every few hours</option>
-        <option value="cron">Custom (cron)</option></select></div>
-      <div class="field" id="schEveryField"><label for="schEvery">Every</label><select id="schEvery">
-        ${SCHED_HOURS.map(n => `<option value="${n}">${n} hour${n === 1 ? '' : 's'}</option>`).join('')}</select></div>
-      <div class="field" id="schTimeField"><label for="schTime" id="schTimeLabel">At</label><input type="time" id="schTime" value="02:00"></div>
-      <div class="field" id="schCronField"><label for="schCron">minute hour day-of-month month day-of-week</label>
-        <input id="schCron" class="mono" placeholder="0 2 * * 1-5" spellcheck="false" autocomplete="off"></div>
-      <div class="field wide" id="schDaysField"><label>Days</label><div class="sched-days" id="schDays">
-        ${SCHED_DAYS.map(([d, n]) => `<label><input type="checkbox" value="${d}"${d >= 1 && d <= 5 ? ' checked' : ''}>${n}</label>`).join('')}</div></div>
+      <div class="field"><label for="schAt">Start at</label><input type="datetime-local" id="schAt">
+        <span class="help" id="schAtHelp"></span></div>
     </div>
-    <div class="cmdline" id="schPreview" style="margin-top:12px"></div>
     <div class="actions-row">
       <button class="btn primary" type="button" id="schSave">${ICONS.clock}Save schedule</button>
       <button class="navbtn" type="button" id="schCancel">Cancel</button>
@@ -3328,43 +3571,26 @@ function schedFormHTML() {
   </div>`;
 }
 
-async function updateSchedPreview() {
-  const el = document.getElementById('schPreview');
-  if (!el) return;
-  const mode = document.getElementById('schRepeat').value;
-  document.getElementById('schEveryField').hidden = mode !== 'hours';
-  document.getElementById('schTimeField').hidden = mode === 'cron';
-  document.getElementById('schCronField').hidden = mode !== 'cron';
-  document.getElementById('schDaysField').hidden = mode !== 'weekly';
-  document.getElementById('schTimeLabel').textContent = mode === 'hours' ? 'Starting at' : 'At';
-  const cron = cronFromForm();
-  testState.schedPreviewKey = cron;
-  if (!cron) {
-    el.textContent = mode === 'weekly' ? 'Tick at least one day.' : 'Type a cron expression, e.g. 0 2 * * 1-5 (02:00 on weekdays).';
-    return;
-  }
-  const r = await fetch(`/api/test/schedules/preview?cron=${encodeURIComponent(cron)}`);
-  const d = await r.json().catch(() => ({}));
-  if (testState.schedPreviewKey !== cron) return;  // changed meanwhile
-  el.textContent = r.ok ? `cron ${d.cron} · next ${d.next.join(' · ')} · server time ${d.tz}` : '⚠ ' + (apiDetail(d) || r.status);
+function updateSchedAtHelp() {
+  const help = document.getElementById('schAtHelp');
+  if (!help) return;
+  const ts = fromLocalInput(document.getElementById('schAt').value), now = Date.now() / 1000;
+  help.textContent = `${BROWSER_TZ} time` + (!Number.isFinite(ts) ? '' : ts <= now ? ' — this is in the past' : ` · in ${fmtElapsed(now, ts)}`);
 }
-const updateSchedPreviewSoon = debounce(() => updateSchedPreview().catch(() => {}), 250);
 
 function openSchedForm(s = null) {
   testState.editingSchedule = s?.id || null;
-  const set = (id, v) => { document.getElementById(id).value = v; };
-  document.getElementById('schTitle').textContent = s ? `Edit schedule “${s.name}”` : 'Schedule this test';
+  const now = Date.now() / 1000;
+  document.getElementById('schTitle').textContent = s ? `Edit scheduled test “${s.name}”` : 'Schedule this test';
   document.getElementById('schSave').innerHTML = `${ICONS.clock}${s ? 'Update schedule' : 'Save schedule'}`;
-  set('schName', s?.name || '');
-  const p = cronMode(s?.cron || '0 2 * * *');
-  set('schRepeat', p.mode);
-  if (p.mode !== 'cron') set('schTime', `${pad2(p.h)}:${pad2(p.m)}`);
-  if (p.mode === 'hours') set('schEvery', String(p.every));
-  if (p.mode === 'weekly') document.querySelectorAll('#schDays input').forEach(i => { i.checked = p.days.includes(+i.value); });
-  set('schCron', s?.cron || '');
+  document.getElementById('schName').value = s?.name || '';
+  const at = document.getElementById('schAt');
+  // a pending schedule keeps its time; otherwise the first full hour at least 5 minutes away
+  at.value = toLocalInput(s?.run_at > now ? s.run_at : Math.ceil((now + 300) / 3600) * 3600);
+  at.min = toLocalInput(now);
+  updateSchedAtHelp();
   document.getElementById('schStatus').textContent = '';
   document.getElementById('schedForm').hidden = false;
-  updateSchedPreview().catch(() => {});
   renderSchedRows();
 }
 
@@ -3378,9 +3604,10 @@ async function saveSchedule() {
   const status = document.getElementById('schStatus');
   const test = testPayload();
   if (!test) { status.textContent = 'The agent.yaml editor is empty.'; return; }
+  const runAt = fromLocalInput(document.getElementById('schAt').value);
+  if (!Number.isFinite(runAt)) { status.textContent = 'Pick the date and time to start at.'; return; }
   const id = testState.editingSchedule;
-  const editing = testState.schedules.find(s => s.id === id);
-  const body = { name: document.getElementById('schName').value.trim(), cron: cronFromForm(), enabled: editing ? editing.enabled : true, test };
+  const body = { name: document.getElementById('schName').value.trim(), run_at: runAt, test };
   const btn = document.getElementById('schSave');
   setBusy(btn, true);
   status.textContent = 'saving…';
@@ -3388,8 +3615,7 @@ async function saveSchedule() {
     const r = id ? await postJSON(`/api/test/schedules/${encodeURIComponent(id)}`, body, 'PUT')
       : await postJSON('/api/test/schedules', body);
     closeSchedForm();
-    document.getElementById('startStatus').textContent = `${id ? 'updated' : 'scheduled'} “${r.schedule.name}”`
-      + (r.schedule.next_run_local ? ` — next run ${r.schedule.next_run_local}` : ' (paused)');
+    document.getElementById('startStatus').textContent = `${id ? 'updated' : 'scheduled'} “${r.schedule.name}” for ${fmtLocal(r.schedule.run_at)}`;
     await refreshSchedules();
     document.getElementById('schedCard').scrollIntoView({ behavior: smoothScroll(), block: 'nearest' });
   } catch (e) {
@@ -3403,39 +3629,31 @@ async function editSchedule(id) {
   fillAgentYaml(t.config_text);
   applySettings(t);
   openSchedForm(s);
-  setAgentStatus(`loaded the schedule “${s.name}” — change anything, then Update schedule`);
+  setAgentStatus(`loaded the scheduled test “${s.name}” — change anything, then Update schedule`);
   document.getElementById('agentCard').scrollIntoView({ behavior: smoothScroll(), block: 'start' });
 }
 
-function schedLastRunHTML(s) {
-  const l = s.last_run;
-  if (!l) return '<span class="muted">—</span>';
-  const j = l.status === 'started' ? testState.jobs.find(x => x.id === l.job_id) : null;
-  const res = l.status === 'skipped' ? `<span class="badge na" title="${esc(l.detail || '')}">skipped</span>`
-    : l.status === 'error' ? `<span class="badge fail" title="${esc(l.detail || '')}">not started</span>`
-    : !j ? '<span class="muted">started</span>'
-    : jobRunning(j) ? jobStatusHTML(j) : jobResultHTML(j);
-  return `${res}<div class="subscore">${esc(l.at_local || '')}</div>`;
+function schedStatusHTML(s) {
+  if (s.error) return `<span class="badge fail" title="${esc(s.error)}">not started</span><div class="subscore" title="${esc(s.error)}">Edit… to fix it and pick a new time</div>`;
+  if (s.waiting) return `<span class="status-dot"></span>waiting<div class="subscore" title="${esc(s.waiting)}">for a free test slot</div>`;
+  const now = Date.now() / 1000;
+  return s.run_at > now ? `<span class="status-dot"></span>pending<div class="subscore">in ${fmtElapsed(now, s.run_at)}</div>`
+    : '<span class="status-dot"></span>starting…';
 }
 
 function schedRowHTML(s) {
-  const t = s.test || {}, ids = (t.scenario_ids || []).length, lastJob = s.last_run?.job_id;
-  const actions = [
-    `<button class="navbtn" type="button" data-sched-run="${s.id}" title="Start this test now; the schedule is unchanged">Run now</button>`,
-    `<button class="navbtn" type="button" data-sched-edit="${s.id}" title="Load into the editor above to change it">Edit…</button>`,
-    `<button class="navbtn" type="button" data-sched-toggle="${s.id}" data-enabled="${s.enabled ? 1 : 0}">${s.enabled ? 'Pause' : 'Resume'}</button>`,
-    lastJob && testState.jobs.some(j => j.id === lastJob) ? `<button class="navbtn" type="button" data-sched-log="${lastJob}" title="Log of the test it started last">Log</button>` : '',
-    `<button class="navbtn" type="button" data-sched-del="${s.id}" title="Delete the schedule (tests it started are kept)" aria-label="Delete">×</button>`,
-  ].filter(Boolean).join('');
+  const t = s.test || {}, ids = (t.scenario_ids || []).length;
   return `
   <tr class="${testState.editingSchedule === s.id ? 'tr-selected' : ''}">
-    <td><span class="status-dot${s.enabled ? ' done' : ''}"></span><b>${esc(s.name)}</b>${s.enabled ? '' : '<div class="subscore">paused</div>'}</td>
+    <td><b>${esc(s.name)}</b></td>
     <td>${esc(s.agent_name)}<div class="subscore">${esc(shortModule(s.module))}</div></td>
     <td class="nowrap">${esc(t.domain)} / ${esc(t.split)}<div class="subscore">${esc(t.source)}${ids ? ` · ${ids} scenario id${ids === 1 ? '' : 's'}` : ''}${t.user_simulator === 'tau2' ? ' · τ² user' : ''}</div></td>
-    <td class="nowrap">${esc(describeCron(s.cron))}<div class="subscore mono">${esc(s.cron)}</div></td>
-    <td class="nowrap">${s.enabled ? esc(s.next_run_local || '—') : '<span class="muted">—</span>'}${s.waiting ? `<div class="subscore" title="${esc(s.waiting)}">waiting for a free slot</div>` : ''}</td>
-    <td class="nowrap">${schedLastRunHTML(s)}</td>
-    <td><div class="job-actions">${actions}</div></td>
+    <td class="nowrap"><span class="mono">${esc(fmtLocal(s.run_at))}</span></td>
+    <td class="nowrap">${schedStatusHTML(s)}</td>
+    <td><div class="job-actions">
+      <button class="navbtn" type="button" data-sched-edit="${s.id}" title="Load into the editor above to change the test or the time">Edit…</button>
+      <button class="navbtn" type="button" data-sched-del="${s.id}" title="Delete — the test will not run" aria-label="Delete">×</button>
+    </div></td>
   </tr>`;
 }
 
@@ -3443,15 +3661,12 @@ function renderSchedRows() {
   const card = document.getElementById('schedCard');
   if (!card) return;
   card.hidden = !testState.schedules.length;
-  const rows = [...testState.schedules].sort((a, b) => !a.enabled - !b.enabled || (a.next_run || Infinity) - (b.next_run || Infinity));
-  document.getElementById('schedRows').innerHTML = rows.map(schedRowHTML).join('');
-  document.getElementById('schedHint').textContent = testState.schedTz ? `times are the server's local time, ${testState.schedTz}` : '';
+  document.getElementById('schedRows').innerHTML = testState.schedules.map(schedRowHTML).join('');  // the server sorts by time
+  document.getElementById('schedHint').textContent = `each runs once · times in ${BROWSER_TZ}`;
 }
 
 async function refreshSchedules() {
-  const d = await getJSON('/api/test/schedules');
-  testState.schedules = d.schedules;
-  testState.schedTz = d.tz;
+  testState.schedules = (await getJSON('/api/test/schedules')).schedules;
   renderSchedRows();
 }
 
@@ -3467,7 +3682,7 @@ async function renderTest(params) {
   if (seq !== routeSeq) return;
   Object.assign(testState, {
     options: opts, selected: null, parsed: null, project: null, preset: null, showYaml: false, jobsJSON: '',
-    showAllJobs: false, catalog: [], catalogKey: '', picked: new Set(), editingSchedule: null,
+    showAllJobs: false, catalog: [], catalogKey: '', picked: new Set(), editingSchedule: null, resumable: [],
   });
   const project = opts.project || null;
   setView(`
@@ -3513,11 +3728,12 @@ async function renderTest(params) {
     </div>
     ${schedFormHTML()}
   </div>
+  ${resumeCardHTML()}
   <div class="card table-card" id="schedCard" hidden>
     <div class="list-meta"><span class="count">Scheduled tests</span><span class="hint" id="schedHint"></span></div>
     <div class="table-wrap jobs-wrap">
       <table id="schedTable">
-        <thead><tr><th>Schedule</th><th>Agent</th><th>Domain / split</th><th>Repeat</th><th>Next run</th><th>Last run</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Agent</th><th>Domain / split</th><th>Starts at</th><th>Status</th><th></th></tr></thead>
         <tbody id="schedRows"></tbody>
       </table>
     </div>
@@ -3625,14 +3841,7 @@ async function renderTest(params) {
 
   document.getElementById('schedToggle').addEventListener('click', () => document.getElementById('schedForm').hidden ? openSchedForm() : closeSchedForm());
   const schedForm = document.getElementById('schedForm');
-  schedForm.addEventListener('change', e => {
-    // switching to a custom cron starts from what the form showed so far
-    if (e.target.id === 'schRepeat' && e.target.value === 'cron' && !document.getElementById('schCron').value.trim()) {
-      document.getElementById('schCron').value = testState.schedPreviewKey;
-    }
-    updateSchedPreview().catch(() => {});
-  });
-  schedForm.addEventListener('input', e => { if (e.target.id === 'schCron' || e.target.id === 'schTime') updateSchedPreviewSoon(); });
+  schedForm.addEventListener('input', e => { if (e.target.id === 'schAt') updateSchedAtHelp(); });
   document.getElementById('schSave').addEventListener('click', saveSchedule);
   document.getElementById('schCancel').addEventListener('click', () => closeSchedForm());
   document.getElementById('schedTable').addEventListener('click', async e => {
@@ -3640,17 +3849,9 @@ async function renderTest(params) {
     if (!b) return;
     const ds = b.dataset;
     try {
-      if (ds.schedLog) { selectJob(ds.schedLog); return; }
       if (ds.schedEdit) { await editSchedule(ds.schedEdit); return; }
-      if (ds.schedRun) {
-        b.disabled = true;
-        const r = await postJSON(`/api/test/schedules/${encodeURIComponent(ds.schedRun)}/run`);
-        await refreshJobs(true);
-        selectJob(r.job.id);
-      } else if (ds.schedToggle) {
-        await postJSON(`/api/test/schedules/${encodeURIComponent(ds.schedToggle)}/enabled`, { enabled: ds.enabled !== '1' });
-      } else if (ds.schedDel) {
-        if (!confirm('Delete this schedule? The tests it already started stay in the list.')) return;
+      if (ds.schedDel) {
+        if (!confirm('Delete this scheduled test? It will not run.')) return;
         await postJSON(`/api/test/schedules/${encodeURIComponent(ds.schedDel)}`, null, 'DELETE');
         if (testState.editingSchedule === ds.schedDel) closeSchedForm();
       }
@@ -3659,6 +3860,13 @@ async function renderTest(params) {
       b.disabled = false;
       setUpStatus('⚠ ' + err.message);
     }
+  });
+
+  document.getElementById('resumeSel').addEventListener('change', () => { document.getElementById('resumeStatus').textContent = ''; updateResumeInfo(); });
+  document.getElementById('resumeBtn').addEventListener('click', startResume);
+  document.getElementById('resumeInfo').addEventListener('click', e => {
+    const a = e.target.closest('[data-resume-log]');
+    if (a) { e.preventDefault(); selectJob(a.dataset.resumeLog); }
   });
 
   document.getElementById('jobsMore').addEventListener('click', () => { testState.showAllJobs = !testState.showAllJobs; renderJobRows(); });
@@ -3678,6 +3886,7 @@ async function renderTest(params) {
         const r = await postJSON(`/api/test/jobs/${encodeURIComponent(ds.jobResume)}/resume`);
         await refreshJobs(true);
         selectJob(r.job.id);
+        refreshResumable().catch(() => {});
         return;
       } else if (ds.jobAgain) {
         await loadJobIntoEditor(ds.jobAgain);
@@ -3705,6 +3914,19 @@ async function renderTest(params) {
   if (seq !== routeSeq) return;
   const jobId = params.get('job');
   if (jobId && testState.jobs.some(j => j.id === jobId)) selectJob(jobId, false);
+  // "Resume…" on a run page lands here with that run picked. Not awaited: route() puts the page at the
+  // top once this returns, and the scroll to the card has to come after that.
+  const resume = params.get('resume');
+  refreshResumable(resume).then(() => {
+    if (!resume || seq !== routeSeq) return;
+    if (document.getElementById('resumeSel').value === resume) {
+      document.getElementById('resumeCard').scrollIntoView({ behavior: smoothScroll(), block: 'start' });
+    } else {
+      document.getElementById('resumeStatus').textContent = `${resume} has nothing left to resume`;
+    }
+  }, e => {
+    if (seq === routeSeq) document.getElementById('resumeSel').innerHTML = `<option value="">⚠ ${esc(e.message)}</option>`;
+  });
 }
 
 /* ---------- router ---------- */

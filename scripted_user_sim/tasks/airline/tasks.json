@@ -1,0 +1,200 @@
+[
+  {
+    "id": "airline-scripted-001",
+    "description": "Cancel reservation (scripted caller) - same task as airline-003, but every caller line comes from metadata.user_script; no LLM decides what the caller says",
+    "tags": [
+      "reservation",
+      "cancel",
+      "easy",
+      "scripted"
+    ],
+    "difficulty": "easy",
+    "max_turns": 20,
+    "user_scenario": {
+      "reason_for_call": "You need to cancel your reservation. Your plans have changed and you will not be traveling.",
+      "known_info": {
+        "name": "You are Emily Chen.",
+        "user_id": "Your user id is user_002.",
+        "reservation_id": "Your reservation id is RES003."
+      },
+      "unknown_info": [
+        "explicit confirmation that the reservation has been cancelled"
+      ],
+      "task_instructions": "Be cooperative. Provide whatever the agent needs to verify your identity and locate the reservation.\n\nDon't end the call until the agent has explicitly confirmed that the reservation is cancelled."
+    },
+    "user_persona": {
+      "age_group": "adult",
+      "gender": "female",
+      "accent": "en-US",
+      "emotion": "neutral",
+      "patience": "patient",
+      "disfluency_level": "none",
+      "verbosity": "medium",
+      "vocabulary_complexity": "moderate",
+      "speech_tempo": "normal",
+      "interruption_tendency": "none"
+    },
+    "evaluation_criteria": {
+      "actions": [
+        {
+          "name": "get_user_details",
+          "arguments": {
+            "user_id": "user_002"
+          }
+        },
+        {
+          "name": "get_reservation_details",
+          "arguments": {
+            "reservation_id": "RES003"
+          }
+        },
+        {
+          "name": "cancel_reservation",
+          "arguments": {
+            "reservation_id": "RES003"
+          }
+        }
+      ],
+      "communicate_info": [
+        "Your reservation has been cancelled"
+      ],
+      "reward_basis": [
+        "action",
+        "communicate",
+        "db"
+      ],
+      "expected_state": {
+        "reservations": {
+          "RES003": {
+            "status": "cancelled"
+          }
+        }
+      }
+    },
+    "initial_state": {
+      "initialization_data": {
+        "reservations": {
+          "RES003": {
+            "id": "RES003",
+            "user_id": "user_002",
+            "origin": "LAX",
+            "destination": "MIA",
+            "cabin": "economy",
+            "flight_type": "round_trip",
+            "flights": [
+              "FL004",
+              "FL005"
+            ],
+            "passengers": [
+              {
+                "first_name": "Emily",
+                "last_name": "Chen",
+                "dob": "1990-03-22"
+              },
+              {
+                "first_name": "Michael",
+                "last_name": "Chen",
+                "dob": "1988-09-10"
+              }
+            ],
+            "insurance": true,
+            "total_baggages": 2,
+            "nonfree_baggages": 0,
+            "payment_id": "pm_003",
+            "status": "active",
+            "created_at": "2026-03-08"
+          }
+        }
+      }
+    },
+    "metadata": {
+      "user_script": {
+        "rules": [
+          {
+            "id": "intent",
+            "when": {
+              "agent_says": "help|assist|how can i|what can i do"
+            },
+            "say": "Hi, I need to cancel my reservation. My plans have changed and I won't be traveling."
+          },
+          {
+            "id": "done",
+            "when": {
+              "agent_says": "(has|have) been (successfully )?cancel+ed|is now cancel+ed|successfully cancel+ed"
+            },
+            "hangup": "resolved"
+          },
+          {
+            "id": "bye",
+            "requires": [
+              "uid"
+            ],
+            "when": {
+              "agent_says": "anything else"
+            },
+            "hangup": "resolved"
+          },
+          {
+            "id": "uid_retry",
+            "requires": [
+              "uid"
+            ],
+            "when": {
+              "agent_says": "(couldn't|could not|wasn't able to|was not able to|unable to|can't|cannot) (find|locate)|double-check|not found"
+            },
+            "say": "Let me spell it again: u, s, e, r, underscore, zero, zero, two."
+          },
+          {
+            "id": "reason",
+            "when": {
+              "agent_says": "reason for (the |your )?cancel|why (are you|do you want to|would you like to) cancel"
+            },
+            "say": "My plans changed, so I won't be traveling."
+          },
+          {
+            "id": "verify",
+            "once": false,
+            "when": {
+              "agent_says": "e-?mail|booking date|date (you|that you) (made|booked)|date of (the )?booking|when (did )?you (book|made)"
+            },
+            "say": "My email on file is emily.chen@email.com, and I made the booking on March 8th, 2026."
+          },
+          {
+            "id": "uid",
+            "when": {
+              "agent_says": "user ?id|user ?name|account|verify|identif"
+            },
+            "say": "My name is Emily Chen. My user id is the word user, then an underscore, then zero, zero, two. All lowercase, no spaces: user_002."
+          },
+          {
+            "id": "rid",
+            "when": {
+              "agent_says": "reservation (id|number|code)|booking (id|number|reference)|confirmation (number|code)|which reservation"
+            },
+            "say": "The reservation id is RES003."
+          },
+          {
+            "id": "confirm",
+            "requires": [
+              "uid"
+            ],
+            "once": false,
+            "when": {
+              "agent_says": "(?=.*cancel)(?=.*(would you like|do you want|shall i|should i|are you sure|confirm|proceed|go ahead|okay to|is that (right|correct)))"
+            },
+            "say": "Yes, please go ahead and cancel it."
+          },
+          {
+            "id": "name",
+            "when": {
+              "agent_says": "your name|full name|name on"
+            },
+            "say": "My name is Emily Chen."
+          }
+        ],
+        "fallback": "Sorry, could you say that again?",
+        "max_consecutive_waits": 3
+      }
+    }
+  }
+]

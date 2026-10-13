@@ -12,6 +12,7 @@ Data layout:
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -25,8 +26,9 @@ import time
 import uuid
 import wave
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from functools import cache, lru_cache
 from pathlib import Path
 from typing import Any
@@ -38,6 +40,9 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
+
+from app.s3store import S3Archive, S3Error, is_heavy
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 # Settings, LLM credentials and model come from this project's own .env (see .env.example).
@@ -50,6 +55,8 @@ load_dotenv(BASE_DIR / ".env")
 DATA_DIR = Path(os.environ.get("VIEWER_DATA_DIR") or BASE_DIR / "data").expanduser()
 DATA_DIR.mkdir(parents=True, exist_ok=True)  # fresh clone, or a new VIEWER_DATA_DIR
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+# VIEWER_S3_URI keeps every run in S3 too; heavy files then live only there until opened (app/s3store.py)
+ARCHIVE = S3Archive.from_env(DATA_DIR)
 LLM_MODEL = os.environ.get("VIEWER_LLM_MODEL", "azure/gpt-4.1")
 
 TS_RE = re.compile(r"(\d{8}T\d{6}Z)")
@@ -58,6 +65,7 @@ TS_RE = re.compile(r"(\d{8}T\d{6}Z)")
 async def _lifespan(_app: FastAPI):
     # scheduled tests start with the server, not on import (scripts may import this module)
     threading.Thread(target=_scheduler_loop, name="test-scheduler", daemon=True).start()
+    ARCHIVE.start()
     yield
 
 
@@ -76,6 +84,13 @@ class PublicDataFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         if any(part.startswith(".") for part in Path(path).parts):
             raise HTTPException(status_code=404, detail="file not found")
+        full = DATA_DIR / path
+        if not full.exists() and ARCHIVE.entry(full):
+            # kept only in S3: download it into place, then serve it like any local file
+            try:
+                await run_in_threadpool(ARCHIVE.fetch, full)
+            except S3Error as e:
+                raise HTTPException(status_code=503, detail=str(e))
         return await super().get_response(path, scope)
 
 
@@ -144,7 +159,7 @@ def _run_modality(results: dict[str, Any] | None, scenarios: list[Path]) -> str 
     if "voice_agent" in module or "TalkdeskAgent" in module:
         return "voice"
     for sdir in scenarios[:3]:
-        if any((sdir / f"{name}.wav").exists() for name in ("conversation", "user", "agent")):
+        if any(ARCHIVE.exists(sdir / f"{name}.wav") for name in ("conversation", "user", "agent")):
             return "voice"
     return "text" if scenarios else None
 
@@ -237,6 +252,7 @@ def api_runs():
         "stars": sorted(_load_stars()),
         "notes": _load_run_notes(),
         "llm_model": LLM_MODEL,
+        "s3": ARCHIVE.status(),
     }
 
 
@@ -292,7 +308,7 @@ def _run_payload(path: str, run_dir: Path) -> dict[str, Any]:
         if end_reason is None or duration_ms is None:
             # run_meta.json embeds the full db_state and is often several MB, so
             # only fall back to it for scenarios results.json doesn't cover
-            meta = _load_json(sdir / "run_meta.json") or {}
+            meta = _run_meta(sdir)
             end_reason = end_reason or meta.get("end_reason")
             duration_ms = duration_ms or meta.get("total_duration_ms")
         scenarios.append({
@@ -481,21 +497,28 @@ def _turn_spans(conversation: list, origin_s: float, markers: list, user_vad: li
     return spans
 
 
+def _wav_header(path: Path) -> tuple[int, int] | None:
+    """(frame rate, frame count) of a wav; for one kept only in S3, from the S3 manifest."""
+    try:
+        with wave.open(str(path)) as w:
+            return w.getframerate(), w.getnframes()
+    except FileNotFoundError:
+        entry = ARCHIVE.entry(path) or {}
+        return (entry["rate"], entry["frames"]) if entry.get("rate") else None
+    except (OSError, EOFError, wave.Error):
+        return None
+
+
 def _audio_alignment(sdir: Path, conversation: list | None) -> dict | None:
     """Where the transcript sits in the wavs: their wall-clock origin, length and per-turn speech
     spans. None for a text run or a run without a timeline."""
     origin = _audio_origin(sdir)
     if origin is None:
         return None
-    for name in ("conversation", "user", "agent"):
-        try:
-            with wave.open(str(sdir / f"{name}.wav")) as w:
-                rate, duration = w.getframerate(), w.getnframes() / w.getframerate()
-            break
-        except (OSError, EOFError, wave.Error):
-            continue
-    else:
+    header = next(filter(None, (_wav_header(sdir / f"{name}.wav") for name in ("conversation", "user", "agent"))), None)
+    if header is None:
         return None
+    rate, duration = header[0], header[1] / header[0]
     try:
         spans = _turn_spans(conversation or [], origin[0], *_speech_segments(sdir, origin[1], rate))
     except (AttributeError, KeyError, TypeError, ValueError):
@@ -515,12 +538,21 @@ def _scenario_results(sdir: Path) -> tuple[dict[str, Any], dict[str, Any] | None
     return results, summary, session
 
 
+def _run_meta(sdir: Path) -> dict[str, Any]:
+    """run_meta.json without db_state (huge and rarely needed inline); for a file kept only in
+    S3, the copy of its small fields in the S3 manifest."""
+    meta = _load_json(sdir / "run_meta.json")
+    if meta is None:
+        meta = (ARCHIVE.entry(sdir / "run_meta.json") or {}).get("summary")
+    meta = dict(meta) if isinstance(meta, dict) else {}
+    meta.pop("db_state", None)
+    return meta
+
+
 @app.get("/api/scenario")
 def api_scenario(path: str = Query(...)):
     sdir = _data_dir_at_depth(path, 2, "scenario")
-    meta = _load_json(sdir / "run_meta.json") or {}
-    # db_state is huge and rarely needed inline; drop it from the payload
-    meta.pop("db_state", None)
+    meta = _run_meta(sdir)
 
     # per-scenario scores live in the parent run's result files
     _, scenario_summary, session_result = _scenario_results(sdir)
@@ -532,6 +564,9 @@ def api_scenario(path: str = Query(...)):
                 "name": str(relative),
                 "size": f.stat().st_size,
             })
+    # kept only in S3: listed all the same, and downloaded when opened
+    files += [{"name": rel, "size": e["size"], "cloud": True} for rel, e in ARCHIVE.offloaded(sdir).items()]
+    files.sort(key=lambda f: Path(f["name"]).parts)
     conversation = _load_json(sdir / "conversation.json")
     return {
         "path": path,
@@ -543,16 +578,68 @@ def api_scenario(path: str = Query(...)):
         "session_result": session_result,
         "files": files,
         "audio": {
-            name: (sdir / f"{name}.wav").exists()
+            name: ARCHIVE.exists(sdir / f"{name}.wav")
             for name in ("conversation", "user", "agent")
         },
         "audio_align": _audio_alignment(sdir, conversation if isinstance(conversation, list) else None),
+        "transcript_zh": _cached_translation(sdir, _transcript_texts(sdir)),
     }
 
 
 def _invalidate_index() -> None:
     build_index.cache_clear()
     _run_payload.cache_clear()
+
+
+# ---- delete a run ----
+# Deletes the archived copy and, with S3 configured, the run's objects in the bucket. The copy a
+# checkout holds is left alone, so the name goes into .deleted_runs.json and Sync skips it from
+# then on; importing the run again (drag & drop, or a Run test job copying it) takes it back off.
+
+DELETED_RUNS_FILE = DATA_DIR / ".deleted_runs.json"
+_deleted_lock = threading.Lock()
+
+
+def _load_deleted_runs() -> set[str]:
+    names = _load_json(DELETED_RUNS_FILE)
+    return set(names) if isinstance(names, list) else set()
+
+
+def _undelete(name: str) -> None:
+    with _deleted_lock:
+        names = _load_deleted_runs()
+        if name in names:
+            names.discard(name)
+            _write_json(DELETED_RUNS_FILE, sorted(names))
+
+
+@app.delete("/api/run")
+def api_delete_run(path: str = Query(...)):
+    run_dir = _data_dir_at_depth(path, 1, "run")
+    if any(j["status"] in ("running", "cancelling") and path in (j.get("run_path"), Path(j.get("run_dir") or "").name)
+           for j in list(_jobs.values())):
+        raise HTTPException(status_code=409, detail="a test is still writing this run — stop it first")
+    trash = DATA_DIR / f".deleting-{uuid.uuid4().hex[:12]}"
+    try:
+        # under the lock Sync and job snapshots swap run dirs with; moved out of the index at once,
+        # removed from disk afterwards
+        with _mirror_lock:
+            s3_objects = ARCHIVE.delete_run(path, lambda: run_dir.rename(trash))
+    except S3Error as e:
+        raise HTTPException(status_code=503, detail=f"nothing was deleted: {e}")
+    shutil.rmtree(trash, ignore_errors=True)
+    with _deleted_lock:
+        _write_json(DELETED_RUNS_FILE, sorted(_load_deleted_runs() | {path}))
+    with _stars_lock:
+        stars = _load_stars()
+        if path in stars:
+            _write_json(STARS_FILE, sorted(stars - {path}))
+    with _run_notes_lock:
+        notes = _load_run_notes()
+        if notes.pop(path, None) is not None:
+            _write_json(RUN_NOTES_FILE, dict(sorted(notes.items())), indent=2)
+    _invalidate_index()
+    return {"deleted": path, "s3_objects": s3_objects}
 
 
 # ---- folder sync: begin -> chunk (repeated) -> commit ----
@@ -625,7 +712,9 @@ def upload_dir_commit(upload_id: str = Form(...)):
     if target.exists():
         shutil.rmtree(target)
     shutil.move(str(st["dir"]), str(target))
+    _undelete(st["run_name"])
     _invalidate_index()
+    ARCHIVE.schedule_push(st["run_name"])
     return {"run": st["run_name"], "files": st["files"]}
 
 
@@ -665,12 +754,17 @@ def _clone_dir(src: Path, dest: Path) -> None:
 
 
 def _dir_signature(root: Path) -> list[tuple[str, int, int]]:
-    sig = []
-    for p in sorted(root.rglob("*")):
+    sig = {}
+    for p in root.rglob("*"):
         if p.is_file():
             st = p.stat()
-            sig.append((str(p.relative_to(root)), st.st_size, int(st.st_mtime)))
-    return sig
+            sig[str(p.relative_to(root))] = (st.st_size, int(st.st_mtime))
+    # an archived run's heavy files may be kept only in S3: they still count, so a run is not
+    # cloned again just because its audio was offloaded
+    for rel, e in ARCHIVE.offloaded(root).items():
+        if is_heavy(rel):
+            sig.setdefault(rel, (e["size"], e["mtime"]))
+    return sorted((rel, size, mtime) for rel, (size, mtime) in sig.items())
 
 
 # the Sync button and test-job snapshots both stage in .sync-tmp-<run>, so they share one lock
@@ -724,8 +818,9 @@ def sync_sources():
         if not repos:
             looked = os.environ.get("VIEWER_SOURCE_REPOS", "").strip() or ", ".join(str(p) for p in SOURCE_REPO_CANDIDATES)
             raise HTTPException(status_code=404, detail=f"no source checkout found (looked in: {looked})")
-        added, updated, unchanged = [], [], 0
+        added, updated, unchanged, skipped = [], [], 0, 0
         synced: set[str] = set()  # run names are globally unique: first checkout wins
+        deleted = _load_deleted_runs()
         for repo in repos:
             for proj in SOURCE_PROJECTS:
                 src_root = repo / proj / "data" / "runs"
@@ -735,16 +830,21 @@ def sync_sources():
                     if not run.is_dir() or run.name in synced:
                         continue
                     synced.add(run.name)
+                    if run.name in deleted:
+                        skipped += 1
+                        continue
                     outcome = _mirror_run(run)
                     if outcome:
                         (updated if outcome == "updated" else added).append(run.name)
                     else:
                         unchanged += 1
         _invalidate_index()
+        ARCHIVE.schedule_push(*added, *updated)
         return {
             "added": added,
             "updated": updated,
             "unchanged": unchanged,
+            "skipped_deleted": skipped,
             "repos": [str(r) for r in repos],
         }
     finally:
@@ -853,7 +953,7 @@ def _scenario_context(sdir: Path, modality: str | None = None) -> str:
     scenario = _load_json(sdir / "scenario.json")
     conversation = _load_json(sdir / "conversation.json")
     tool_log = _load_json(sdir / "tool_log.json")
-    meta = _load_json(sdir / "run_meta.json") or {}
+    meta = _run_meta(sdir)
 
     parts = [
         f"Run: {run_dir.name}",
@@ -1298,6 +1398,100 @@ def api_run_report(req: ReportRequest):
     return {"report": _complete(system, prompt, timeout=300)}  # large runs: big context and a long structured answer
 
 
+# ---- transcript translation: Simplified Chinese under each turn on the scenario page ----
+# Saved beside conversation.json as a dotfile, so it stays out of the file list and S3. It is
+# keyed by a hash of the turn texts: a transcript that changed reads as not translated yet.
+
+TRANSLATION_FILE = ".transcript_zh.json"
+_TRANSLATE_BATCH_CHARS = 6000  # per LLM call; a long transcript's batches run in parallel
+
+_TRANSLATE_SYSTEM = (
+    "You translate the transcript of a customer-service conversation between an Agent and a "
+    "user (played by a benchmark's User Simulator) into Simplified Chinese for an engineer "
+    "reviewing it. The input is a JSON array of turns {\"i\": id, \"text\": original}. Reply with "
+    "only a JSON array holding one {\"i\": id, \"zh\": translation} per input turn, with the same "
+    "ids, and nothing else. Translate each turn faithfully and on its own, keeping its tone: "
+    "never merge, summarize, answer or correct turns. Speech-recognition errors and odd wording "
+    "are evidence, so translate what is written and keep a garbled word in the original, in "
+    "brackets. Keep names of people, places, airlines and products, IDs, codes, booking and "
+    "order numbers, email addresses and phone numbers exactly as written. Keep the terms Agent, "
+    "User Simulator, tool call, ASR, LLM and API in English; never translate Agent as '代理'. "
+    "Return a turn that is already in Chinese unchanged."
+)
+
+
+def _translate_batch(batch: list[tuple[int, str]]) -> dict[int, str]:
+    payload = json.dumps([{"i": i, "text": text} for i, text in batch], ensure_ascii=False)
+    reply = _complete(_TRANSLATE_SYSTEM, [{"role": "user", "content": payload}], timeout=120)
+    array = re.search(r"\[.*\]", reply, re.S)  # tolerate a ```json fence or a stray sentence
+    try:
+        items = json.loads(array.group(0) if array else reply)
+    except json.JSONDecodeError:
+        items = None
+    if not isinstance(items, list):
+        raise HTTPException(status_code=502, detail="LLM returned a translation that is not a JSON array")
+    wanted = {i for i, _ in batch}
+    return {
+        it["i"]: it["zh"] for it in items
+        if isinstance(it, dict) and it.get("i") in wanted and isinstance(it.get("zh"), str)
+    }
+
+
+def _transcript_texts(sdir: Path) -> list[str] | None:
+    conversation = _load_json(sdir / "conversation.json")
+    if not isinstance(conversation, list):
+        return None
+    return [str(t.get("text") or "") if isinstance(t, dict) else "" for t in conversation]
+
+
+def _texts_key(texts: list[str]) -> str:
+    return hashlib.sha256(json.dumps(texts, ensure_ascii=False).encode()).hexdigest()[:16]
+
+
+def _cached_translation(sdir: Path, texts: list[str] | None) -> list[str | None] | None:
+    cached = _load_json(sdir / TRANSLATION_FILE)
+    if texts and isinstance(cached, dict) and cached.get("key") == _texts_key(texts):
+        return cached.get("translations")
+    return None
+
+
+@app.post("/api/translate_transcript")
+def api_translate_transcript(req: ReportRequest):
+    sdir = _data_dir_at_depth(req.path, 2, "scenario")
+    texts = _transcript_texts(sdir)
+    if not texts:
+        raise HTTPException(status_code=404, detail="no transcript to translate")
+    if (cached := _cached_translation(sdir, texts)) is not None:
+        return {"translations": cached}
+    batches: list[list[tuple[int, str]]] = [[]]
+    size = 0
+    for i, text in enumerate(texts):
+        if not text.strip():
+            continue
+        if batches[-1] and size + len(text) > _TRANSLATE_BATCH_CHARS:
+            batches.append([])
+            size = 0
+        batches[-1].append((i, text))
+        size += len(text)
+    done: dict[int, str] = {}
+    for _ in range(2):  # a second pass for turns the model skipped
+        todo = [[(i, t) for i, t in b if i not in done] for b in batches]
+        todo = [b for b in todo if b]
+        if not todo:
+            break
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for part in pool.map(_translate_batch, todo):
+                done.update(part)
+    translations = [done.get(i) for i in range(len(texts))]
+    if all(t is not None or not text.strip() for t, text in zip(translations, texts)):
+        try:  # an incomplete translation isn't kept, so the next click fills the gaps
+            _write_json(sdir / TRANSLATION_FILE, {"key": _texts_key(texts), "model": LLM_MODEL,
+                                                  "translations": translations})
+        except OSError:
+            pass  # read-only data dir: still shown, just not kept
+    return {"translations": translations}
+
+
 # ---- run test: launch talk-bench runs with a user-configured agent ----
 #
 # A test is exactly
@@ -1312,7 +1506,9 @@ def api_run_report(req: ReportRequest):
 # module from either cwd, without overriding. The agent YAML the user edited or imported is written
 # verbatim under <data dir>/.test_jobs/<job>/ next to the log, and the run
 # directory is cloned into the archive while it grows and when it ends, so the
-# run shows up in the list like any other.
+# run shows up in the list like any other. `talk-bench run --resume <run dir>` (redo
+# the errored / unfinished scenarios of a run, merged into its results.json) is
+# offered for the tests started here and for any run a checkout holds.
 
 JOBS_DIR = DATA_DIR / ".test_jobs"
 MAX_RUNNING_TESTS = 4
@@ -1333,6 +1529,7 @@ _PROGRESS_RE = re.compile(r"^\[(\d+)/(\d+)\] (\S+)(?: \(trial \d+/\d+\))?: ([^\[
 _LOADED_RE = re.compile(r"Loaded (\d+) scenarios")
 _SCORE_RE = re.compile(r"^Score:\s*([\d.]+)%\s*\((\d+)/(\d+)\s*passed\)")
 _RESULTS_RE = re.compile(r"^Results:\s*(.+?)[/\\]results\.json\s*$")
+_ERRORS_RE = re.compile(r"^Errors:\s*(\d+)\s*$")  # printed after Score: when some scenarios errored
 # talk_bench = talk-bench's own simulator; tau2 = tau2-bench's native user simulator,
 # swapped in by tau2_user_sim/launch.py (which runs the same CLI in the checkout's venv)
 USER_SIMULATORS = ("talk_bench", "tau2")
@@ -1503,6 +1700,11 @@ def _project_packages(root: Path) -> set[str]:
         p.name for p in (*root.glob("libs/*/src/*"), *root.glob("apps/*/src/*"))
         if p.is_dir() and (p / "__init__.py").is_file()
     }
+
+
+def _runs_root(root: Path) -> Path:
+    """Where talk-bench writes the runs of a checkout: talkbench.yaml's output_dir."""
+    return root / str((_project_manifest(root).get("defaults") or {}).get("output_dir") or "data/runs")
 
 
 def _test_project_root(module: str | None = None) -> Path:
@@ -1756,9 +1958,9 @@ def _new_job(**fields: Any) -> dict[str, Any]:
         "id": uuid.uuid4().hex[:12], "created": _now_iso(), "started": time.time(), "finished": None,
         "status": "running", "pid": None, "exit_code": None, "cmd": [], "cwd": None,
         "run_dir": None, "run_path": None, "synced_at": None,
-        "progress": {"done": 0, "total": None}, "score": None, "error": None,
+        "progress": {"done": 0, "total": None}, "score": None, "errored": None, "error": None,
         "resume_of": None, "scenario_ids": [], "user_simulator": "talk_bench", "speech_complexity": None,
-        "schedule_id": None, "schedule_name": None,
+        "schedule_name": None, "scheduled_for": None,
         **fields,
     }
 
@@ -1811,6 +2013,10 @@ def _ingest_log(job: dict[str, Any], log_path: Path) -> None:
         m = _SCORE_RE.match(line)
         if m:
             job["score"] = {"pct": float(m.group(1)), "passed": int(m.group(2)), "total": int(m.group(3))}
+            continue
+        m = _ERRORS_RE.match(line)
+        if m:
+            job["errored"] = int(m.group(1))
             continue
         m = _RESULTS_RE.match(line)
         if m:
@@ -1869,7 +2075,9 @@ def _sync_job_run(job: dict[str, Any]) -> bool:
     job["run_path"] = run_dir.name
     if changed:
         job["synced_at"] = time.time()
+        _undelete(run_dir.name)
         _invalidate_index()
+        ARCHIVE.schedule_push(run_dir.name)
     return changed
 
 
@@ -1921,6 +2129,8 @@ def _watch_job(job_id: str, proc: subprocess.Popen | None) -> None:
             job["error"] = job.get("error") or "the viewer restarted while this test was running"
         else:
             job["status"] = "error"  # 2 = configuration, 3 = runtime
+        if job["status"] == "done" and job.get("errored") is None:
+            job["errored"] = 0  # no Errors: line after Score:
     if job["status"] == "error" and not job.get("error"):
         job["error"] = _last_log_lines(log_path)
     try:
@@ -1940,6 +2150,10 @@ def _recover_jobs() -> None:
         if not isinstance(job, dict) or not job.get("id"):
             continue
         job = _new_job(**{k: v for k, v in job.items() if not k.startswith("_")})
+        if job["status"] == "done" and job["errored"] is None and job.get("run_dir"):
+            # recorded before errored was tracked: the run's results.json tells
+            res = _load_json(Path(job["run_dir"]) / "results.json")
+            job["errored"] = res.get("scenarios_errored") if isinstance(res, dict) else None
         _jobs[job["id"]] = job
     # once every record is loaded, so _locate_run_dir skips the run dirs the others claim
     for job in list(_jobs.values()):
@@ -2033,10 +2247,8 @@ def _launch_test(t: dict[str, Any], **fields: Any) -> dict[str, Any]:
         if _running_tests() >= MAX_RUNNING_TESTS:
             raise HTTPException(status_code=409, detail=f"{MAX_RUNNING_TESTS} tests are already running — wait for one to finish")
         root, agent = t["root"], t["agent"]
-        manifest = _project_manifest(root)
-        output_dir = str((manifest.get("defaults") or {}).get("output_dir") or "data/runs")
         job = _new_job(
-            project=str(root), project_name=root.name, runs_root=str(root / output_dir),
+            project=str(root), project_name=root.name, runs_root=str(_runs_root(root)),
             agent_name=agent["name"], module=agent["module"],
             source=t["source"], domain=t["domain"], split=t["split"], scenario_ids=t["scenario_ids"],
             user_simulator=t["user_simulator"], speech_complexity=t["speech_complexity"], **fields,
@@ -2116,49 +2328,207 @@ def api_cancel_test(job_id: str):
     return {"job": _public_job(job)}
 
 
+def _launch_resume(run_dir: str, root: Path, user_simulator: str, config_text: str | None, **fields: Any) -> dict[str, Any]:
+    """Start `talk-bench run --resume <run dir>` in root; fields go into the job record.
+    The run dir is absolute, so the cwd only has to be able to import the agent."""
+    with _start_lock:
+        if any(j["status"] in ("running", "cancelling") and j.get("run_dir") == run_dir for j in list(_jobs.values())):
+            raise HTTPException(status_code=409, detail="a test is already running in this run directory")
+        if _running_tests() >= MAX_RUNNING_TESTS:
+            raise HTTPException(status_code=409, detail=f"{MAX_RUNNING_TESTS} tests are already running — wait for one to finish")
+        if not (root / "pyproject.toml").is_file():
+            raise HTTPException(status_code=404, detail="the checkout this test ran in is gone")
+        # a resumed run keeps the user simulator its first scenarios ran with
+        launcher = _launcher(root, user_simulator)
+        if launcher is None:
+            raise HTTPException(status_code=500, detail="neither uv nor .venv/bin/talk-bench was found for this checkout")
+        job = _new_job(**fields, project=str(root), project_name=root.name, user_simulator=user_simulator, run_dir=run_dir)
+        _job_dir(job["id"]).mkdir(parents=True, exist_ok=True)
+        if config_text:
+            (_job_dir(job["id"]) / "agent.yaml").write_text(config_text)
+        _start_job(job, [*launcher, "run", "--resume", run_dir], root)
+    return job
+
+
 @app.post("/api/test/jobs/{job_id}/resume")
 def api_resume_test(job_id: str):
-    """`talk-bench run --resume <run dir>`: redo errored / unfinished scenarios of a
-    cancelled or crashed test and merge into the same results.json. Runs in the checkout
-    the agent module belongs to (the run dir is absolute, so the cwd only has to be able
-    to import the agent), which may differ from where an old job was recorded."""
+    """`talk-bench run --resume <run dir>`: redo errored / unfinished scenarios of a test
+    and merge into the same results.json. Runs in the checkout the agent module belongs
+    to, which may differ from where an old job was recorded."""
     parent = _get_job(job_id)
     if parent["status"] in ("running", "cancelling"):
         raise HTTPException(status_code=409, detail="this test is still running")
     run_dir = parent.get("run_dir")
     if not run_dir or not (Path(run_dir) / "run_config.json").is_file():
         raise HTTPException(status_code=409, detail="this test left no resumable run directory")
-    with _start_lock:
-        if any(j["status"] in ("running", "cancelling") and j.get("run_dir") == run_dir for j in list(_jobs.values())):
-            raise HTTPException(status_code=409, detail="a test is already running in this run directory")
-        if _running_tests() >= MAX_RUNNING_TESTS:
-            raise HTTPException(status_code=409, detail=f"{MAX_RUNNING_TESTS} tests are already running — wait for one to finish")
+    try:
+        root = _test_project_root(parent.get("module"))
+    except HTTPException:
+        root = Path(parent["project"])
+    config = _job_dir(parent["id"]) / "agent.yaml"
+    job = _launch_resume(
+        run_dir, root, parent.get("user_simulator") or "talk_bench",
+        config.read_text() if config.is_file() else None, resume_of=parent["id"],
+        **{k: parent.get(k) for k in (
+            "runs_root", "agent_name", "module", "source", "domain", "split", "scenario_ids", "speech_complexity",
+        )},
+    )
+    return {"job": _public_job(job)}
+
+
+# talk-bench's --resume runs a scenario again when its run_meta.json is missing or ends in
+# one of these (runner/resume.py), and scores the finished ones again while results.json
+# is missing or was written before scoring completed
+_RESUME_REDO_END_REASONS = {"error", "error_agent"}
+_RUN_NAME_RE = re.compile(r"^[\w][\w.\-]*$")
+
+
+@lru_cache(maxsize=8192)
+def _end_reason_at(path: str, _mtime_ns: int, _size: int) -> str | None:
+    """end_reason of one run_meta.json, read once per version of the file."""
+    meta = _load_json(Path(path))
+    return str(meta["end_reason"]) if isinstance(meta, dict) and meta.get("end_reason") else None
+
+
+def _source_runs() -> list[tuple[Path, Path]]:
+    """(project root, run dir) of every run talk-bench wrote into a checkout that
+    --resume can pick up (it has run_config.json); the first checkout wins a name."""
+    out, seen = [], set()
+    for repo in _source_repos():
+        for name in SOURCE_PROJECTS:
+            root = repo / name
+            runs = _runs_root(root)
+            if not (root / "pyproject.toml").is_file() or not runs.is_dir():
+                continue
+            for d in sorted(runs.iterdir()):
+                if d.name not in seen and (d / "run_config.json").is_file():
+                    seen.add(d.name)
+                    out.append((root, d))
+    return out
+
+
+def _find_source_run(name: str) -> tuple[Path, Path] | None:
+    if not _RUN_NAME_RE.match(name):
+        raise HTTPException(status_code=400, detail="invalid run name")
+    for repo in _source_repos():
+        for proj in SOURCE_PROJECTS:
+            root = repo / proj
+            d = _runs_root(root) / name
+            if (root / "pyproject.toml").is_file() and (d / "run_config.json").is_file():
+                return root, d
+    return None
+
+
+def _resume_state(project: Path, run_dir: Path) -> dict[str, Any] | None:
+    """What `talk-bench run --resume <run dir>` would do, read from the files its own
+    classification reads: redo = scenarios not finished (counted against the planned
+    total when it is known), rescore = finished ones still unscored. None when
+    run_config.json does not hold a usable config. _agent stays server-side (_public_job)."""
+    doc = _load_json(run_dir / "run_config.json")
+    rc = doc.get("run_config") if isinstance(doc, dict) else None
+    agent = rc.get("agent_config") if isinstance(rc, dict) else None
+    if not isinstance(agent, dict) or not agent.get("module"):
+        return None
+    trials = rc.get("trials") if isinstance(rc.get("trials"), int) and rc["trials"] > 0 else 1
+    scenario_ids = [str(x) for x in rc.get("scenario_ids") or []]
+    source, domain, split = rc.get("source") or "talk_bench", str(rc.get("domain") or ""), str(rc.get("split") or "base")
+    results = _load_json(run_dir / "results.json")
+    results = results if isinstance(results, dict) else None
+    sessions = _scenario_dirs(run_dir)
+    finished, last_write = 0, run_dir.stat().st_mtime
+    for sdir in sessions:
+        meta = sdir / "run_meta.json"
         try:
-            root = _test_project_root(parent.get("module"))
-        except HTTPException:
-            root = Path(parent["project"])
-        if not (root / "pyproject.toml").is_file():
-            raise HTTPException(status_code=404, detail="the checkout this test ran in is gone")
-        # a resumed run keeps the user simulator its first scenarios ran with
-        launcher = _launcher(root, parent.get("user_simulator") or "talk_bench")
-        if launcher is None:
-            raise HTTPException(status_code=500, detail="neither uv nor .venv/bin/talk-bench was found for this checkout")
-        inherited = {
-            k: parent.get(k)
-            for k in (
-                "runs_root", "agent_name", "module", "source", "domain", "split", "scenario_ids",
-                "user_simulator", "speech_complexity",
-            )
-        }
-        job = _new_job(
-            **inherited, project=str(root), project_name=root.name,
-            resume_of=parent["id"], run_dir=run_dir,
+            st = meta.stat()
+        except OSError:
+            last_write = max(last_write, sdir.stat().st_mtime)
+            continue
+        last_write = max(last_write, st.st_mtime)
+        reason = _end_reason_at(str(meta), st.st_mtime_ns, st.st_size)
+        if reason and reason.lower() not in _RESUME_REDO_END_REASONS:
+            finished += 1
+    planned = None  # every (scenario, trial) the run covers
+    if results and isinstance(results.get("scenarios_total"), int):
+        planned = results["scenarios_total"]
+    elif scenario_ids:
+        planned = len(scenario_ids) * trials
+    elif source in _DOMAIN_DATA and domain and not rc.get("tags") and not rc.get("jailbreak"):
+        planned = len(_scenario_catalog(project, source, domain, split)) * trials or None
+    redo = max(planned - finished, 0) if planned is not None else len(sessions) - finished
+    scored = bool(results and results.get("talk_bench_evaluation_complete"))
+    running = next((j["id"] for j in list(_jobs.values())
+                    if j["status"] in ("running", "cancelling") and j.get("run_dir") == str(run_dir)), None)
+    try:
+        runs_in = _test_project_root(agent["module"])  # where --resume will run: the module's checkout
+    except HTTPException:
+        runs_in = project
+    return {
+        "name": run_dir.name, "run_dir": str(run_dir), "project": str(runs_in), "project_name": runs_in.name,
+        "timestamp": _parse_timestamp(run_dir.name), "in_archive": (DATA_DIR / run_dir.name).is_dir(),
+        "_agent": agent, "agent_name": agent.get("name") or run_dir.name, "module": agent["module"],
+        "source": source, "domain": domain, "split": split, "scenario_ids": scenario_ids,
+        "speech_complexity": rc.get("speech_complexity"), "trials": trials,
+        "user_simulator": (_run_user_simulator(run_dir) or {}).get("engine") or "talk_bench",
+        "scripted": (run_dir / "scripted_user_simulator.json").is_file(),
+        "planned": planned, "started": len(sessions), "finished": finished, "redo": redo,
+        "rescore": 0 if scored else finished, "has_results": results is not None,
+        "last_write": last_write, "running_job": running,
+    }
+
+
+@app.get("/api/test/resumable")
+def api_test_resumable(name: str | None = Query(None)):
+    """Runs in the checkouts that --resume has work for: some scenarios errored, never
+    finished or were never scored. With name: that one run's state, whatever it is
+    (null when no checkout holds it with a run_config.json)."""
+    if name is not None:
+        found = _find_source_run(name)
+        st = _resume_state(*found) if found else None
+        return {"run": _public_job(st) if st else None}
+    runs = []
+    for project, run_dir in _source_runs():
+        st = _resume_state(project, run_dir)
+        # a run that left no scenario directory never got going: start the test again instead
+        if st and st["started"] and (st["redo"] or st["rescore"]):
+            runs.append(_public_job(st))
+    runs.sort(key=lambda r: r["timestamp"] or "", reverse=True)
+    return {"runs": runs}
+
+
+class ResumeRunBody(BaseModel):
+    name: str  # run directory name, the same in the checkout's data/runs and in the archive
+
+
+@app.post("/api/test/resume_run")
+def api_resume_run(body: ResumeRunBody):
+    """`talk-bench run --resume <run dir>` for a run in a checkout, wherever it was
+    started from: the run dir's run_config.json says what to run (agent, task set), so
+    nothing else is passed. Runs in the checkout the agent module belongs to."""
+    found = _find_source_run(body.name)
+    if not found:
+        raise HTTPException(
+            status_code=404,
+            detail="no checkout holds this run with a run_config.json — imported runs and runs made before --resume existed cannot be resumed",
         )
-        _job_dir(job["id"]).mkdir(parents=True, exist_ok=True)
-        src = _job_dir(parent["id"]) / "agent.yaml"
-        if src.is_file():
-            shutil.copyfile(src, _job_dir(job["id"]) / "agent.yaml")
-        _start_job(job, [*launcher, "run", "--resume", run_dir], root)
+    project, run_dir = found
+    st = _resume_state(project, run_dir)
+    if st is None:
+        raise HTTPException(status_code=409, detail="this run's run_config.json holds no usable agent config")
+    if st["scripted"]:
+        raise HTTPException(status_code=409, detail="this run used scripted_user_sim, which this page does not launch")
+    try:
+        config_text = _dump_yaml({"agent": _normalize_agent(st["_agent"])})
+    except HTTPException:
+        config_text = _dump_yaml({"agent": st["_agent"]})
+    # the newest test of this page that worked on the run, if any
+    parent = max((j for j in list(_jobs.values()) if j.get("run_dir") == st["run_dir"]),
+                 key=lambda j: j.get("started") or 0, default=None)
+    job = _launch_resume(
+        st["run_dir"], Path(st["project"]), st["user_simulator"], config_text,
+        resume_of=parent["id"] if parent else None, runs_root=str(run_dir.parent),
+        agent_name=st["agent_name"], module=st["module"], source=st["source"], domain=st["domain"],
+        split=st["split"], scenario_ids=st["scenario_ids"], speech_complexity=st["speech_complexity"],
+    )
     return {"job": _public_job(job)}
 
 
@@ -2188,124 +2558,25 @@ def api_delete_test(job_id: str):
 
 # ---- scheduled tests ----
 #
-# A schedule is a saved Start-test request (agent YAML, source / domain / split,
-# scenario ids, user simulator) plus a 5-field cron expression read in this host's
-# local time. A thread in the viewer starts the test when it is due, through the same
-# _prepare_test / _launch_test as the button, and the job records the schedule.
-#   - runs missed while the viewer was stopped or the Mac asleep start once when it is
-#     back (they collapse into one run), then the schedule keeps its cadence
-#   - a due run is skipped while the schedule's previous test is still running
-#   - while MAX_RUNNING_TESTS tests run, a due run waits for a free slot
+# A scheduled test is a saved Start-test request (agent YAML, source / domain / split,
+# scenario ids, user simulator) plus the moment to start it, once (epoch seconds; the
+# page picks it in the browser's time zone). A thread in the viewer starts it when it is
+# due, through the same _prepare_test / _launch_test as the button; the job records the
+# schedule's name and time, and the schedule is removed.
+#   - missed while the viewer was stopped or the Mac asleep, it starts as soon as the
+#     viewer is back
+#   - while MAX_RUNNING_TESTS tests run, it waits for a free slot
+#   - if it cannot start (the YAML no longer loads, the checkout is gone), it stays in the
+#     list with the error until it is edited or deleted
 # Schedules live in <data dir>/.test_schedules.json, changed under an flock so a second
-# viewer process on the same data dir cannot start a run twice.
+# viewer process on the same data dir cannot start one twice.
 
 SCHEDULES_FILE = DATA_DIR / ".test_schedules.json"
 _SCHEDULES_LOCK_FILE = DATA_DIR / ".test_schedules.lock"
 MAX_SCHEDULES = 50
-MIN_SCHEDULE_GAP_S = 15 * 60  # a full test run is minutes long; `* * * * *` is almost surely a typo
+MAX_SCHEDULE_AHEAD_S = 366 * 86400
 _SCHEDULER_TICK_S = 20
 _schedules_lock = threading.Lock()
-
-_CRON_FIELDS = (("minute", 0, 59), ("hour", 0, 23), ("day of month", 1, 31), ("month", 1, 12), ("day of week", 0, 7))
-_CRON_NAMES = (
-    {}, {}, {},
-    {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))},
-    {d: i for i, d in enumerate(("sun", "mon", "tue", "wed", "thu", "fri", "sat"))},
-)
-
-
-def _cron_value(text: str, names: dict[str, int], label: str) -> int:
-    if text in names:
-        return names[text]
-    if not text.isdigit():
-        raise ValueError(f"bad {label} value {text!r}")
-    return int(text)
-
-
-def _cron_field(text: str, idx: int) -> set[int]:
-    label, lo, hi = _CRON_FIELDS[idx]
-    values: set[int] = set()
-    for part in text.lower().split(","):
-        rng, slash, step_text = part.partition("/")
-        step = _cron_value(step_text, {}, label + " step") if slash else 1
-        if rng == "*":
-            a, b = lo, hi
-        elif "-" in rng:
-            a, b = (_cron_value(x, _CRON_NAMES[idx], label) for x in rng.split("-", 1))
-        else:
-            a = _cron_value(rng, _CRON_NAMES[idx], label)
-            b = hi if slash else a
-        if not (lo <= a <= b <= hi) or step < 1:
-            raise ValueError(f"{label} {part!r} is out of range {lo}-{hi}")
-        values.update(range(a, b + 1, step))
-    return values
-
-
-def _parse_cron(expr: str) -> tuple:
-    """minute hour day-of-month month day-of-week, with *, a-b, */n, a-b/n, lists and
-    jan-dec / sun-sat names. As in cron, when both day fields are restricted a day
-    matching either one fires."""
-    parts = expr.split()
-    if len(parts) != 5:
-        raise ValueError("a cron expression has 5 fields: minute hour day-of-month month day-of-week")
-    fields = [_cron_field(p, i) for i, p in enumerate(parts)]
-    fields[4] = {d % 7 for d in fields[4]}  # 7 is Sunday too
-    return (*fields, parts[2].startswith("*") or parts[4].startswith("*"))
-
-
-def _cron_next(cron: tuple, after: float) -> float:
-    """The first minute after `after` (epoch seconds) the cron fires, in local time."""
-    minutes, hours, mdays, months, wdays, either_star = cron
-    t = datetime.fromtimestamp(after).replace(second=0, microsecond=0) + timedelta(minutes=1)
-    limit = t + timedelta(days=366 * 8)  # Feb 29 skips 2100: 2096 -> 2104
-    while t < limit:
-        if t.month not in months:
-            t = (t.replace(day=1, hour=0, minute=0) + timedelta(days=32)).replace(day=1)
-            continue
-        md, wd = t.day in mdays, t.isoweekday() % 7 in wdays
-        if not ((md and wd) if either_star else (md or wd)):
-            t = t.replace(hour=0, minute=0) + timedelta(days=1)
-            continue
-        if t.hour not in hours:
-            t = t.replace(minute=0) + timedelta(hours=1)
-            continue
-        if t.minute in minutes:
-            for ts in (t.timestamp(), t.replace(fold=1).timestamp()):  # fold=1: the hour a DST fall-back repeats
-                if ts > after:
-                    return ts
-        t += timedelta(minutes=1)
-    raise ValueError("this cron expression never fires")
-
-
-def _cron_fires(expr: str, after: float, n: int) -> list[float]:
-    cron, out = _parse_cron(expr), []
-    for _ in range(n):
-        after = _cron_next(cron, after)
-        out.append(after)
-    return out
-
-
-def _check_cron(expr: str) -> str:
-    expr = " ".join(expr.split())
-    try:
-        fires = _cron_fires(expr, time.time(), 30)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"cron: {e}")
-    if min(b - a for a, b in zip(fires, fires[1:])) < MIN_SCHEDULE_GAP_S:
-        raise HTTPException(
-            status_code=400, detail=f"this schedule fires more often than every {MIN_SCHEDULE_GAP_S // 60} minutes",
-        )
-    return expr
-
-
-def _fmt_local(ts: float | None) -> str | None:
-    return datetime.fromtimestamp(ts).strftime("%a %Y-%m-%d %H:%M") if ts else None
-
-
-def _local_tz_label() -> str:
-    now = datetime.now().astimezone()
-    off = now.strftime("%z")
-    return f"{now.tzname()} (UTC{off[:3]}:{off[3:]})"
 
 
 @contextmanager
@@ -2317,7 +2588,7 @@ def _schedules_txn():
         data = _load_json(SCHEDULES_FILE) if SCHEDULES_FILE.exists() else []
         if not isinstance(data, list):
             raise HTTPException(status_code=500, detail=f"{SCHEDULES_FILE.name} is unreadable — fix or remove it")
-        schedules = [s for s in data if isinstance(s, dict) and s.get("id")]
+        schedules = [s for s in data if isinstance(s, dict) and s.get("id") and isinstance(s.get("run_at"), (int, float))]
         before = json.dumps(schedules, sort_keys=True)
         yield schedules
         if json.dumps(schedules, sort_keys=True) != before:
@@ -2327,63 +2598,34 @@ def _schedules_txn():
 def _find_schedule(schedules: list[dict[str, Any]], sid: str) -> dict[str, Any]:
     s = next((s for s in schedules if s["id"] == sid), None)
     if s is None:
-        raise HTTPException(status_code=404, detail="no such schedule")
+        raise HTTPException(status_code=404, detail="no such scheduled test")
     return s
 
 
 def _public_schedule(s: dict[str, Any]) -> dict[str, Any]:
-    """A schedule for the list: the test settings without the agent YAML, times also
-    spelled in this host's local time (the one the cron is read in)."""
-    last = s.get("last_run")
-    return {
-        **s,
-        "test": {k: v for k, v in (s.get("test") or {}).items() if k != "config_text"},
-        "next_run_local": _fmt_local(s.get("next_run")),
-        "last_run": {**last, "at_local": _fmt_local(last.get("at"))} if isinstance(last, dict) else None,
-    }
-
-
-def _job_running(job_id: str | None) -> bool:
-    """Is this test still running? Also sees a test another viewer process started."""
-    if not job_id or not re.fullmatch(r"[0-9a-f]{12}", job_id):
-        return False
-    job = _jobs.get(job_id) or _load_json(_job_dir(job_id) / "job.json")
-    return isinstance(job, dict) and job.get("status") in ("running", "cancelling") and _pid_alive(job.get("pid"))
-
-
-def _start_scheduled(s: dict[str, Any]) -> dict[str, Any]:
-    """Start the schedule's test now and record it as its last run."""
-    if _job_running((s.get("last_run") or {}).get("job_id")):
-        raise HTTPException(status_code=409, detail="its previous test is still running")
-    job = _launch_test(_prepare_test(TestJobBody(**s["test"])), schedule_id=s["id"], schedule_name=s["name"])
-    s["last_run"] = {"at": time.time(), "status": "started", "job_id": job["id"]}
-    s.pop("waiting", None)
-    return job
+    """A schedule for the list: the test settings without the agent YAML."""
+    return {**s, "test": {k: v for k, v in (s.get("test") or {}).items() if k != "config_text"}}
 
 
 def _scheduler_tick() -> None:
     now = time.time()
     with _schedules_txn() as schedules:
-        for s in schedules:
-            if not s.get("enabled") or not s.get("next_run") or now < s["next_run"]:
+        for s in list(schedules):
+            if s.get("error") or now < s["run_at"]:
                 continue
             if _running_tests() >= MAX_RUNNING_TESTS:
                 s["waiting"] = f"{MAX_RUNNING_TESTS} tests are already running"
-                continue  # keep next_run: it starts as soon as a slot frees up
-            prev_job = (s.get("last_run") or {}).get("job_id")  # kept so the overlap check still sees it
+                continue  # starts as soon as a slot frees up
             try:
-                _start_scheduled(s)
+                _launch_test(_prepare_test(TestJobBody(**s["test"])), schedule_name=s["name"], scheduled_for=s["run_at"])
             except HTTPException as e:
-                status = "skipped" if e.status_code == 409 else "error"
-                s["last_run"] = {"at": now, "status": status, "detail": str(e.detail)[:400], "job_id": prev_job}
+                s["error"] = str(e.detail)[:400]
             except Exception as e:  # a broken schedule must not stop the others
-                s["last_run"] = {"at": now, "status": "error", "detail": repr(e)[:400], "job_id": prev_job}
+                s["error"] = repr(e)[:400]
+            else:
+                schedules.remove(s)  # from here on it is a test in the jobs list
+                continue
             s.pop("waiting", None)
-            try:
-                s["next_run"] = _cron_next(_parse_cron(s["cron"]), now)  # missed runs collapse into this one
-            except ValueError as e:
-                s["enabled"], s["next_run"] = False, None
-                s["last_run"] = {"at": now, "status": "error", "detail": f"cron: {e}"}
 
 
 def _scheduler_loop() -> None:
@@ -2397,22 +2639,20 @@ def _scheduler_loop() -> None:
 
 class ScheduleBody(BaseModel):
     name: str = ""  # default: agent · domain/split
-    cron: str
-    enabled: bool = True
+    run_at: float  # epoch seconds
     test: TestJobBody
 
 
-class ScheduleEnabledBody(BaseModel):
-    enabled: bool
-
-
 def _schedule_fields(body: ScheduleBody) -> dict[str, Any]:
+    now = time.time()
+    if not now < body.run_at <= now + MAX_SCHEDULE_AHEAD_S:
+        raise HTTPException(status_code=400, detail="pick a start time in the future, at most a year ahead")
     t = _prepare_test(body.test)  # rejected now, not at 02:00
     name = " ".join(body.name.split()) or f"{t['agent']['name']} · {t['domain']}/{t['split']}"[:120]
     if len(name) > 120:
-        raise HTTPException(status_code=400, detail="the schedule name must be at most 120 characters")
+        raise HTTPException(status_code=400, detail="the name must be at most 120 characters")
     return {
-        "name": name, "cron": _check_cron(body.cron), "enabled": body.enabled,
+        "name": name, "run_at": body.run_at,
         "agent_name": t["agent"]["name"], "module": t["agent"]["module"],
         "test": {
             k: t[k] for k in
@@ -2424,15 +2664,8 @@ def _schedule_fields(body: ScheduleBody) -> dict[str, Any]:
 @app.get("/api/test/schedules")
 def api_test_schedules():
     with _schedules_txn() as schedules:
-        out = [_public_schedule(s) for s in schedules]
-    return {"schedules": out, "tz": _local_tz_label()}
-
-
-@app.get("/api/test/schedules/preview")
-def api_schedule_preview(cron: str = Query(...)):
-    """The next fire times of a cron expression, for the schedule form."""
-    expr = _check_cron(cron)
-    return {"cron": expr, "next": [_fmt_local(t) for t in _cron_fires(expr, time.time(), 3)], "tz": _local_tz_label()}
+        out = [_public_schedule(s) for s in sorted(schedules, key=lambda s: s["run_at"])]
+    return {"schedules": out}
 
 
 @app.post("/api/test/schedules")
@@ -2440,9 +2673,8 @@ def api_create_schedule(body: ScheduleBody):
     fields = _schedule_fields(body)
     with _schedules_txn() as schedules:
         if len(schedules) >= MAX_SCHEDULES:
-            raise HTTPException(status_code=409, detail=f"at most {MAX_SCHEDULES} schedules")
-        s = {"id": uuid.uuid4().hex[:12], "created": _now_iso(), **fields, "last_run": None}
-        s["next_run"] = _cron_next(_parse_cron(s["cron"]), time.time()) if s["enabled"] else None
+            raise HTTPException(status_code=409, detail=f"at most {MAX_SCHEDULES} scheduled tests")
+        s = {"id": uuid.uuid4().hex[:12], "created": _now_iso(), **fields}
         schedules.append(s)
     return {"schedule": _public_schedule(s)}
 
@@ -2456,38 +2688,18 @@ def api_test_schedule(sid: str):
 
 @app.put("/api/test/schedules/{sid}")
 def api_update_schedule(sid: str, body: ScheduleBody):
+    """Replace the test and the start time; a schedule that failed to start is pending again."""
     fields = _schedule_fields(body)
     with _schedules_txn() as schedules:
         s = _find_schedule(schedules, sid)
         s.update(fields, updated=_now_iso())
+        s.pop("error", None)
         s.pop("waiting", None)
-        s["next_run"] = _cron_next(_parse_cron(s["cron"]), time.time()) if s["enabled"] else None
     return {"schedule": _public_schedule(s)}
-
-
-@app.post("/api/test/schedules/{sid}/enabled")
-def api_schedule_enabled(sid: str, body: ScheduleEnabledBody):
-    """Pause or resume. Resuming counts from now: runs due while paused are not made up."""
-    with _schedules_txn() as schedules:
-        s = _find_schedule(schedules, sid)
-        s["enabled"] = body.enabled
-        s.pop("waiting", None)
-        s["next_run"] = _cron_next(_parse_cron(s["cron"]), time.time()) if body.enabled else None
-    return {"schedule": _public_schedule(s)}
-
-
-@app.post("/api/test/schedules/{sid}/run")
-def api_run_schedule(sid: str):
-    """Start the schedule's test now; its timing is unchanged."""
-    with _schedules_txn() as schedules:
-        s = _find_schedule(schedules, sid)
-        job = _start_scheduled(s)
-    return {"job": _public_job(job), "schedule": _public_schedule(s)}
 
 
 @app.delete("/api/test/schedules/{sid}")
 def api_delete_schedule(sid: str):
-    """Remove the schedule; the tests it started stay in the list."""
     with _schedules_txn() as schedules:
         schedules.remove(_find_schedule(schedules, sid))
     return {"deleted": sid}

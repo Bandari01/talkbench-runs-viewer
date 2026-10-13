@@ -1,0 +1,8 @@
+# Selected retained STANDARD essential-only sandbox checkpoint.
+# Credentials and domain-specific MCP URL come from environment; no live IDs bundled.
+agent_name: "talkbench-cedarway-specialty-pharmacy-text-best"
+api_base_url: "https://api.talkdeskqa.com"
+mcp_name_prefix: "Cedarway Specialty Pharmacy Text"
+mcp_description: "Isolated generated cedarway_specialty_pharmacy test-domain tools"
+template_name: "retained-best/cedarway-specialty-pharmacy-text-agent-template.json"
+external_tool_count_max: 30
