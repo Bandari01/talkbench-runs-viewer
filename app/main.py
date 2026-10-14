@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -755,6 +756,15 @@ def _compared_args(action: Any) -> dict[str, Any] | None:
     return {k: args[k] for k in action.compare_args if k in args}
 
 
+def _type_note(actual: Any, expected: Any, verb: str) -> str | None:
+    """JSON shows 36.0 as 36: name the types when only they differ."""
+    same_text = lambda v: str(v).casefold().removesuffix(".0")
+    if type(actual) is type(expected) or same_text(actual) != same_text(expected):
+        return None
+    return f"{_TYPE_NAMES.get(type(expected), 'value')} {json.dumps(expected)} expected, " \
+           f"{_TYPE_NAMES.get(type(actual), 'value')} {json.dumps(actual)} {verb}"
+
+
 def _projection(actual: Any, expected: Any) -> Any:
     """`actual` cut down to the shape of `expected`, so a big result shows only what was asked for."""
     if isinstance(expected, dict) and isinstance(actual, dict):
@@ -821,11 +831,8 @@ def _compare_call(tb: SimpleNamespace, action: Any, record: Any, logical: bool,
                 actual = row["actual"] = actual_args[key]
                 row["ok"] = bool(tb.value_equal(actual, expected) if logical
                                  else tb.args_match({key: actual}, {key: expected}))
-                # JSON shows 36.0 as 36: name the types when only they differ
-                same_text = lambda v: str(v).casefold().removesuffix(".0")
-                if not row["ok"] and type(actual) is not type(expected) and same_text(actual) == same_text(expected):
-                    row["note"] = f"{_TYPE_NAMES.get(type(expected), 'value')} {json.dumps(expected)} expected, " \
-                                  f"{_TYPE_NAMES.get(type(actual), 'value')} {json.dumps(actual)} passed"
+                if not row["ok"] and (note := _type_note(actual, expected, "passed")):
+                    row["note"] = note
         rows.append(row)
 
     checks: list[dict] = []
@@ -997,6 +1004,269 @@ def _action_checks(scenario: Any, tool_log: Any) -> dict | None:
     return {"expected": out_expected, "prohibited": out_prohibited, "met": sum(met), "total": len(met)}
 
 
+# ---- how each expected DB state was graded (Task & grading panel) ----
+# talk-bench scores the DB factor after the run from the final DB snapshot (run_meta.json's db_state)
+# and, for checks on what changed, the one taken before the call (db_state_initial.json).
+# scenario.json's expected_state comes in two shapes:
+#   * a field map {collection: {entity id: {field: value}}}, scored as the share of equal fields;
+#   * assertions (schema_version 2-4), each all or nothing: its selector picks rows, its change
+#     filter keeps those created / updated during the call, their number must fit its cardinality
+#     and every one of them must have each expected field. Schema 4 first binds generated ids (one
+#     row created during the call, picked by stable fields) for {"$ref": name} to stand for; a single
+#     binding that does not resolve scores the whole factor 0. Schema 3 adds free-text fields an
+#     LLM judge compared; the session result keeps those verdicts (db_semantic_checks).
+# Selection and comparisons are talk-bench's own functions, loaded from the checkout; the rows shown
+# beside a verdict are rebuilt field by field with the same comparison.
+
+_DB_CHANGE = {
+    "created": lambda before, key, row: key not in before,
+    "updated": lambda before, key, row: key in before and before[key] != row,
+    "changed": lambda before, key, row: key not in before or before[key] != row,
+}
+
+
+_TB_DB_LOCK = threading.Lock()  # two first requests at once: one lends the module name at a time
+
+
+@cache
+def _tb_db() -> SimpleNamespace | None:
+    """talk-bench's DB-state scorer modules, loaded file by file: the talk_bench_evaluation
+    package's __init__ imports its whole scoring stack (jiwer and more), which the viewer lacks."""
+    if _tb_matching() is None:  # also puts talk_bench_core on sys.path
+        return None
+    with _TB_DB_LOCK:
+        return _load_tb_db()
+
+
+def _load_tb_db() -> SimpleNamespace | None:
+    for repo in _source_repos():
+        pkg = repo / "talk-bench" / "libs" / "talk_bench_evaluation" / "src" / "talk_bench_evaluation"
+        if not (pkg / "scorers" / "db_state.py").is_file():
+            continue
+
+        def load(name: str, rel: str) -> Any:
+            spec = importlib.util.spec_from_file_location(name, pkg / rel)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+
+        # db_state.py imports this module by its package name: lend it that name while it loads
+        alias = "talk_bench_evaluation.semantic_normalizer"
+        lent = alias not in sys.modules
+        try:
+            if lent:
+                sys.modules[alias] = load("_tb_semantic_normalizer", "semantic_normalizer.py")
+            db = load("_tb_db_state", "scorers/db_state.py")
+            lp = load("_tb_logical_projection", "scorers/logical_projection.py")
+            return SimpleNamespace(
+                entries=db._collection_entries, changed=lp._changed_entries,
+                refs=lp._resolve_references, unresolved=lp._UNRESOLVED, resolve=lp.resolve_logical_projection,
+                # schema 2 / 3: dotted paths (with __len__), type-exact numbers, normalized text
+                v2=SimpleNamespace(get=db._resolve_path, missing=db._MISSING, equal=db._type_exact_equal,
+                                   matches=db._matches_fields),
+                # schema 4: the same, with recursive projections for nested values ($unordered lists)
+                v4=SimpleNamespace(get=lp._resolve_path, missing=lp._MISSING, equal=lp.projection_value_equal,
+                                   matches=lp.projection_matches),
+                # the field map: plain ==
+                fields=SimpleNamespace(get=db._resolve_path, missing=db._MISSING, equal=lambda a, e: a == e),
+            )
+        except Exception:
+            return None
+        finally:
+            if lent:
+                sys.modules.pop(alias, None)
+    return None
+
+
+def _db_key(key: str) -> str:
+    """A row's key for display: a list collection's rows are keyed __list__:<index>."""
+    return f"#{key.removeprefix('__list__:')}" if key.startswith("__list__:") else key
+
+
+def _db_fields(cmp: SimpleNamespace, row: Any, fields: dict) -> list[dict]:
+    """Expected vs stored per field of one row (dotted paths reach into nested values)."""
+    out = []
+    for path, expected in fields.items():
+        actual = cmp.get(row, str(path))
+        item: dict[str, Any] = {"key": str(path), "expected": expected}
+        if actual is cmp.missing:
+            item.update(ok=False, note="no such field")
+        else:
+            item.update(actual=_projection(actual, expected), ok=bool(cmp.equal(actual, expected)))
+            if not item["ok"] and (note := _type_note(actual, expected, "stored")):
+                item["note"] = note
+        out.append(item)
+    return out
+
+
+def _db_assertion(tb: SimpleNamespace, cmp: SimpleNamespace, a: Any, final: dict, initial: dict | None) -> dict:
+    """One assertion as talk-bench decides it, with the rows that decided it: those selected or,
+    when none was, the row that came closest."""
+    if not (isinstance(a, dict) and isinstance(a.get("collection"), str)
+            and isinstance(a.get("selector"), dict) and isinstance(a.get("expected"), dict)):
+        return {"met": False, "reason": "malformed"}
+    selector, expected = a["selector"], a["expected"]
+    rows = tb.entries(final, a["collection"])
+    before = tb.entries(initial or {}, a["collection"])
+    keep = _DB_CHANGE.get(a.get("change"))
+    picked = {k: r for k, r in rows.items() if cmp.matches(r, selector)}
+    matched = {k: r for k, r in picked.items() if keep is None or keep(before, k, r)}
+    card, n = a.get("cardinality", "exactly_one"), a.get("expected_count")
+    count_ok = {
+        "exactly_one": len(matched) == 1,
+        "at_least_one": len(matched) >= 1,
+        "none": not matched,
+        "exactly_n": isinstance(n, int) and not isinstance(n, bool) and n > 0 and len(matched) == n,
+    }.get(card, False)
+    fields_ok = (not expected if card == "none"
+                 else bool(matched) and all(cmp.matches(r, expected) for r in matched.values()))
+    met = count_ok and fields_ok
+    reason = ("ok" if met else "count" if matched and not count_ok else "fields" if matched or card == "none"
+              else "change" if picked else "no_rows")
+
+    state = lambda k, r: (None if initial is None else "created" if k not in before
+                          else "updated" if before[k] != r else "unchanged")
+    out: dict[str, Any] = {
+        "met": met, "reason": reason, "rows": len(rows), "picked": len(picked), "matched": len(matched),
+        "matches": [{"key": _db_key(k), "state": state(k, r), "fields": _db_fields(cmp, r, expected)}
+                    for k, r in list(matched.items())[:5]],
+    }
+    if not matched and card != "none" and selector and rows:
+        # the closest row: of the selector's picks the change filter dropped, else the row that
+        # agrees on most selector fields (on none of them: nothing worth showing)
+        def closeness(item: tuple[str, dict]) -> tuple[int, bool, int]:
+            k, r = item
+            return (sum(x["ok"] for x in _db_fields(cmp, r, selector)), keep is None or keep(before, k, r),
+                    sum(x["ok"] for x in _db_fields(cmp, r, expected)))
+        k, r = max((picked or rows).items(), key=closeness)
+        if picked or closeness((k, r))[0]:
+            out["near"] = {"key": _db_key(k), "state": state(k, r), "fields": _db_fields(cmp, r, expected),
+                           **({} if picked else {"selector": _db_fields(cmp, r, selector)})}
+    return out
+
+
+def _db_bindings(tb: SimpleNamespace, bindings: dict, final: dict, initial: dict | None) -> tuple[list[dict], dict]:
+    """Schema 4's bindings resolved the way talk-bench resolves them (a binding may use earlier
+    ones): per binding its rows and value or error, and the values that did resolve."""
+    cmp, values, out = tb.v4, {}, {}
+    pending = dict(bindings)
+    while pending:
+        progressed = False
+        for name in list(pending):
+            b = pending[name]
+            selector = tb.refs(b.get("selector"), values) if isinstance(b, dict) else None
+            if selector is tb.unresolved:
+                continue
+            pending.pop(name)
+            progressed = True
+            if not (isinstance(b, dict) and isinstance(b.get("collection"), str) and isinstance(b.get("field"), str)
+                    and isinstance(selector, dict) and selector
+                    and b.get("change") == "created" and b.get("cardinality") == "exactly_one"):
+                out[name] = {"error": "invalid binding"}
+                continue
+            created = tb.changed(final, initial or {}, b["collection"], "created")
+            hits = [k for k, r in created.items() if cmp.matches(r, selector)]
+            info = {"collection": b["collection"], "selector": selector, "field": b["field"], "found": len(hits),
+                    "rows": [_db_key(k) for k in hits[:5]]}
+            if len(hits) != 1:
+                # rows the selector picks that were there before the call do not count
+                info["existing"] = sum(k not in created and cmp.matches(r, selector)
+                                       for k, r in tb.entries(final, b["collection"]).items())
+                out[name] = {**info, "error": f"expected exactly one created row, found {len(hits)}"}
+                continue
+            bound = cmp.get(created[hits[0]], b["field"])
+            if bound is cmp.missing or isinstance(bound, (dict, list)):
+                out[name] = {**info, "error": f"the row has no plain {b['field']} value"}
+            else:
+                values[name] = bound
+                out[name] = {**info, "value": bound}
+        if not progressed:
+            out.update({name: {"error": "uses a binding that did not resolve"} for name in pending})
+            break
+    return [{"name": name, **out[name]} for name in bindings if name in out], values
+
+
+def _db_checks(scenario: Any, final: Any, initial: Any, semantic: Any) -> dict | None:
+    """Per expected_state entry of scenario.json: talk-bench's verdict and the DB rows behind it.
+    Items line up with expected_state's assertions, or with its (collection, entity) pairs."""
+    es = _as_dict(_as_dict(_as_dict(scenario).get("evaluation")).get("expected_state"))
+    version = es.get("schema_version")
+    tb = _tb_db() if es and version in (None, 2, 3, 4) else None
+    if tb is None:
+        return None
+    final = final if isinstance(final, dict) else None
+    initial = initial if isinstance(initial, dict) else None
+    try:
+        return (_db_assertion_checks(tb, es, final, initial, semantic) if version
+                else _db_field_checks(tb, es, final))
+    except Exception:
+        return None
+
+
+def _db_field_checks(tb: SimpleNamespace, es: dict, final: dict | None) -> dict:
+    items = []
+    for coll, entities in es.items():
+        stored = (final or {}).get(coll) or {}
+        for entity, fields in entities.items():
+            row = stored.get(entity) if isinstance(stored, dict) else None
+            checks = _db_fields(tb.fields, row or {}, fields)
+            items.append({"met": all(c["ok"] for c in checks), "found": isinstance(row, dict), "fields": checks})
+    total = sum(len(i["fields"]) for i in items)
+    met = sum(c["ok"] for i in items for c in i["fields"])
+    return {"format": "fields", "unit": "fields", "met": met, "total": total,
+            "score": 0.0 if final is None else round(met / total, 4) if total else 1.0,
+            "problem": "no_db" if final is None else None, "items": items}
+
+
+def _db_assertion_checks(tb: SimpleNamespace, es: dict, final: dict | None, initial: dict | None,
+                         semantic: Any) -> dict:
+    version, assertions, bindings = es["schema_version"], es.get("assertions"), es.get("bindings")
+    out: dict[str, Any] = {"format": "assertions", "unit": "assertions", "schema_version": version, "problem": None}
+    if not isinstance(assertions, list):
+        return {**out, "problem": "malformed", "met": 0, "total": 0, "score": 1.0 if version < 4 else 0.0, "items": []}
+    out.update(total=len(assertions), items=[])
+    changes = any(isinstance(a, dict) and a.get("change") for a in assertions)
+    if final is None:
+        out["problem"] = "no_db"
+    elif version == 4 and not isinstance(bindings, dict):
+        out["problem"] = "malformed"
+    elif initial is None and (changes or version == 4 and bindings):
+        out["problem"] = "no_baseline"  # talk-bench cannot score it: 0
+    cmp = tb.v4 if version == 4 else tb.v2
+    values: dict = {}
+    if version == 4 and final is not None and isinstance(bindings, dict):
+        if bindings:
+            out["bindings"], values = _db_bindings(tb, bindings, final, initial)
+        if not out["problem"] and tb.resolve(final, es, initial)[1]:
+            out["problem"] = "binding"
+    judged = {c.get("assertion_index"): c for c in semantic or [] if isinstance(c, dict)}
+
+    for i, raw in enumerate(assertions):
+        a = tb.refs(raw, values) if version == 4 else raw
+        if final is None:
+            item = {"met": False, "reason": "no_db"}
+        elif a is tb.unresolved:
+            item = {"met": False, "reason": "binding"}
+        else:
+            item = _db_assertion(tb, cmp, a, final, initial)
+            sem = a.get("semantic_expected") if version == 3 and isinstance(a, dict) else None
+            if isinstance(sem, dict) and sem:
+                # free-text fields: the judge's stored verdict decides (no verdict: not met)
+                c = _as_dict(judged.get(i))
+                stored = next((f.get("fields") for f in c.get("actual_fields") or [] if isinstance(f, dict)), None) or {}
+                item["semantic"] = [{"key": k, "expected": v, **({"actual": stored[k]} if k in stored else {}),
+                                     "ok": c.get("met") is True} for k, v in sem.items()]
+                item["semantic_why"] = c.get("justification") or "no judge verdict stored"
+                if item["met"] and c.get("met") is not True:
+                    item.update(met=False, reason="semantic")
+            if out["problem"]:
+                item.update(alone=item["met"], met=False)
+        out["items"].append(item)
+    out["met"] = sum(i["met"] for i in out["items"])
+    out["score"] = 0.0 if out["problem"] else round(out["met"] / len(assertions), 4) if assertions else 1.0
+    return out
+
+
 def _run_meta(sdir: Path) -> dict[str, Any]:
     """run_meta.json without db_state (huge and rarely needed inline)."""
     meta = _load_json(sdir / "run_meta.json")
@@ -1008,7 +1278,9 @@ def _run_meta(sdir: Path) -> dict[str, Any]:
 @app.get("/api/scenario")
 def api_scenario(path: str = Query(...)):
     sdir = _data_dir_at_depth(path, 2, "scenario")
-    meta = _run_meta(sdir)
+    raw_meta = _load_json(sdir / "run_meta.json")
+    meta = dict(raw_meta) if isinstance(raw_meta, dict) else {}
+    final_db = meta.pop("db_state", None)  # huge: graded below, not sent
 
     # per-scenario scores live in the parent run's result files
     _, scenario_summary, session_result = _scenario_results(sdir)
@@ -1030,6 +1302,8 @@ def api_scenario(path: str = Query(...)):
         "conversation": conversation,
         "tool_log": tool_log,
         "action_checks": _action_checks(scenario, tool_log),
+        "db_checks": _db_checks(scenario, final_db, _load_json(sdir / "db_state_initial.json"),
+                                _as_dict(_as_dict(session_result).get("task_completion")).get("db_semantic_checks")),
         "transcript": transcript,
         "run_meta": meta,
         "scenario_summary": scenario_summary,

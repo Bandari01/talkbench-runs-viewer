@@ -375,6 +375,7 @@
   .tp-loose { color: var(--faint); }
   /* an expected action's comparison: compared argument / result check, expected value, the agent's value under it */
   .tp-legend { margin: 2px 0 6px; font-size: 11.5px; color: var(--muted); cursor: help; }
+  .tp-problem { margin: 0 0 6px; font-size: 12px; color: var(--fail); }
   .tp-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
   .tp-head > span:first-child { margin-right: auto; min-width: 0; }
   .tp-head .tp-call { margin-left: auto; }
@@ -2339,8 +2340,8 @@ function renderScores(summary, sess, scenario) {
 /* ---------- task & grading panel (scenario page, sticky beside the transcript) ---------- */
 /* scenario.json's task (what the simulated caller wants, is told and knows) and its grading
    criteria, each marked with the judge's verdict where talk_bench_evaluation_result.json has one:
-   communicate / NL checks per criterion; actions only per factor, so a single action is ✗ just
-   when it was never called; DB state per factor. */
+   communicate / NL checks per criterion; actions and DB state per expectation, recomputed with
+   talk-bench's own matching (action_checks / db_checks), else actions only per factor. */
 const critText = c => typeof c === 'string' ? c : c?.text ?? JSON.stringify(c);
 const tpVal = v => typeof v === 'string' ? v : JSON.stringify(v);
 const TP_MARKS = { ok: '✓', bad: '✗', unk: '·' };
@@ -2381,11 +2382,12 @@ const tpRefText = v => v?.$action_result ? `← ${v.$action_result.action_id}.${
 // one comparison row: mark, what is compared, the expected value and, when it differs, what the call had
 function tpCmpRow(r, label, val) {
   const mark = tpMark(r.ok == null ? 'unk' : r.ok ? 'ok' : 'bad', r.ok == null ? 'not compared: no call' : r.ok ? 'equal' : 'differs');
-  // a value taken from an earlier step's result: where from, then the value it resolved to
-  const ref = r.ref ? `<span class="tp-ref" title="taken from the result of ${esc(r.ref.action_id)}'s matched call">← ${esc(r.ref.action_id)}.${esc(r.ref.path)}</span>` : '';
+  // a value taken from an earlier step's result (or a DB binding): where from, then the value it resolved to
+  const ref = !r.ref ? '' : r.ref.label ? `<span class="tp-ref" title="${esc(r.ref.title)}">← ${esc(r.ref.label)}</span>`
+    : `<span class="tp-ref" title="taken from the result of ${esc(r.ref.action_id)}'s matched call">← ${esc(r.ref.action_id)}.${esc(r.ref.path)}</span>`;
   if (val == null && !('expected' in r)) {
     // nothing to compare with: the call this value comes from was not matched, or the key has no value
-    const why = r.ref ? `${r.ref.action_id} not matched, so no value` : r.note || 'no expected value';
+    const why = r.ref && !r.ref.label ? `${r.ref.action_id} not matched, so no value` : r.note || 'no expected value';
     val = `<span class="tp-note">${esc(why)}</span>${'actual' in r ? `<span class="tp-got-line">got ${tpValHTML(r.actual, 'tp-got')}</span>` : ''}`;
   } else if (val == null) {
     const same = 'actual' in r && tpVal(r.actual) === tpVal(r.expected);
@@ -2456,6 +2458,130 @@ function actionCheckItem(a, c) {
     ${loose.length ? `<div class="tp-verdict tp-loose" title="${esc(loose.map(k => `${k}: ${tpVal(args0[k])}`).join('\n'))}">not compared: ${loose.map(esc).join(', ')}</div>` : ''}
   </li>`;
 }
+
+/* An expected DB state as talk-bench graded it (db_checks from /api/scenario): its verdict, why, and
+   the rows of the final DB (run_meta.json's db_state; db_state_initial.json tells what the call
+   created or updated) that decided it, field by field next to the expected value. Assertions
+   (schema 2-4) count only as a whole; the old field map counts each field. */
+const DB_COUNT = a => ({ exactly_one: 'exactly 1', at_least_one: 'at least 1', none: 'none',
+  exactly_n: `exactly ${a.expected_count}` })[a.cardinality || 'exactly_one'] || a.cardinality;
+const DB_CHANGE = { created: 'created', updated: 'updated', changed: 'created or changed' };
+const DB_STATE = { created: 'created during the call', updated: 'updated during the call', unchanged: 'unchanged since the start' };
+const dbRefName = v => v && typeof v === 'object' && Object.keys(v).length === 1 && typeof v.$ref === 'string' ? v.$ref : null;
+const dbRefNames = v => !v || typeof v !== 'object' ? [] : dbRefName(v) ? [v.$ref] : Object.values(v).flatMap(dbRefNames);
+const nRows = n => `${n} row${n === 1 ? '' : 's'}`;
+
+// "where" of a selector, a binding's generated id shown as its name and the value it bound
+function dbWhere(selector, binds) {
+  const parts = Object.entries(selector || {}).map(([k, v]) => {
+    const name = dbRefName(v);
+    if (!name) return `${esc(k)} = ${esc(tpVal(v))}`;
+    const b = binds[name];
+    return `${esc(k)} = <span title="the id bound by ${esc(name)}">← ${esc(name)}</span>${b && 'value' in b ? ` (${esc(tpVal(b.value))})` : ' (unresolved)'}`;
+  });
+  return parts.length ? `<span class="tp-loose">where ${parts.join(', ')}</span>` : '';
+}
+
+// one row of the DB: which and how it changed, then its fields (the selector's too, when it missed)
+function dbRowRows(label, row, raw) {
+  const withRef = (fields, rawFields) => fields.map(r => {
+    const name = dbRefName(rawFields?.[r.key]);
+    return tpCmpRow(name ? { ...r, ref: { label: name, title: `the id bound by ${name}` } } : r);
+  });
+  return [
+    `<span class="sub">${esc(label)} <span class="mono">${esc(row.key)}</span>${row.state ? ` · ${DB_STATE[row.state] || esc(row.state)}` : ''}</span>`,
+    ...(row.selector ? ['<span class="sub">where</span>', ...withRef(row.selector, raw.selector), '<span class="sub">expected</span>'] : []),
+    ...withRef(row.fields || [], raw.expected),
+  ];
+}
+
+function dbWhy(a, c, binds) {
+  const change = DB_CHANGE[a.change];
+  const sel = Object.keys(a.selector || {}).length;
+  const during = change ? `${change} during the call` : '';
+  switch (c.reason) {
+    case 'ok': return '';
+    case 'no_rows': return !c.rows ? `${a.collection} has no rows in the final DB` : `none of the ${c.rows} ${a.collection} rows matches the selector`;
+    case 'change': return !sel ? (c.rows === 1 ? `its only row was not ${during}` : `none of the ${c.rows} rows was ${during}`)
+      : c.picked === 1 ? `1 row matches the selector, but it was not ${during}` : `${c.picked} rows match the selector, but none was ${during}`;
+    case 'count': return a.cardinality === 'none' ? `${nRows(c.matched)} ${sel ? 'match the selector' : 'found'}${during ? ` (${during})` : ''}, none allowed`
+      : `${nRows(c.matched)}${during ? ` ${during}` : ''}${sel ? `${during ? ' and' : ''} matching the selector` : ''}, ${DB_COUNT(a)} expected`;
+    case 'fields': return c.matched > 1 ? `a field differs in at least one of the ${c.matched} rows` : 'a field differs';
+    case 'semantic': return 'a free-text field was judged different';
+    case 'binding': {
+      const names = [...new Set([...dbRefNames(a.selector), ...dbRefNames(a.expected)].filter(n => !('value' in (binds[n] || {}))))];
+      return `uses ${names.join(', ') || 'a binding'}, which did not resolve`;
+    }
+    case 'malformed': return 'malformed assertion: never met';
+    case 'no_db': return 'no final DB snapshot';
+  }
+  return c.met ? '' : 'not met';
+}
+
+function dbAssertionItem(a, c, binds) {
+  // a whole-DB problem (a binding that did not resolve, no baseline; said above the list) zeroes
+  // every assertion: one that passes on its own says so
+  const why = c.alone ? 'matches on its own, but not credited (see above)' : dbWhy(a, c, binds);
+  const mark = tpMark(c.met ? 'ok' : 'bad', why || 'matched');
+  // no row to show: what a row would have been compared on
+  const expect = !c.matches?.length && !c.near ? Object.entries(a.expected || {}).map(([k, v]) => {
+    const name = dbRefName(v);
+    if (!name) return tpCmpRow({ ok: null, expected: v }, k);
+    const ref = { label: name, title: `the id bound by ${name}` };
+    return tpCmpRow('value' in (binds[name] || {}) ? { ok: null, expected: binds[name].value, ref } : { ok: null, ref, note: 'did not resolve' }, k);
+  }) : [];
+  const extra = [DB_CHANGE[a.change] && esc(a.change), esc(DB_COUNT(a))].filter(Boolean).join(' · ');
+  const rows = [
+    ...(c.matches || []).flatMap(m => dbRowRows(c.matches.length > 1 ? 'row' : 'matched row', m, a)),
+    ...(c.matched > (c.matches || []).length ? [`<span class="sub">+ ${c.matched - c.matches.length} more rows</span>`] : []),
+    ...(c.near ? dbRowRows('closest row', c.near, a) : []),
+    ...(expect.length ? ['<span class="sub">expected</span>', ...expect] : []),
+    ...(c.semantic?.length ? ['<span class="sub">free text, judged</span>', ...c.semantic.map(r => tpCmpRow(r))] : []),
+  ];
+  return `<li class="tp-item">
+    <div class="tp-row">${mark}<span><span class="mono tp-name">${esc(a.collection)}</span>${extra ? ` <span class="tp-extra">${extra}</span>` : ''}${
+      Object.keys(a.selector || {}).length ? `<span class="tp-args">${dbWhere(a.selector, binds)}</span>` : ''}</span></div>
+    ${why ? `<div class="tp-verdict bad">${esc(why)}</div>` : ''}
+    ${c.semantic_why && (c.reason === 'semantic' || c.met) ? `<div class="tp-why">${esc(c.semantic_why)}</div>` : ''}
+    ${rows.length ? `<div class="tp-cmp${expect.length ? ' expect' : ''}">${rows.join('')}</div>` : ''}
+  </li>`;
+}
+
+// the old field map: one item per (collection, entity), a mark per field
+function dbEntityItem(coll, id, c) {
+  const ok = c.fields.filter(f => f.ok).length;
+  const why = !c.found ? 'not in the final DB' : c.met ? '' : `${ok} of ${c.fields.length} fields match`;
+  return `<li class="tp-item">
+    <div class="tp-row">${tpMark(c.met ? 'ok' : 'bad', why || 'every field matches')}<span><span class="mono tp-name">${esc(coll)}</span> <span class="tp-extra">${esc(id)}</span></span></div>
+    ${why ? `<div class="tp-verdict bad">${esc(why)}</div>` : ''}
+    <div class="tp-cmp">${c.fields.map(r => tpCmpRow(r)).join('')}</div>
+  </li>`;
+}
+
+// schema 4's bindings: the generated ids an assertion may refer to as {"$ref": name}
+function dbBindingsHTML(bindings) {
+  if (!bindings?.length) return '';
+  const item = b => {
+    const ok = 'value' in b;
+    const why = ok ? `= ${tpVal(b.value)}` : b.found > 1 ? `${b.found} created rows match (${b.rows.join(', ')}), exactly 1 needed`
+      : b.found === 0 ? `no row created during the call matches${b.existing ? `; ${nRows(b.existing)} matching existed before the call` : ''}`
+      : b.error;
+    return `<li class="tp-item">
+      <div class="tp-row">${tpMark(ok ? 'ok' : 'bad', ok ? 'resolved' : 'did not resolve')}<span><span class="mono tp-name">${esc(b.name)}</span>${
+        b.collection ? ` <span class="tp-extra">${esc(b.field)} of the ${esc(b.collection)} row created</span>` : ''}${
+        b.selector ? `<span class="tp-args">${dbWhere(b.selector, {})}</span>` : ''}</span></div>
+      <div class="tp-verdict${ok ? '' : ' bad'}">${esc(why)}</div></li>`;
+  };
+  return `<div class="tp-k" title="Generated ids are left out of the expectations: each binding picks the one row created during the call with these fields, and assertions use its value as ← name">Bindings (generated ids)</div>
+    <ul class="tp-list tp-binds">${bindings.map(item).join('')}</ul><div class="tp-k">Assertions</div>`;
+}
+
+const DB_PROBLEMS = {
+  binding: 'A binding did not resolve (see below), so talk-bench scores the whole DB state 0, whatever the assertions say.',
+  no_baseline: "No db_state_initial.json: talk-bench can't tell what the call created or updated and scores the whole DB state 0.",
+  no_db: 'run_meta.json has no final DB snapshot (db_state): talk-bench scores DB state 0.',
+  malformed: 'expected_state is malformed: talk-bench scores DB state 0.',
+};
 
 // a "call k/n" button in the panel: label it with the call's time in the transcript, and on click
 // bring that call into view (on a narrow screen the open panel would cover it, so it closes)
@@ -2546,13 +2672,30 @@ function taskPanelHTML(d) {
 
   const es = ev.expected_state;
   const kv = o => Object.entries(o || {}).map(([k, v]) => `<span>${esc(k)} = ${esc(tpVal(v))}</span>`).join('');
+  // db_checks lines up with expected_state's assertions, or with its (collection, entity) pairs;
+  // without it (no talk-bench checkout) the expectations are listed unmarked
+  const dc = d.db_checks;
+  const binds = Object.fromEntries((dc?.bindings || []).map(b => [b.name, b]));
   const dbItems = !es || typeof es !== 'object' ? []
-    : Array.isArray(es.assertions) ? es.assertions.map(a => tpItem(
+    : Array.isArray(es.assertions) ? es.assertions.map((a, i) => dc?.items?.[i] && a && typeof a === 'object'
+      ? dbAssertionItem(a, dc.items[i], binds) : tpItem(
         `<span class="mono tp-name">${esc(a.collection)}</span> <span class="tp-extra">${[a.change, a.cardinality?.replace(/_/g, ' ')].filter(Boolean).map(esc).join(' · ')}</span>
          <span class="tp-args">${Object.keys(a.selector || {}).length ? `<span class="tp-loose">where ${Object.entries(a.selector).map(([k, v]) => `${esc(k)} = ${esc(tpVal(v))}`).join(', ')}</span>` : ''}${kv(a.expected)}</span>`))
     : 'schema_version' in es ? []
-    : Object.entries(es).flatMap(([coll, ents]) => Object.entries(ents || {}).map(([id, fields]) => tpItem(
-        `<span class="mono tp-name">${esc(coll)}</span> <span class="tp-extra">${esc(id)}</span><span class="tp-args">${kv(fields)}</span>`)));
+    : Object.entries(es).flatMap(([coll, ents]) => Object.entries(ents || {}).map(([id, fields]) => [coll, id, fields]))
+      .map(([coll, id, fields], i) => dc?.format === 'fields' && dc.items[i] ? dbEntityItem(coll, id, dc.items[i]) : tpItem(
+        `<span class="mono tp-name">${esc(coll)}</span> <span class="tp-extra">${esc(id)}</span><span class="tp-args">${kv(fields)}</span>`));
+  const dbFields = dc?.format === 'fields';
+  const dbLegend = !dc ? '' : `<div class="tp-legend" title="${dbFields
+      ? 'Plain equality: text is case-sensitive, 36 equals 36.0. A dotted field reaches into nested values (flights.0.date), __len__ is a length.'
+      : 'Text is compared after canonicalization (case, punctuation, spelled-out digits, currency and phone formatting); numbers and booleans must match in type too (36 ≠ 36.0). A nested expected value passes when every key it lists matches; lists keep length and order unless marked $unordered.'}">${dbFields
+      ? 'Each field compared with the final DB in run_meta.json; the score is the share of equal fields.'
+      : 'Compared with the final DB in run_meta.json, and with db_state_initial.json for what the call created or updated. An assertion counts only as a whole: the rows its selector picks, kept to those its change names, must be as many as it asks and each have every expected field.'}</div>
+    ${dc.problem ? `<div class="tp-problem">${esc(DB_PROBLEMS[dc.problem] || dc.problem)}</div>` : ''}
+    ${dbBindingsHTML(dc.bindings)}`;
+  const dbFactor = factors.DB ?? (dc?.total ? [dc.problem ? 0 : dc.met, dc.total] : null);
+  const dbBadgeTitle = factors.DB == null && dc?.total ? "Recomputed from the DB snapshots with talk-bench's scorer; this scenario's result has no DB score"
+    : dbFields ? 'equal fields / expected fields' : dc ? 'assertions met / assertions' : '';
 
   // a prohibited action breaks the rule when any agent call has its name and arguments (case-insensitive)
   const forbiddenAction = (a, i) => {
@@ -2581,7 +2724,7 @@ function taskPanelHTML(d) {
       ac ? `<div class="tp-legend" title="Plain matching ignores case and treats a missing or empty value as null. A step whose chain uses an earlier call's result is matched with normalized values instead: formatting-tolerant text (913-555-0148 = 9135550148), but numbers must match in type too (36 ≠ 36.0).">Matched against the agent's calls in tool_log.json: same tool, every compared argument equal, every result check passed.</div>` : ''),
     tpGroup('Communicate', judged(ev.communicate_info || [], tc?.communicate_checks, 'expected_info'), factors.COMMUNICATE, basis, 'COMMUNICATE'),
     tpGroup('NL assertions', judged(ev.nl_assertions || [], tc?.nl_assertion_checks, 'assertion'), factors.NL_ASSERTION, basis, 'NL_ASSERTION'),
-    tpGroup('DB state', dbItems, factors.DB, basis, 'DB'),
+    tpGroup('DB state', dbItems, dbFactor, basis, 'DB', dbBadgeTitle, dbLegend),
     forbiddenGroup,
   ].join('');
   const LABELS = { ACTION: 'Actions', COMMUNICATE: 'Communicate', NL_ASSERTION: 'NL assertions', DB: 'DB state' };
