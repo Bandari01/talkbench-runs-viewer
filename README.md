@@ -9,50 +9,37 @@ data/<run-dir>/        # one run directory, copied verbatim (results.json, per-s
 ```
 
 Run directory names are globally unique, so runs from every checkout and both projects sit in one
-flat folder. `data/` is gitignored (tens of GB); set `VIEWER_DATA_DIR` to keep it elsewhere.
+flat folder. `data/` is gitignored (tens of GB); `VIEWER_DATA_DIR` in `.env` (absolute, or relative
+to this repo) keeps it elsewhere — restart the viewer after changing it.
 Stars, notes, deleted-run names, test jobs and scheduled tests live in dotfiles next to the runs (`data/.stars.json`,
 `data/.run_notes.json`, `data/.deleted_runs.json`, `data/.test_jobs/`, `data/.test_schedules.json`).
 
 Getting runs in:
 
-- **Sync sources** (top bar): clones every new or changed run from the local `ai-ds-research`
-  checkouts — `~/GitHub/ai-ds-research`, `~/Documents/tau2-bench-fork/ai-ds-research`, or the
-  `:`-separated paths in `VIEWER_SOURCE_REPOS` — with APFS `cp -c`, so the copy costs almost no disk.
+- **Run test**: runs started from the viewer are written straight into the data dir
+  (`talk-bench run … --output-dir <VIEWER_DATA_DIR>`), so there is nothing to copy or sync (see below).
+- **Sync sources** (top bar), for runs started from a terminal: moves runs out of the local
+  `ai-ds-research` checkouts — `~/GitHub/ai-ds-research`, `~/Documents/tau2-bench-fork/ai-ds-research`,
+  or the `:`-separated paths in `VIEWER_SOURCE_REPOS`. Every new or changed run is cloned with APFS
+  `cp -c` (almost no disk), then the checkout's copy is **deleted** once the archive holds every file
+  of it (same size and mtime) and nothing will write to it again: it has `results.json`, *Resume* has
+  nothing left to redo or score in it, no test of the viewer runs in it, and none of its files changed
+  in the last 2 minutes (a talk-bench started in a terminal may be writing it). The runs kept back stay
+  where `--resume` finds them and go at a later Sync, once finished. The checkouts' `data/` is
+  gitignored, so a moved run exists only in the archive from then on. A terminal run started with
+  `--output-dir <VIEWER_DATA_DIR>` needs no sync either.
 - **Drag & drop**: drop one run folder, or a folder of runs, anywhere on the run list.
-- **Run test**: runs started from the viewer are copied in automatically (see below).
 
-**Deleting a run** (trash icon on a run-list row, or *Delete run* on the run page, after a
-confirmation) deletes the archived copy, its star and note, and with S3 configured every object of
-the run in the bucket (versioning keeps them as noncurrent versions for 30 days). The copy in an
-`ai-ds-research` checkout is kept; the name goes into `data/.deleted_runs.json` so Sync sources skips
-it. Dropping the run in again, or a Run test job copying it (e.g. a resume), takes it off that list.
-A run a test is still writing cannot be deleted.
+**Selecting runs**: the checkboxes on the run list (shift-click selects a range, the header box
+every run shown) open a bar to hide, show or delete the selected runs at once; changing the
+filters drops runs that are no longer shown from the selection.
 
-### S3 archive
-
-With `VIEWER_S3_URI=s3://<bucket>/<prefix>` (and `VIEWER_S3_PROFILE`, see `.env.example`) in `.env`, the
-archive lives in S3 and this machine keeps a light copy: every file of every run is uploaded, then
-the wavs and the multi-MB `run_meta.json` / `db_state_initial.json` (~99% of the bytes) are deleted
-locally. The run list, run and scenario pages, Compare and the AI features read only the light files
-(the S3 manifest keeps the wav headers and run_meta's small fields). A wav downloads the first time
-it plays, any other file of a scenario's file list (marked *in S3*) when it is opened; downloaded
-files stay until `VIEWER_S3_CACHE_GB` (default 5) is used, oldest first. The bucket layout is described
-in `app/s3store.py`.
-
-Runs that arrive through Sync sources, drag & drop or Run test are uploaded in the background and
-their heavy files dropped afterwards (`VIEWER_S3_AUTO_OFFLOAD=0` keeps them). The sidebar footer shows
-uploads in progress and S3 errors, such as an expired SSO login (`aws sso login --profile <profile>`).
-The first migration and maintenance use the CLI:
-
-```bash
-uv run python -m app.s3store status          # what is uploaded, what could be offloaded
-uv run python -m app.s3store push            # upload new and changed files of every local run
-uv run python -m app.s3store offload         # delete local heavy files that S3 holds (asks first)
-uv run python -m app.s3store pull [RUN ...]  # light copy of runs only in S3 (--full: every file)
-```
-
-A heavy file is deleted only while it still matches its manifest entry (size + mtime) and S3 lists an
-object of the same size, so `offload` after an interrupted `push` keeps whatever is not uploaded yet.
+**Deleting a run** (trash icon on a run-list row, the selection bar, or *Delete run* on the run page,
+after a confirmation) deletes only the run's files in the data dir, plus its star and note — for a
+run started from Run test, or one Sync moved, that is the only copy. Nothing in an `ai-ds-research`
+checkout is touched: a copy still there (a run that can be resumed) stays, and the name goes into
+`data/.deleted_runs.json` so Sync sources skips it. Dropping the run in again, or a Run test job
+copying it (e.g. a resume), takes it off that list. A run a test is still writing cannot be deleted.
 
 ## Viewer
 
@@ -91,7 +78,7 @@ the viewer through a tunnel, put the access control there (e.g. `ngrok http 8377
   places each message's speech from the VAD segments
 - **中文翻译** on the transcript puts a Simplified Chinese translation under each turn (same LLM as
   Ask AI). It is saved as `.transcript_zh.json` beside `conversation.json` — a dotfile, so it stays
-  out of the file list and S3 — and shows straight away on later visits while the reader leaves
+  out of the file list — and shows straight away on later visits while the reader leaves
   translations on; a scenario not translated yet is only translated on a click
 - **Compare runs**: two runs aligned by scenario id — both pass / only A / only B / both fail,
   aggregates over the shared scenarios, per-scenario table with an "only where the two disagree"
@@ -124,8 +111,11 @@ button that reduces a copied log line or agent link to the value. The fields edi
 place; *Edit full YAML* opens the rest. The server validates the YAML the way talk-bench's
 `AgentConfig` does. Source / domain / split are read from the checkout's data files; ticking
 scenarios sets `--scenario-ids`. Jobs show live progress and a streaming log, can be stopped (the
-process group is killed; talk-bench has no graceful stop) and resumed with `--resume`, and the run
-is cloned into the archive as scenarios finish and when the run ends. At most 4 tests run at once:
+process group is killed; talk-bench has no graceful stop) and resumed with `--resume`. The run dir
+is in the data dir from the start, so it shows up in the run list within seconds and is re-read as
+scenarios start and finish. A test whose run dir is in a checkout (a job recorded before that change, or
+a resume of a run a checkout holds) clones it in as scenarios finish; once it completes with nothing
+left to resume, its checkout copy is deleted, as Sync does. At most 4 tests run at once:
 Start test and Resume are refused beyond that (a scheduled run waits for a slot), and Resume is
 refused while another test is still running in the same run directory. Tests run in their own
 session, so restarting the viewer does not stop them: on startup it re-attaches to running tests,
@@ -138,10 +128,11 @@ recorded, and merges them into the same `results.json`. The page offers it in th
 newest test of each run directory once it ended with scenarios left (stopped, crashed, or done with
 errored scenarios: the `Errors: N` line after `Score:`), in *Resume a partial run*, which lists
 every run in the checkouts' `data/runs` that has such scenarios — also runs started from a
-terminal — and as *Resume…* on the page of such a run. The counts come from the files talk-bench's
+terminal — plus the ones tests on this page wrote into the data dir, and as *Resume…* on the page
+of such a run. A run is resumed where it lives: in the checkout if one holds it, else in the data dir. The counts come from the files talk-bench's
 resume reads (each scenario's `run_meta.json` end reason, `results.json`); runs that left no
-scenario directory are not listed (start the test again instead), and imported runs no checkout
-holds cannot be resumed.
+scenario directory are not listed (start the test again instead), and runs without a
+`run_config.json` (made before `--resume` existed) cannot be resumed.
 
 **User simulator.** `talk-bench` (default) is talk-bench's own `EventDrivenSimulator`. `tau2 native`
 has tau2-bench's own voice user simulator play the caller in a voice run, and the page then runs

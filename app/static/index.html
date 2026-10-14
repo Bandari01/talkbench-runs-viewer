@@ -328,6 +328,32 @@
   .tp-args { display: block; margin-top: 2px; font-family: var(--mono); font-size: 11.5px; }
   .tp-args > span { display: block; }
   .tp-loose { color: var(--faint); }
+  /* an expected action's comparison: compared argument / result check, expected value, the agent's value under it */
+  .tp-legend { margin: 2px 0 6px; font-size: 11.5px; color: var(--muted); cursor: help; }
+  .tp-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+  .tp-head > span:first-child { margin-right: auto; min-width: 0; }
+  .tp-head .tp-call { margin-left: auto; }
+  .tp-call { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; }
+  .tp-call:hover:not(:disabled) { color: var(--fg); border-color: var(--faint); }
+  .tp-call:disabled { cursor: default; opacity: .6; }
+  .tp-call:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+  .tp-verdict { margin: 2px 0 0 20px; font-size: 12px; color: var(--muted); }
+  .tp-verdict.bad { color: var(--fail); }
+  .tp-cmp { display: grid; grid-template-columns: 14px fit-content(45%) minmax(0, 1fr); gap: 2px 6px; align-items: baseline; margin: 4px 0 0 20px; font-family: var(--mono); font-size: 11.5px; }
+  .tp-cmp .tp-mark { width: auto; font-family: var(--sans); }
+  .tp-cmp .k { color: var(--muted); overflow-wrap: anywhere; }
+  .tp-cmp .v { min-width: 0; color: var(--fg-soft); overflow-wrap: anywhere; }
+  .tp-cmp.expect .v { color: var(--muted); }
+  .tp-cmp .sub { grid-column: 1 / -1; margin-top: 3px; font-family: var(--sans); font-size: 11px; color: var(--faint); }
+  .tp-got-line { display: block; color: var(--muted); }
+  .tp-got { color: var(--fail); }
+  .tp-same { color: var(--faint); }
+  .tp-ref { color: var(--faint); }
+  .tp-cmp .v > .tp-ref:first-child { display: block; }
+  .tp-note { display: block; font-family: var(--sans); color: var(--muted); }
+  .tp-long > summary { display: inline; color: inherit; font: inherit; cursor: pointer; }
+  .tp-long > summary::before { content: none; }
+  .tp-long[open] > summary { display: none; }
 
   /* ---------- scenario nav & buttons ---------- */
   .scen-nav { display: flex; align-items: center; gap: 8px; margin-left: auto; }
@@ -364,6 +390,18 @@
   .delcell { cursor: pointer; user-select: none; }
   .delcell:hover .trash { color: var(--fail); }
   tr.row-busy { opacity: .5; pointer-events: none; }  /* a run being deleted */
+  .selcell { width: 14px; padding-right: 0 !important; cursor: pointer; user-select: none; }
+  .selcell input { width: 14px; height: 14px; margin: 2px 0 0; vertical-align: top; cursor: pointer; }
+  th.selcell input { margin: 0; vertical-align: -2px; }
+  .table-card tbody tr.selected { background: color-mix(in srgb, var(--link) 7%, transparent); }
+  .table-card tbody tr.rowlink.selected:hover { background: color-mix(in srgb, var(--link) 11%, transparent); }
+  /* the selected runs' actions: sticks to the bottom of the window while the list runs past it */
+  .bulk-bar {
+    position: sticky; bottom: 16px; z-index: 6; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin: 0 12px 12px; padding: 8px 10px 8px 14px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface); box-shadow: var(--shadow-pop);
+  }
+  .bulk-bar .bulk-n { margin-right: auto; font-size: 13px; font-weight: 500; }
   .run-name { overflow-wrap: anywhere; }
   .run-suffix { color: var(--muted); }  /* -<N>trials-<timestamp>-run-<id>: repeats the Time column */
   .ratio { display: block; width: 56px; height: 3px; margin-top: 7px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
@@ -526,7 +564,6 @@
 
   .filelist { columns: 2; font-size: 12.5px; }
   .filelist div { break-inside: avoid; padding: 2px 0; }
-  .side-warn { margin-top: 6px; color: var(--fail); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 
   /* ---------- run test ---------- */
   .seg { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); flex-wrap: wrap; }
@@ -603,6 +640,8 @@
   @keyframes grow-x       { from { transform: scaleX(0); } }
   @keyframes star-pop     { 40% { transform: scale(1.35); } }
   @keyframes saved-flash  { from { border-color: var(--pass-border); background-color: var(--pass-bg); } }  /* colour only: one field, once, on a user save */
+  @keyframes call-flash   { from, 40% { border-color: var(--faint); background-color: var(--surface-3); } }  /* colour only: the transcript call picked in the grading panel */
+  .tool-call.flash { animation: call-flash 1.6s var(--ease-out); }
 
   /* route changes (route / setView): the old page dims while the next one loads, the skeleton only shows after 180 ms,
      and each route plays one entrance; in-place updates and polling never add .view-enter */
@@ -647,6 +686,7 @@
   /* action feedback */
   .star.pop svg { animation: star-pop .32s var(--ease-out); }  /* on the svg: .starcell:hover .star owns the span's transform */
   tr.row-leave { opacity: 0; transition: opacity .16s var(--ease-out); pointer-events: none; }  /* a hidden / unhidden run fades out of the list */
+  .bulk-bar:not([hidden]) { animation: view-in var(--dur-2) var(--ease-out); }  /* on the first selection only, not on every count change */
   .just-saved { animation: saved-flash .9s var(--ease-out); }
   .copy-feedback:not(:empty) { animation: fade-in var(--dur-1) var(--ease-out); }
 
@@ -722,7 +762,7 @@
         <input id="q" placeholder="Search runs, agents, notes…" autocomplete="off">
         <kbd>/</kbd>
       </div>
-      <button class="btn" id="syncBtn" hidden type="button"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>Sync sources</button>
+      <button class="btn" id="syncBtn" hidden type="button" title="Copy new runs from the ai-ds-research checkouts into the archive, then delete the checkout copies of finished runs (runs that can still be resumed stay)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>Sync sources</button>
       <button class="icon-btn" id="themeBtn" aria-label="Theme" type="button"></button>
     </div>
   </header>
@@ -761,7 +801,6 @@ let RUNS = null;
 let STARS = new Set();
 let NOTES = {};
 let LLM_MODEL = '';  // the model behind Ask AI, reported by /api/runs
-let S3 = null;  // the S3 archive's upload status, reported by /api/runs (null: not configured)
 
 const dataHref = path => '/data/' + path.split('/').map(encodeURIComponent).join('/');
 const scenHref = (runPath, id) => '#/scenario/' + encodeURIComponent(runPath + '/' + id);
@@ -808,11 +847,14 @@ const hideIcon = path => HIDDEN.has(path)
   ? `<span class="eye on" title="Hidden on this computer — click to show it again">${ICONS.eyeOff}</span>`
   : `<span class="eye" title="Hide this run from the list on this computer">${ICONS.eyeOff}</span>`;
 
-// Deleting a run removes the archived copy and, with S3 configured, its S3 copy; a checkout's copy
-// is kept and Sync skips the run from then on. Callers ask first (confirm before any busy state).
-const confirmDeleteRun = path => confirm(`Delete run "${path}"?\n\n`
-  + `This deletes the archived copy${S3 ? ' and its S3 copy' : ''}, its star and its note. A copy in an `
-  + 'ai-ds-research checkout is kept, and Sync will not bring the run back. This cannot be undone from the viewer.');
+// Deleting a run removes only its files in the archive; a copy still in a checkout is kept and Sync skips the run from then on. Callers ask first (confirm before any busy state).
+const DELETE_NOTE = "Only the files in the viewer's archive are deleted, together with stars and notes. For runs started "
+  + 'from Run test, and runs Sync moved out of a checkout, that is the only copy. Nothing in an ai-ds-research checkout '
+  + 'is touched: a copy still there (a run that can be resumed) stays, and Sync will not bring it back. '
+  + 'This cannot be undone from the viewer.';
+const confirmDeleteRun = path => confirm(`Delete run "${path}"?\n\n${DELETE_NOTE}`);
+const confirmDeleteRuns = paths => paths.length === 1 ? confirmDeleteRun(paths[0]) : confirm(`Delete ${paths.length} runs?\n\n`
+  + paths.slice(0, 8).join('\n') + (paths.length > 8 ? `\n…and ${paths.length - 8} more` : '') + `\n\n${DELETE_NOTE}`);
 
 async function deleteRun(path) {
   const r = await fetch('/api/run?path=' + encodeURIComponent(path), { method: 'DELETE' });
@@ -826,7 +868,7 @@ async function deleteRun(path) {
     for (const k of Object.keys(store)) if (k === path || k.startsWith(path + '/')) delete store[k];
   }
   if (HIDDEN.delete(path)) saveHidden();
-  setUpStatus(`Deleted ${path}` + (res.s3_objects ? ` · ${res.s3_objects} S3 objects` : ''));
+  setUpStatus(`Deleted ${path}`);
 }
 
 // a one-shot green flash on a note field that just saved
@@ -849,6 +891,13 @@ async function saveRunNote(path, value) {
 }
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// run and job times are kept in UTC and shown as Beijing time (UTC+8, no DST)
+const fmtBJ = (ms, len = 19) => new Date(ms + 8 * 3600e3).toISOString().replace('T', ' ').slice(0, len);
+// a run-name stamp ("2026-08-19 06:15:43Z") -> "2026-08-19 14:15:43"
+const bjStamp = (s, len = 19) => {
+  const ms = s ? Date.parse(String(s).replace(' ', 'T')) : NaN;
+  return Number.isNaN(ms) ? (s || '') : fmtBJ(ms, len);
+};
 const displayModelName = model => {
   const name = String(model || '').split('/').filter(Boolean).pop() || '';
   return name.replace(/^gpt(?=$|[-_.])/i, 'GPT');
@@ -1057,7 +1106,6 @@ async function loadRuns() {
     STARS = new Set(d.stars || []);
     NOTES = d.notes || {};
     LLM_MODEL = d.llm_model || '';
-    S3 = d.s3 || null;
   }
   return RUNS;
 }
@@ -1148,11 +1196,12 @@ const ratioBar = (passed, total) => total
 
 function runRowHTML(r) {
   return `
-  <tr class="rowlink" data-href="#/run/${encodeURIComponent(r.path)}">
+  <tr class="rowlink${SELECTED.has(r.path) ? ' selected' : ''}" data-href="#/run/${encodeURIComponent(r.path)}">
+    <td class="selcell"><input type="checkbox" class="row-sel" data-path="${esc(r.path)}"${SELECTED.has(r.path) ? ' checked' : ''} aria-label="Select ${esc(r.run_name)}"></td>
     <td class="starcell" data-path="${esc(r.path)}">${starIcon(r.path)}</td>
     <td class="eyecell" data-path="${esc(r.path)}">${hideIcon(r.path)}</td>
     <td class="delcell" data-path="${esc(r.path)}"><span class="trash" title="Delete this run">${ICONS.trash}</span></td>
-    <td class="mono muted">${esc(r.timestamp || '?')}</td>
+    <td class="mono muted">${esc(bjStamp(r.timestamp) || '?')}</td>
     <td class="mono"><span class="run-name">${runNameHTML(r.run_name)}</span></td>
     <td>${esc(r.agent_name || '—')}</td>
     <td>${modalityTag(r.modality)}${userSimTag(r.user_simulator)}</td>
@@ -1171,6 +1220,8 @@ async function renderList() {
   await loadRuns();
   if (seq !== routeSeq) return;  // navigated away while the index (re)loaded (sync and import call this too)
   renderSideNav();
+  SELECTED.clear();
+  selAnchor = null;
   setView(`
   <div class="card table-card">
     <div class="list-meta"><span class="count" id="listCount"></span><span class="hint" id="listHint">drag run folders anywhere to import</span></div>
@@ -1180,9 +1231,99 @@ async function renderList() {
         <tbody id="runRows"></tbody>
       </table>
     </div>
+    <div class="bulk-bar" id="bulkBar" hidden>
+      <span class="bulk-n" id="bulkN"></span>
+      <button class="navbtn" type="button" id="bulkHide"></button>
+      <button class="navbtn danger" type="button" id="bulkDelete">Delete</button>
+      <button class="navbtn" type="button" id="bulkClear" title="Clear the selection (Esc)">Clear</button>
+    </div>
     <div class="empty" id="listEmpty" hidden></div>
   </div>`);
+  document.getElementById('bulkHide').addEventListener('click', bulkHide);
+  document.getElementById('bulkDelete').addEventListener('click', bulkDelete);
+  document.getElementById('bulkClear').addEventListener('click', () => { SELECTED.clear(); updateSelectionUI(); });
   updateRunRows();
+}
+
+/* ---------- selecting runs: the run list's checkboxes and the bar of actions on them ---------- */
+// Only rows the list shows stay selected (updateRunRows drops the rest), so an action never reaches
+// a run that is filtered out. Shift-click selects the range from the last box clicked.
+const SELECTED = new Set();
+let selAnchor = null;  // path of the last row box clicked
+let shownPaths = [];   // the run list's rows, in display order
+const runRowOf = path => document.querySelector(`#runRows .row-sel[data-path="${CSS.escape(path)}"]`)?.closest('tr');
+const selectedShown = () => shownPaths.filter(p => SELECTED.has(p));
+
+// rows a click takes out of the list fade first; then() re-renders without them
+function fadeOutRows(rows, then) {
+  if (REDUCED.matches || !rows.length) { then(); return; }
+  rows.forEach(tr => tr.classList.add('row-leave'));
+  setTimeout(then, 160);
+}
+
+function updateSelectionUI() {
+  document.querySelectorAll('#runRows .row-sel').forEach(box => {
+    box.checked = SELECTED.has(box.dataset.path);
+    box.closest('tr').classList.toggle('selected', box.checked);
+  });
+  const n = SELECTED.size, all = document.getElementById('selAll');
+  if (all) {
+    all.checked = n > 0 && n === shownPaths.length;
+    all.indeterminate = n > 0 && n < shownPaths.length;
+  }
+  const bar = document.getElementById('bulkBar');
+  if (!bar) return;
+  bar.hidden = !n;
+  document.getElementById('bulkN').textContent = `${n} run${n === 1 ? '' : 's'} selected`;
+  const hide = document.getElementById('bulkHide'), showing = listState.view === 'hidden';
+  hide.textContent = showing ? 'Show again' : 'Hide';
+  hide.title = showing ? 'Put the selected runs back in the list' : 'Hide the selected runs from the list on this computer';
+}
+
+function selectRows(box, shift) {
+  if (box.id === 'selAll') {
+    for (const p of shownPaths) box.checked ? SELECTED.add(p) : SELECTED.delete(p);
+    selAnchor = null;
+  } else {
+    const path = box.dataset.path, from = shift && selAnchor ? shownPaths.indexOf(selAnchor) : -1, to = shownPaths.indexOf(path);
+    const range = from >= 0 ? shownPaths.slice(Math.min(from, to), Math.max(from, to) + 1) : [path];
+    for (const p of range) box.checked ? SELECTED.add(p) : SELECTED.delete(p);
+    selAnchor = path;
+  }
+  updateSelectionUI();
+}
+
+function bulkHide() {
+  const paths = selectedShown(), showing = listState.view === 'hidden';
+  for (const p of paths) showing ? HIDDEN.delete(p) : HIDDEN.add(p);
+  saveHidden();
+  fadeOutRows(paths.map(runRowOf).filter(Boolean), refreshRunMarks);
+  setUpStatus(`${showing ? 'Showing' : 'Hid'} ${paths.length} run${paths.length === 1 ? '' : 's'}${showing ? ' again' : ' on this computer'}`);
+}
+
+async function bulkDelete(e) {
+  const paths = selectedShown(), button = e.currentTarget;
+  if (!paths.length || !confirmDeleteRuns(paths)) return;
+  const bar = document.getElementById('bulkBar');
+  bar.querySelectorAll('button').forEach(b => { b.disabled = true; });
+  setBusy(button, true);
+  paths.forEach(p => runRowOf(p)?.classList.add('row-busy'));
+  const deleted = [], failed = [];
+  for (const [i, p] of paths.entries()) {
+    setUpStatus(`Deleting ${i + 1} / ${paths.length}…`);
+    try {
+      await deleteRun(p);
+      deleted.push(p);
+    } catch (err) {
+      runRowOf(p)?.classList.remove('row-busy');
+      failed.push(`${p}: ${err.message}`);
+    }
+  }
+  bar.querySelectorAll('button').forEach(b => { b.disabled = false; });
+  setBusy(button, false);
+  fadeOutRows(deleted.map(runRowOf).filter(Boolean), refreshRunMarks);
+  setUpStatus(`Deleted ${deleted.length} run${deleted.length === 1 ? '' : 's'}`
+    + (failed.length ? ` · ⚠ ${failed.length} not deleted — ${failed[0]}` : ''));
 }
 
 // One-shot fade of a fresh table's first 20 rows (step > 0: staggered by step ms). Only route() (run list,
@@ -1205,7 +1346,11 @@ function updateRunRows() {
   tbody.classList.remove('rows-enter');
   const { rows, pool, hiddenCount } = filteredRuns();
   const sorted = sortRows(rows, runSorters, listState.sort, listState.dir);
-  head.innerHTML = `<tr><th></th><th></th><th></th>${sortableTh('timestamp', 'Time (UTC)', listState)}${sortableTh('run_name', 'Run', listState)}${sortableTh('agent_name', 'Agent', listState)}${sortableTh('modality', 'Mode', listState)}${sortableTh('scenarios', 'Scenarios', listState)}${sortableTh('primary_score', 'Primary', listState)}${sortableTh('eval_final', 'Eval final', listState)}<th>Note</th></tr>`;
+  shownPaths = sorted.map(r => r.path);
+  const shown = new Set(shownPaths);
+  for (const p of SELECTED) if (!shown.has(p)) SELECTED.delete(p);
+  if (!shown.has(selAnchor)) selAnchor = null;
+  head.innerHTML = `<tr><th class="selcell"><input type="checkbox" id="selAll" aria-label="Select every run shown" title="Select every run shown"></th><th></th><th></th><th></th>${sortableTh('timestamp', 'Time (Beijing)', listState)}${sortableTh('run_name', 'Run', listState)}${sortableTh('agent_name', 'Agent', listState)}${sortableTh('modality', 'Mode', listState)}${sortableTh('scenarios', 'Scenarios', listState)}${sortableTh('primary_score', 'Primary', listState)}${sortableTh('eval_final', 'Eval final', listState)}<th>Note</th></tr>`;
   tbody.innerHTML = sorted.map(runRowHTML).join('');
   document.getElementById('listCount').textContent =
     `${sorted.length} / ${pool.length} ${listState.view === 'hidden' ? 'hidden runs' : 'runs'}`
@@ -1215,6 +1360,7 @@ function updateRunRows() {
   empty.textContent = listState.view === 'hidden'
     ? 'No hidden runs — use the eye icon on a row to hide one.'
     : 'No runs match the filters.';
+  updateSelectionUI();
   updateSideNav();
 }
 
@@ -1237,11 +1383,7 @@ function modalityCounts() {
 function renderSideNav() {
   const nav = document.getElementById('sideNav');
   if (!nav || !RUNS) return;
-  const foot = document.getElementById('headerSub');
-  foot.textContent = RUNS.length + ' runs archived' + (S3 ? ' · S3' + (S3.queued ? ` (uploading ${S3.queued})` : '') : '');
-  foot.title = S3 ? S3.uri : '';
-  const s3Problem = S3 && (S3.error || Object.entries(S3.failed || {}).map(([run, e]) => `${run}: ${e}`)[0]);
-  if (s3Problem) foot.insertAdjacentHTML('beforeend', `<div class="side-warn" title="${esc(s3Problem)}">S3 · ${esc(s3Problem)}</div>`);
+  document.getElementById('headerSub').textContent = RUNS.length + ' runs archived';
   const hiddenN = RUNS.filter(r => HIDDEN.has(r.path)).length;
   const starredN = RUNS.filter(r => STARS.has(r.path) && !HIDDEN.has(r.path)).length;
   const viewItem = (view, icon, label, n) =>
@@ -1408,7 +1550,7 @@ async function renderRun(path) {
       <h2><span class="starcell" id="runStar" data-path="${esc(path)}">${starIcon(path)}</span> ${esc(res?.agent_name || path)}</h2>
       ${res?.run_context?.agent_config ? `<a class="navbtn" href="#/test?from=${encodeURIComponent(path)}" title="Open the Run test page with this run's agent config and task set filled in">Re-run this agent…</a>` : ''}
       <a class="navbtn" href="#/compare?a=${encodeURIComponent(path)}">Compare with…</a>
-      <button class="navbtn danger" id="deleteRunBtn" type="button" title="Delete this run from the archive${S3 ? ' and S3' : ''}">Delete run</button>
+      <button class="navbtn danger" id="deleteRunBtn" type="button" title="Delete this run from the archive">Delete run</button>
     </div>
     <div class="muted mono">${copyNameBtn(path)}</div>
     <div class="run-note-detail">
@@ -1468,7 +1610,7 @@ async function renderRun(path) {
 }
 
 
-// a run a checkout holds with scenarios left to run or score: offer --resume on the Run test page
+// a run a checkout or the archive holds with scenarios left to run or score: offer --resume on the Run test page
 async function addResumeLink(path, seq) {
   let r;
   try { r = (await getJSON('/api/test/resumable?name=' + encodeURIComponent(path))).run; } catch (_) { return; }
@@ -1526,7 +1668,7 @@ function defaultComparePair() {
    scenarios are matched by id, so a pair with no shared task set yields an empty table. */
 const runTaskLabel = r => `${r.scenario_count} task${r.scenario_count === 1 ? '' : 's'}`;
 const runSubline = r => [
-  (r.timestamp || '?').replace(/:\d\d(?=Z$)/, ''),  // minutes are enough to tell runs apart
+  bjStamp(r.timestamp, 16) || '?',  // minutes are enough to tell runs apart
   (r.domains || []).join(', ') || 'no domain',
   runTaskLabel(r),
 ].join(' · ');
@@ -1880,7 +2022,7 @@ function renderTimeline(d, align) {
   const items = d.transcript ? d.transcript.map(x => x.kind === 'turn' ? { ...x, i: n++ } : x) : [
     ...(d.conversation || []).map((t, i) => ({ kind: 'turn', speaker: t.speaker, text: t.text, timestamp: t.timestamp,
       label: `turn ${t.turn_index ?? ''}`, span: align?.spans[t.turn_index], i })),
-    ...(d.tool_log || []).map(c => ({ ...c, kind: 'tool' })),
+    ...(d.tool_log || []).map((c, i) => ({ ...c, kind: 'tool', log_index: i })),
   // stable sort; items without a timestamp keep their original relative position at the end
   ].sort((a, b) => (a.timestamp ?? Infinity) - (b.timestamp ?? Infinity));
   if (!items.length) return '<p class="muted">No conversation.json</p>';
@@ -1927,7 +2069,7 @@ function renderTimeline(d, align) {
     const error = it.result?.error ? it.result.error.message || JSON.stringify(it.result.error)
       : it.success === false ? (typeof it.result === 'string' ? it.result : JSON.stringify(it.result)) : '';
     return `
-    <div class="tool-call">
+    <div class="tool-call"${it.log_index != null ? ` data-log="${it.log_index}"` : ''}>
       ${atTs(it, 'when the tool was called')}
       🔧 <span class="name mono">${esc(it.tool_name)}</span>
       ${it.by || it.duration_ms != null ? `<span class="muted">· ${[esc(it.by || ''), it.duration_ms != null ? fmtDur(it.duration_ms) : ''].filter(Boolean).join(' · ')}</span>` : ''}
@@ -2065,13 +2207,130 @@ function tpItem(text, st, why, title, tr = false) {
 }
 
 // one grading channel: its name, the factor it scored (passed/total) and whether it counts toward the reward
-function tpGroup(title, items, factor, basis, key) {
+function tpGroup(title, items, factor, basis, key, badgeTitle = '', legend = '') {
   if (!items.length) return '';
   const off = basis && key && !basis.has(key);
-  const badge = factor == null ? '' : `<span class="badge ${factorOk(factor) ? 'pass' : 'fail'}">${fmtFactor(factor)}</span>`;
+  const badge = factor == null ? '' : `<span class="badge ${factorOk(factor) ? 'pass' : 'fail'}"${badgeTitle ? ` title="${esc(badgeTitle)}"` : ''}>${fmtFactor(factor)}</span>`;
   return `<div class="tp-group${off ? ' off' : ''}">
     <div class="tp-ghead"><span>${title}</span>${off ? '<span class="tp-off" title="Not in this scenario\'s reward_basis: scored, but does not change the reward">not in reward</span>' : ''}${badge}</div>
-    <ul class="tp-list">${items.join('')}</ul></div>`;
+    ${legend}<ul class="tp-list">${items.join('')}</ul></div>`;
+}
+
+/* An expected action as talk-bench graded it (action_checks from /api/scenario): its verdict, the
+   agent call it was judged on (a button that finds it in the transcript) and, per compared argument
+   and per result check, the expected value next to what the agent's call had. */
+const TP_LONG = 90;
+const tpValHTML = (v, cls = '') => {
+  const text = tpVal(v);
+  const c = cls ? ` class="${cls}"` : '';
+  return text.length <= TP_LONG ? `<span${c}>${esc(text)}</span>`
+    : `<details class="tp-long"><summary${c}>${esc(text.slice(0, TP_LONG - 20))}…</summary><span${c}>${esc(text)}</span></details>`;
+};
+const tpCallBtn = c => `<button class="tp-call" type="button" data-log="${c.log_index}" title="Show this call in the transcript">call ${c.n}/${c.of}</button>`;
+
+const tpRefText = v => v?.$action_result ? `← ${v.$action_result.action_id}.${v.$action_result.path}` : null;
+
+// one comparison row: mark, what is compared, the expected value and, when it differs, what the call had
+function tpCmpRow(r, label, val) {
+  const mark = tpMark(r.ok == null ? 'unk' : r.ok ? 'ok' : 'bad', r.ok == null ? 'not compared: no call' : r.ok ? 'equal' : 'differs');
+  // a value taken from an earlier step's result: where from, then the value it resolved to
+  const ref = r.ref ? `<span class="tp-ref" title="taken from the result of ${esc(r.ref.action_id)}'s matched call">← ${esc(r.ref.action_id)}.${esc(r.ref.path)}</span>` : '';
+  if (val == null && !('expected' in r)) {
+    // nothing to compare with: the call this value comes from was not matched, or the key has no value
+    const why = r.ref ? `${r.ref.action_id} not matched, so no value` : r.note || 'no expected value';
+    val = `<span class="tp-note">${esc(why)}</span>${'actual' in r ? `<span class="tp-got-line">got ${tpValHTML(r.actual, 'tp-got')}</span>` : ''}`;
+  } else if (val == null) {
+    const same = 'actual' in r && tpVal(r.actual) === tpVal(r.expected);
+    val = tpRefText(r.expected) ? `<span class="tp-ref">${esc(tpRefText(r.expected))}</span>` : tpValHTML(r.expected);
+    if (r.ok === false && 'actual' in r && !r.misses) val += `<span class="tp-got-line">got ${tpValHTML(r.actual, 'tp-got')}</span>`;
+    // equal but written differently (case, formatting): show both; a nested value passes as a subset, so not there
+    else if (r.ok && 'actual' in r && !same && (typeof r.expected !== 'object' || r.expected === null))
+      val += `<span class="tp-got-line tp-same" title="counted as equal">got ${tpValHTML(r.actual)}</span>`;
+    if (r.misses?.length) val += r.misses.map(m => `<span class="tp-got-line"><span class="tp-ref">${esc(m.path)}</span> ${tpValHTML(m.expected)} — ${
+      'actual' in m ? `got ${tpValHTML(m.actual, 'tp-got')}${m.note ? ` <span class="tp-same">(${esc(m.note)})</span>` : ''}`
+      : `<span class="tp-got">${esc(m.note)}</span>`}</span>`).join('');
+    if (r.note) val += `<span class="tp-note">${esc(r.note)}</span>`;
+  }
+  return `${mark}<span class="k">${esc(label ?? r.key).replace(/_/g, '_<wbr>')}</span><span class="v">${ref}${val}</span>`;
+}
+
+function tpResultRow(c) {
+  if (c.check === 'error') return tpCmpRow(c, 'call', `<span class="tp-got">failed: ${esc(tpVal(c.actual))}</span>`);
+  if (c.check === 'status') return tpCmpRow(c, 'status', c.ok ? tpValHTML(c.actual ?? 'success')
+    : `success<span class="tp-got-line">got ${tpValHTML(c.actual, 'tp-got')}</span>`);
+  if (c.check === 'records') return tpCmpRow(c, 'records', c.ok ? `${esc(c.actual ?? 'some')} returned`
+    : `at least 1<span class="tp-got-line">got <span class="tp-got">${esc(c.actual ?? 'none')}</span></span>`);
+  return tpCmpRow(c, c.key);
+}
+
+// what a call would have been compared on, for an action the agent never called
+function tpExpectRows(a) {
+  const args = a.arguments || {};
+  const keys = a.compare_args == null ? Object.keys(args) : a.compare_args.filter(k => k in args);
+  const gates = [
+    a.require_successful_result && tpCmpRow({ ok: null }, 'status', 'success'),
+    a.require_nonempty_result && tpCmpRow({ ok: null }, 'records', 'at least 1'),
+    ...Object.entries(a.expected_result || {}).map(([k, v]) => tpCmpRow({ ok: null, expected: v }, k)),
+  ].filter(Boolean);
+  return [...keys.map(k => tpCmpRow({ ok: null, expected: args[k] }, k)), ...(gates.length ? ['<span class="sub">result</span>', ...gates] : [])];
+}
+
+function actionCheckItem(a, c) {
+  const st = c.met ? 'ok' : 'bad';
+  const args = c.args || [], result = c.result || [];
+  const failed = [...args, ...result].filter(r => !r.ok);
+  // a step can fail only because the step whose result it uses was not matched
+  const refOnly = failed.length && failed.every(r => r.ref && !('expected' in r));
+  const why = refOnly ? `uses the result of ${[...new Set(failed.map(r => r.ref.action_id))].join(', ')}, which was not matched` : {
+    ok: 'matched',
+    missing: 'never called',
+    args: 'an argument differs',
+    result: 'a result check failed',
+    prereq: `its call matches, but ${(c.prereq || []).length > 1 ? `prerequisites ${c.prereq.join(', ')} were` : `prerequisite ${(c.prereq || []).join('')} was`} not met`,
+    order: `its call matches, but came before the matching call of ${(c.after || []).join(', ')}`,
+  }[c.status] || (c.met ? 'matched' : 'not matched');
+  const extra = a.action_id ? `${esc(a.action_id)}${a.prerequisite_action_ids?.length ? ` · after ${a.prerequisite_action_ids.map(esc).join(', ')}` : ''}` : '';
+  const args0 = a.arguments || {};
+  const compared = new Set(a.compare_args ?? Object.keys(args0));
+  const loose = Object.keys(args0).filter(k => !compared.has(k));
+  const scope = a.compare_args?.length === 0 ? 'name only: arguments not compared'
+    : !Object.keys(args0).length && !args.length ? 'any arguments' : '';
+  const rows = c.status === 'missing' ? tpExpectRows(a) : [
+    ...args.map(r => tpCmpRow(r)),
+    ...(result.length ? ['<span class="sub">result</span>', ...result.map(tpResultRow)] : []),
+  ];
+  return `<li class="tp-item">
+    <div class="tp-row">${tpMark(st, why)}<span class="tp-head"><span><span class="mono tp-name">${esc(a.name)}</span>${extra ? ` <span class="tp-extra">${extra}</span>` : ''}</span>${c.call ? tpCallBtn(c.call) : ''}</span></div>
+    ${c.met && c.status === 'ok' ? '' : `<div class="tp-verdict${c.met ? '' : ' bad'}">${esc(why)}</div>`}
+    ${c.source_for_later ? `<div class="tp-verdict" title="Matched with normalized values, as for the later steps that use this call's result, it passes">not credited on its own, but later steps accept its call as their source</div>` : ''}
+    ${rows.length ? `<div class="tp-cmp${c.status === 'missing' ? ' expect' : ''}">${rows.join('')}</div>` : ''}
+    ${scope ? `<div class="tp-verdict">${scope}</div>` : ''}
+    ${loose.length ? `<div class="tp-verdict tp-loose" title="${esc(loose.map(k => `${k}: ${tpVal(args0[k])}`).join('\n'))}">not compared: ${loose.map(esc).join(', ')}</div>` : ''}
+  </li>`;
+}
+
+// a "call k/n" button in the panel: label it with the call's time in the transcript, and on click
+// bring that call into view (on a narrow screen the open panel would cover it, so it closes)
+function initCallLinks() {
+  const panel = document.getElementById('taskPanel');
+  const rowOf = i => document.querySelector(`#transcript .tool-call[data-log="${i}"]`);
+  panel?.querySelectorAll('.tp-call').forEach(b => {
+    const row = rowOf(b.dataset.log);
+    const ts = row?.querySelector('.ts')?.textContent.trim();
+    if (ts) b.textContent += ` · ${ts}`;
+    if (!row) { b.disabled = true; b.title = 'This call is not in the transcript'; }
+  });
+  panel?.addEventListener('click', e => {
+    const b = e.target.closest('.tp-call');
+    const row = b && rowOf(b.dataset.log);
+    if (!row) return;
+    const toggle = panel.querySelector('.tp-toggle');
+    if (toggle && getComputedStyle(toggle).display !== 'none' && !panel.classList.contains('collapsed')) toggle.click();
+    row.scrollIntoView({ behavior: smoothScroll(), block: 'center' });
+    row.classList.remove('flash');
+    void row.offsetWidth;  // restart the highlight when the same call is picked again
+    row.classList.add('flash');
+  });
 }
 
 function taskPanelHTML(d) {
@@ -2113,7 +2372,9 @@ function taskPanelHTML(d) {
   });
 
   const called = new Set((d.transcript || d.tool_log || []).filter(x => !d.transcript || x.kind === 'tool').map(x => x.tool_name));
-  const actionItem = a => {
+  const ac = d.action_checks;
+  const actionItem = (a, i) => {
+    if (ac?.expected?.[i]) return actionCheckItem(a, ac.expected[i]);
     const cmp = new Set(a.compare_args || []);
     const args = Object.entries(a.arguments || {});
     const result = Object.entries(a.expected_result || {});
@@ -2145,9 +2406,17 @@ function taskPanelHTML(d) {
     : Object.entries(es).flatMap(([coll, ents]) => Object.entries(ents || {}).map(([id, fields]) => tpItem(
         `<span class="mono tp-name">${esc(coll)}</span> <span class="tp-extra">${esc(id)}</span><span class="tp-args">${kv(fields)}</span>`)));
 
+  // a prohibited action breaks the rule when any agent call has its name and arguments (case-insensitive)
+  const forbiddenAction = (a, i) => {
+    const chk = ac?.prohibited?.[i];
+    const got = chk?.violated && chk.arguments ? `<span class="tp-args"><span class="tp-got">called with: ${
+      Object.entries(chk.arguments).map(([k, v]) => `${esc(k)} = ${esc(tpVal(v))}`).join(', ') || 'no arguments'}</span></span>` : '';
+    return tpItem(`<span class="tp-head"><span class="mono tp-name">${esc(a.name)}</span>${chk?.call ? tpCallBtn(chk.call) : ''}</span>${
+      Object.keys(a.arguments || {}).length ? `<span class="tp-args">${kv(a.arguments)}</span>` : ''}${got}`,
+      !chk ? null : chk.violated ? 'bad' : 'ok', '', !chk ? '' : chk.violated ? 'called' : 'not called with these arguments');
+  };
   const forbidden = [
-    ...(ev.prohibited_actions || []).map(a => tpItem(`<span class="mono tp-name">${esc(a.name)}</span>${
-      Object.keys(a.arguments || {}).length ? `<span class="tp-args">${kv(a.arguments)}</span>` : ''}`)),
+    ...(ev.prohibited_actions || []).map(forbiddenAction),
     ...(ev.prohibited_communicate || []).map(c => tpItem(esc(critText(c)), null, '', '', true)),
     ...(ev.planted_secret ? [tpItem(`planted secret must not leak: <span class="mono">${esc(tpVal(ev.planted_secret))}</span>`)] : []),
   ];
@@ -2157,7 +2426,11 @@ function taskPanelHTML(d) {
     <ul class="tp-list">${forbidden.join('')}</ul></div>` : '';
 
   const groups = [
-    tpGroup('Actions', (ev.expected_actions || []).map(actionItem), factors.ACTION, basis, 'ACTION'),
+    // no action_score (tau2's own reward, or a prohibited call ended scoring early): the same
+    // matching recomputed from tool_log.json, as information only
+    tpGroup('Actions', (ev.expected_actions || []).map(actionItem), factors.ACTION ?? (ac?.total ? [ac.met, ac.total] : null), basis, 'ACTION',
+      factors.ACTION == null && ac?.total ? "Recomputed from tool_log.json with talk-bench's matcher; this scenario's result has no action score" : '',
+      ac ? `<div class="tp-legend" title="Plain matching ignores case and treats a missing or empty value as null. A step whose chain uses an earlier call's result is matched with normalized values instead: formatting-tolerant text (913-555-0148 = 9135550148), but numbers must match in type too (36 ≠ 36.0).">Matched against the agent's calls in tool_log.json: same tool, every compared argument equal, every result check passed.</div>` : ''),
     tpGroup('Communicate', judged(ev.communicate_info || [], tc?.communicate_checks, 'expected_info'), factors.COMMUNICATE, basis, 'COMMUNICATE'),
     tpGroup('NL assertions', judged(ev.nl_assertions || [], tc?.nl_assertion_checks, 'assertion'), factors.NL_ASSERTION, basis, 'NL_ASSERTION'),
     tpGroup('DB state', dbItems, factors.DB, basis, 'DB'),
@@ -2219,7 +2492,6 @@ async function renderScenario(path) {
   const persona = sc.user_persona || {};
   const audioNames = Object.entries(d.audio).filter(([,ok]) => ok).map(([n]) => n);
   const align = audioNames.length ? d.audio_align : null;
-  const inS3 = new Set(d.files.filter(f => f.cloud).map(f => f.name));
   const turnCount = d.transcript ? d.transcript.filter(x => x.kind === 'turn').length : d.conversation?.length;
   const toolCount = d.transcript ? d.transcript.filter(x => x.kind === 'tool').length : d.tool_log?.length || 0;
   const hopsOn = (() => { try { return localStorage.getItem(HOPS_KEY) === '1'; } catch (e) { return false; } })();
@@ -2249,7 +2521,6 @@ async function renderScenario(path) {
   </div>
 
   ${audioNames.length ? `<div class="card"><h3>Audio</h3>
-    ${audioNames.some(n => inS3.has(n + '.wav')) ? '<div class="muted" style="font-size:12.5px;margin:-4px 0 10px">Kept in S3: each file downloads the first time it plays, which can take a few seconds.</div>' : ''}
     <div class="audio-grid">
     ${audioNames.map(n => `<div><div class="muted" style="font-size:12px">${n}.wav</div>
       <audio controls preload="none" src="${dataHref(`${path}/${n}.wav`)}"></audio></div>`).join('')}
@@ -2276,7 +2547,7 @@ async function renderScenario(path) {
   <div class="card">
     <h3>Files (${d.files.length})</h3>
     <div class="filelist">
-      ${d.files.map(f => `<div><a class="mono" target="_blank" href="${dataHref(path + '/' + f.name)}">${esc(f.name)}</a> <span class="muted"${f.cloud ? ' title="Kept in S3; downloaded when opened"' : ''}>${(f.size/1024).toFixed(0)} KB${f.cloud ? ' · in S3' : ''}</span></div>`).join('')}
+      ${d.files.map(f => `<div><a class="mono" target="_blank" href="${dataHref(path + '/' + f.name)}">${esc(f.name)}</a> <span class="muted">${(f.size/1024).toFixed(0)} KB</span></div>`).join('')}
     </div>
   </div>
   </div></div></div>`);
@@ -2287,16 +2558,11 @@ async function renderScenario(path) {
     e.currentTarget.setAttribute('aria-expanded', open);
   });
 
-  // a wav kept in S3 that cannot be downloaded (expired AWS login, …): say why under its player
-  $main.querySelectorAll('.audio-grid audio').forEach(a => a.addEventListener('error', async () => {
-    const r = await fetch(a.src, { headers: { Range: 'bytes=0-0' } }).catch(() => null);
-    const why = r && !r.ok ? (await r.json().catch(() => ({}))).detail || `HTTP ${r.status}` : 'could not play this file';
-    a.insertAdjacentHTML('afterend', `<div style="font-size:12px;color:var(--fail)">${esc(why)}</div>`);
-  }, { once: true }));
   initReport(path);
   initChat(path);
   initTranslation(path, d.transcript_zh);
   initTaskTranslation(path, d.task_zh);
+  initCallLinks();
   document.getElementById('hopToggle')?.addEventListener('change', e => {
     document.getElementById('transcript').classList.toggle('show-hops', e.target.checked);
     try { localStorage.setItem(HOPS_KEY, e.target.checked ? '1' : ''); } catch (err) { /* private mode */ }
@@ -2796,6 +3062,10 @@ qEl.addEventListener('keydown', e => {
   if (e.key === 'Escape') { qEl.value = ''; listState.q = ''; updateRunRows(); qEl.blur(); }
 });
 window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && SELECTED.size && !e.target.closest?.('textarea, select, input:not([type=checkbox])')) {
+    SELECTED.clear();
+    updateSelectionUI();
+  }
   if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey
       && !e.target.closest?.('input, textarea, select')
       && !document.getElementById('searchWrap').hidden) {
@@ -2813,11 +3083,15 @@ syncBtn.addEventListener('click', async () => {
     const res = await postForm('/api/sync_sources');
     const changed = res.added.length + res.updated.length;
     const names = [...res.added, ...res.updated.map(n => n + ' (updated)')];
+    const removed = res.removed_from_checkout.length;
     setUpStatus((changed
       ? `added ${res.added.length} · updated ${res.updated.length}`
         + (names.length <= 6 ? `: ${names.join(', ')}` : '')
-      : `everything up to date (${res.unchanged} runs)`)
-      + (res.skipped_deleted ? ` · ${res.skipped_deleted} deleted runs skipped` : ''));
+      : 'no new runs')
+      + (removed ? ` · ${removed} run${removed === 1 ? '' : 's'} deleted from the checkout` : '')
+      + (res.kept_in_checkout ? ` · ${res.kept_in_checkout} left there (unfinished or resumable)` : '')
+      + (res.skipped_deleted ? ` · ${res.skipped_deleted} deleted runs skipped` : '')
+      + (res.errors.length ? ` · ⚠ ${res.errors[0]}` : ''));
     if (changed) {
       invalidateRuns();
       if (!location.hash.startsWith('#/')) renderList();
@@ -2854,6 +3128,14 @@ async function handleCopyClick(button) {
 }
 
 $main.addEventListener('click', e => {
+  const sel = e.target.closest('.selcell');
+  if (sel) {
+    const box = sel.querySelector('input');
+    if (e.target !== box) box.checked = !box.checked;  // a click beside the box counts too
+    if (e.shiftKey) getSelection()?.removeAllRanges();
+    selectRows(box, e.shiftKey);
+    return;
+  }
   const star = e.target.closest('.starcell');
   if (star) {
     const path = star.dataset.path;
@@ -2865,9 +3147,8 @@ $main.addEventListener('click', e => {
   const eye = e.target.closest('.eyecell');
   if (eye) {
     // the row fades out first: on the run list a click always takes it out of the list being shown
-    const tr = eye.closest('tr'), path = eye.dataset.path, toggle = () => toggleHidden(path, refreshRunMarks);
-    if (!tr || REDUCED.matches) toggle();
-    else { tr.classList.add('row-leave'); setTimeout(toggle, 160); }
+    const tr = eye.closest('tr'), path = eye.dataset.path;
+    fadeOutRows(tr ? [tr] : [], () => toggleHidden(path, refreshRunMarks));
     return;
   }
   const del = e.target.closest('.delcell');
@@ -2875,11 +3156,7 @@ $main.addEventListener('click', e => {
     const tr = del.closest('tr');
     if (!confirmDeleteRun(del.dataset.path)) return;
     tr.classList.add('row-busy');
-    deleteRun(del.dataset.path).then(() => {
-      // fades out like a hidden run, then the list re-renders without it
-      if (REDUCED.matches) refreshRunMarks();
-      else { tr.classList.add('row-leave'); setTimeout(refreshRunMarks, 160); }
-    }, err => {
+    deleteRun(del.dataset.path).then(() => fadeOutRows([tr], refreshRunMarks), err => {  // fades out like a hidden run
       tr.classList.remove('row-busy');
       setUpStatus('⚠ ' + err.message);
     });
@@ -2938,6 +3215,7 @@ $main.addEventListener('focusout', async e => {
 /* ---------- run test: edit an agent.yaml and launch talk-bench run ---------- */
 // The page maps onto exactly this command, run inside the talk-bench checkout:
 //   uv run talk-bench run --config <agent.yaml> --domain X --split Y --source tau2|talk_bench [--scenario-ids a,b] [--speech-complexity C]
+//     --output-dir <VIEWER_DATA_DIR>   (the run lands in the archive, so it is never copied)
 // or, with the tau2 user simulator picked, the same arguments through tau2_user_sim/launch.py
 // (`uv run python <viewer>/tau2_user_sim/launch.py run …`), which swaps tau2-bench's native
 // user simulator into the voice scenarios of that one process.
@@ -3102,7 +3380,7 @@ const testState = {
   picked: new Set(),   // scenario ids chosen for --scenario-ids (empty = the whole split)
   schedules: [],       // /api/test/schedules: tests waiting for their start time
   editingSchedule: null,  // id of the schedule the editor and schedule form were filled from
-  resumable: [],       // /api/test/resumable: runs in the checkouts with scenarios left for --resume
+  resumable: [],       // /api/test/resumable: runs (checkouts, and the archive's from this page) with scenarios left for --resume
 };
 let testPollTimer = null;
 const jobScenarioIds = j => j.scenario_ids || [];
@@ -3117,7 +3395,7 @@ const agentKeyParam = a => {
   return p.agent_id || p.agent_system_id || p.llm_model || p.model || p.agent?.params?.llm_model || '';
 };
 const moduleModality = m => /text_agent|text_bridge|TextAgent|TextBridge/.test(String(m || '')) ? 'text' : m ? 'voice' : '';
-const fmtWhen = ts => ts ? new Date(ts * 1000).toISOString().replace('T', ' ').slice(0, 16) + 'Z' : '—';
+const fmtWhen = ts => ts ? fmtBJ(ts * 1000, 16) : '—';
 const fmtElapsed = (from, to) => {
   if (!from) return '—';
   const s = Math.max(0, (to || Date.now() / 1000) - from);
@@ -3547,7 +3825,8 @@ function updateCmdPreview() {
   el.textContent = `cd ${shellQuote(p?.id || '<checkout>')} && ${(tau2Sim ? p?.tau2_launcher : p?.launcher) || 'uv run talk-bench'} run --config agent.yaml`
     + ` --domain ${shellQuote(v('sDomain') || 'all')} --split ${shellQuote(v('sSplit') || 'base')} --source ${v('sSource')}`
     + (ids.length ? ` --scenario-ids ${ids.slice(0, 4).join(',')}${ids.length > 4 ? `,… (${ids.length} ids)` : ''}` : '')
-    + (complexity ? ` --speech-complexity ${complexity}` : '');
+    + (complexity ? ` --speech-complexity ${complexity}` : '')
+    + ` --output-dir ${shellQuote(testState.options?.data_dir || '<data dir>')}`;
 }
 
 /* where the YAML comes from */
@@ -3579,7 +3858,7 @@ function renderAgentSource() {
     box.innerHTML = `<div class="form-grid" style="margin-top:0"><div class="field wide">
       <label for="archSel">Archived runs (${list.length})</label>
       <select id="archSel"><option value="">pick a run's agent…</option>${list.map((a, i) =>
-        `<option value="${i}">${esc(a.agent.name)} · ${esc(shortModule(a.agent.module))}${agentKeyParam(a.agent) ? ` · ${esc(agentKeyParam(a.agent))}` : ''} · ${esc(a.domain || '?')}/${esc(a.split || '?')} · ${esc((a.timestamp || '').slice(0, 10))} · ${a.run_paths.length} run${a.run_paths.length === 1 ? '' : 's'}</option>`).join('')}</select>
+        `<option value="${i}">${esc(a.agent.name)} · ${esc(shortModule(a.agent.module))}${agentKeyParam(a.agent) ? ` · ${esc(agentKeyParam(a.agent))}` : ''} · ${esc(a.domain || '?')}/${esc(a.split || '?')} · ${esc(bjStamp(a.timestamp, 10))} · ${a.run_paths.length} run${a.run_paths.length === 1 ? '' : 's'}</option>`).join('')}</select>
     </div></div>`;
   }
 }
@@ -3648,7 +3927,7 @@ function jobRowHTML(j, resumable) {
     `<button class="navbtn" type="button" data-job-log="${j.id}">Log</button>`,
     running ? `<button class="navbtn" type="button" data-job-cancel="${j.id}">Stop</button>` : '',
     j.run_path ? `<a class="navbtn" href="#/run/${encodeURIComponent(j.run_path)}">Open run</a>` : '',
-    j.run_dir && (running || !j.run_path) ? `<button class="navbtn" type="button" data-job-sync="${j.id}" title="Copy the run directory into this archive now">${j.run_path ? 'Sync now' : 'Import'}</button>` : '',
+    j.run_dir && !j.in_archive && (running || !j.run_path) ? `<button class="navbtn" type="button" data-job-sync="${j.id}" title="Copy the run directory into this archive now">${j.run_path ? 'Sync now' : 'Import'}</button>` : '',
     resumable.has(j.id) ? `<button class="navbtn" type="button" data-job-resume="${j.id}" title="talk-bench run --resume: ${
       j.status === 'done' ? `run the ${j.errored} errored scenario${j.errored === 1 ? '' : 's'} again` : 'redo unfinished scenarios'}">Resume</button>` : '',
     `<button class="navbtn" type="button" data-job-again="${j.id}" title="Load this agent.yaml and these settings into the editor">Run again…</button>`,
@@ -3703,7 +3982,7 @@ async function refreshJobs(force) {
   const json = JSON.stringify(d.jobs);
   const anyRunning = d.jobs.some(jobRunning);
   if (!force && json === testState.jobsJSON && !anyRunning) return;  // elapsed time ticks while running
-  // a job that just copied its run into the archive changes the run list and sidebar counts
+  // a job that just copied its run into the archive (or wrote more of it there) changes the run list and sidebar counts
   const synced = j => j.run_path ? `${j.id}:${j.synced_at}` : '';
   const before = new Set(testState.jobs.map(synced).filter(Boolean));
   const newlySynced = d.jobs.some(j => synced(j) && !before.has(synced(j)));
@@ -3748,7 +4027,8 @@ function renderLogCard(d) {
   setText('logCmd', j.cmd?.length ? `cd ${shellQuote(j.cwd || '.')} && ${j.cmd.map(shellQuote).join(' ')}` : '');
   document.getElementById('logRun').innerHTML = j.run_dir
     ? `Run directory <span class="mono">${esc(j.run_dir)}</span>`
-      + (j.run_path ? ` · <a href="#/run/${encodeURIComponent(j.run_path)}">open in the viewer</a>${j.synced_at ? ` <span class="muted">(copied ${fmtElapsed(j.synced_at)} ago)</span>` : ''}` : ' · not copied into the archive yet')
+      + (j.run_path ? ` · <a href="#/run/${encodeURIComponent(j.run_path)}">open in the viewer</a>${j.synced_at && !j.in_archive ? ` <span class="muted">(copied ${fmtElapsed(j.synced_at)} ago)</span>` : ''}`
+        : j.in_archive ? (jobRunning(j) ? ' · in the run list once a scenario starts' : ' · no scenario ran') : ' · not copied into the archive yet')
     : 'talk-bench has not created the run directory yet.';
   if (d.config_yaml != null) setText('logConfig', d.config_yaml);
   const pane = document.getElementById('logPane');
@@ -3763,6 +4043,7 @@ function selectJob(id, scroll = true) {
   renderJobRows();
   const card = document.getElementById('logCard');
   card.hidden = false;
+  document.getElementById('logExport').href = `/api/test/jobs/${encodeURIComponent(id)}/log`;
   document.getElementById('logPane').textContent = 'loading…';
   pollJobLog().catch(e => { document.getElementById('logPane').textContent = '⚠ ' + e.message; });
   if (scroll) card.scrollIntoView({ behavior: smoothScroll(), block: 'start' });
@@ -3808,7 +4089,7 @@ async function startTest() {
   setBusy(btn, false);
 }
 
-/* resume: `talk-bench run --resume <run dir>` for a run in a checkout that has scenarios left —
+/* resume: `talk-bench run --resume <run dir>` for a run in a checkout or the archive that has scenarios left —
    errored, never finished or never scored — whichever page or terminal started it */
 const resumeCounts = r => [
   r.planned != null ? `${r.finished}/${r.planned} finished` : `${r.finished} finished`,
@@ -3822,7 +4103,7 @@ function resumeCardHTML() {
   return `
   <div class="card" id="resumeCard">
     <div class="report-head"><h3>Resume a partial run</h3><span class="muted" id="resumeHint" style="font-size:12px"></span></div>
-    <p class="muted" style="font-size:12px;margin:6px 0 0"><code>--resume</code> runs a run's errored and unfinished scenarios again and scores the unscored ones, with the agent and task set its <code>run_config.json</code> recorded, and merges them into the same results.json. Listed: the runs in the checkouts that have such scenarios, wherever they were started from.</p>
+    <p class="muted" style="font-size:12px;margin:6px 0 0"><code>--resume</code> runs a run's errored and unfinished scenarios again and scores the unscored ones, with the agent and task set its <code>run_config.json</code> recorded, and merges them into the same results.json. Listed: the runs with such scenarios in the checkouts (also those started from a terminal) and in the archive (those tests on this page wrote there).</p>
     <div class="form-grid"><div class="field wide">
       <label for="resumeSel">Run</label>
       <select id="resumeSel"><option value="">loading…</option></select>
@@ -3841,8 +4122,8 @@ function renderResumeCard(pick) {
   if (!sel) return;
   const runs = testState.resumable, keep = pick ?? sel.value;
   sel.innerHTML = runs.length
-    ? '<option value="">pick a run…</option>' + runs.map(r => `<option value="${esc(r.name)}">${esc(r.agent_name)} · ${esc(r.domain)}/${esc(r.split)} · ${esc((r.timestamp || '').slice(0, 16))} · ${esc(resumeCounts(r))}${r.running_job ? ' · running' : ''}</option>`).join('')
-    : '<option value="">no run in the checkouts has scenarios left to resume</option>';
+    ? '<option value="">pick a run…</option>' + runs.map(r => `<option value="${esc(r.name)}">${esc(r.agent_name)} · ${esc(r.domain)}/${esc(r.split)} · ${esc(bjStamp(r.timestamp, 16))} · ${esc(resumeCounts(r))}${r.running_job ? ' · running' : ''}</option>`).join('')
+    : '<option value="">no run has scenarios left to resume</option>';
   sel.disabled = !runs.length;
   sel.value = runs.some(r => r.name === keep) ? keep : '';
   document.getElementById('resumeHint').textContent = runs.length ? `${runs.length} run${runs.length === 1 ? '' : 's'}` : '';
@@ -4096,7 +4377,7 @@ async function renderTest(params) {
     <div class="list-meta"><span class="count">Tests started from here</span><span class="hint" id="jobsHint"></span></div>
     <div class="table-wrap jobs-wrap">
       <table id="jobsTable">
-        <thead><tr><th>Status</th><th>Agent</th><th>Source</th><th>Domain / split</th><th>Started (UTC)</th><th>Progress</th><th>Result</th><th></th></tr></thead>
+        <thead><tr><th>Status</th><th>Agent</th><th>Source</th><th>Domain / split</th><th>Started (Beijing)</th><th>Progress</th><th>Result</th><th></th></tr></thead>
         <tbody id="jobRows"></tbody>
       </table>
     </div>
@@ -4108,6 +4389,7 @@ async function renderTest(params) {
       <h3 id="logTitle">Log</h3>
       <span class="muted" id="logMeta" style="font-size:12px"></span>
       <label class="muted" style="margin-left:auto;font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="logFollow" checked> follow output</label>
+      <a class="navbtn" id="logExport" style="margin-left:0" download title="Download the whole log as a .log file, with this test's settings, outcome and agent.yaml on top">Export log</a>
     </div>
     <div class="cmdline" id="logCmd" style="margin-top:10px"></div>
     <div class="muted" id="logRun" style="font-size:12px;margin-top:6px"></div>

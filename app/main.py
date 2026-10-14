@@ -20,6 +20,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -31,18 +32,16 @@ from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from functools import cache, lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from starlette.concurrency import run_in_threadpool
-
-from app.s3store import S3Archive, S3Error, is_heavy
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 # Settings, LLM credentials and model come from this project's own .env (see .env.example).
@@ -50,13 +49,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # checkout's own .env decides their credentials (see _child_env).
 _BASE_ENV = dict(os.environ)
 load_dotenv(BASE_DIR / ".env")
-# VIEWER_DATA_DIR keeps the archive elsewhere (e.g. a mounted share). Run one viewer per data dir:
-# the run index, run cache and upload staging are per-process.
-DATA_DIR = Path(os.environ.get("VIEWER_DATA_DIR") or BASE_DIR / "data").expanduser()
+# VIEWER_DATA_DIR is where runs are stored (a relative path is taken from this repo); tests started
+# from the Run test page write their run straight into it (talk-bench --output-dir), so nothing is
+# copied. Run one viewer per data dir: the run index, run cache and upload staging are per-process.
+DATA_DIR = BASE_DIR / Path(os.environ.get("VIEWER_DATA_DIR") or "data").expanduser()
 DATA_DIR.mkdir(parents=True, exist_ok=True)  # fresh clone, or a new VIEWER_DATA_DIR
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-# VIEWER_S3_URI keeps every run in S3 too; heavy files then live only there until opened (app/s3store.py)
-ARCHIVE = S3Archive.from_env(DATA_DIR)
 LLM_MODEL = os.environ.get("VIEWER_LLM_MODEL", "azure/gpt-4.1")
 
 TS_RE = re.compile(r"(\d{8}T\d{6}Z)")
@@ -65,7 +63,6 @@ TS_RE = re.compile(r"(\d{8}T\d{6}Z)")
 async def _lifespan(_app: FastAPI):
     # scheduled tests start with the server, not on import (scripts may import this module)
     threading.Thread(target=_scheduler_loop, name="test-scheduler", daemon=True).start()
-    ARCHIVE.start()
     yield
 
 
@@ -84,13 +81,6 @@ class PublicDataFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         if any(part.startswith(".") for part in Path(path).parts):
             raise HTTPException(status_code=404, detail="file not found")
-        full = DATA_DIR / path
-        if not full.exists() and ARCHIVE.entry(full):
-            # kept only in S3: download it into place, then serve it like any local file
-            try:
-                await run_in_threadpool(ARCHIVE.fetch, full)
-            except S3Error as e:
-                raise HTTPException(status_code=503, detail=str(e))
         return await super().get_response(path, scope)
 
 
@@ -159,7 +149,7 @@ def _run_modality(results: dict[str, Any] | None, scenarios: list[Path]) -> str 
     if "voice_agent" in module or "TalkdeskAgent" in module:
         return "voice"
     for sdir in scenarios[:3]:
-        if any(ARCHIVE.exists(sdir / f"{name}.wav") for name in ("conversation", "user", "agent")):
+        if any((sdir / f"{name}.wav").exists() for name in ("conversation", "user", "agent")):
             return "voice"
     return "text" if scenarios else None
 
@@ -252,7 +242,6 @@ def api_runs():
         "stars": sorted(_load_stars()),
         "notes": _load_run_notes(),
         "llm_model": LLM_MODEL,
-        "s3": ARCHIVE.status(),
     }
 
 
@@ -494,10 +483,10 @@ def _records_transcript(records: Any, tool_log: Any) -> list[dict] | None:
         return None
 
     # match tool_log.json's calls to records.json's in order (same tool, within 15 s): a match adds
-    # db_changed, the rest go in before the first record logged after them
+    # db_changed and the call's place in tool_log.json, the rest go in before the first record logged after them
     unmatched = [it for it in items if it["kind"] == "tool"]
     extra = []
-    for call in tool_log if isinstance(tool_log, list) else []:
+    for log_index, call in enumerate(tool_log if isinstance(tool_log, list) else []):
         if not isinstance(call, dict):
             continue
         ts = call.get("timestamp") if isinstance(call.get("timestamp"), (int, float)) else None
@@ -505,12 +494,12 @@ def _records_transcript(records: Any, tool_log: Any) -> list[dict] | None:
             ts is None or it["timestamp"] is None or abs(it["timestamp"] - ts) <= 15)), None)
         if match:
             unmatched.remove(match)
-            match["db_changed"] = bool(call.get("db_changed"))
+            match.update(db_changed=bool(call.get("db_changed")), log_index=log_index)
         else:
             extra.append({
                 "kind": "tool", "tool_name": call.get("tool_name"), "arguments": call.get("arguments"),
                 "result": call.get("result"), "db_changed": bool(call.get("db_changed")),
-                "timestamp": ts, "only_in_tool_log": True,
+                "timestamp": ts, "only_in_tool_log": True, "log_index": log_index,
             })
     for x in sorted(extra, key=lambda x: x["timestamp"] if x["timestamp"] is not None else float("inf")):
         at = next((i for i, it in enumerate(items) if x["timestamp"] is not None
@@ -660,13 +649,10 @@ def _record_spans(transcript: list[dict], origin_s: float, user_vad: list, agent
 
 
 def _wav_header(path: Path) -> tuple[int, int] | None:
-    """(frame rate, frame count) of a wav; for one kept only in S3, from the S3 manifest."""
+    """(frame rate, frame count) of a wav."""
     try:
         with wave.open(str(path)) as w:
             return w.getframerate(), w.getnframes()
-    except FileNotFoundError:
-        entry = ARCHIVE.entry(path) or {}
-        return (entry["rate"], entry["frames"]) if entry.get("rate") else None
     except (OSError, EOFError, wave.Error):
         return None
 
@@ -706,12 +692,314 @@ def _scenario_results(sdir: Path) -> tuple[dict[str, Any], dict[str, Any] | None
     return results, summary, session
 
 
+# ---- how each expected action was graded (Task & grading panel) ----
+# talk-bench scores the action factor after the run, from tool_log.json: each agent-owned expected
+# action is met when one of the agent's calls has its name, the compared arguments and, where asked
+# for, a successful / non-empty / matching result (talk_bench_core.matching.compute_action_verdict).
+# The verdict comes from that very function, imported from the local checkout; the expected-vs-
+# actual rows next to it are rebuilt with the same comparison helpers, for the call that matched or,
+# failing that, the one that came closest. No checkout (or a refactored one): no rows, and the panel
+# falls back to "called / never called".
+
+_MISSING = object()
+_OK_STATUSES = {"ok", "success", "succeeded"}
+_TYPE_NAMES = {str: "text", int: "integer", float: "decimal", bool: "boolean"}
+
+
+@cache
+def _tb_matching() -> SimpleNamespace | None:
+    for repo in _source_repos():
+        src = repo / "talk-bench" / "libs" / "talk_bench_core" / "src"
+        if not (src / "talk_bench_core" / "matching.py").is_file():
+            continue
+        if str(src) not in sys.path:
+            sys.path.append(str(src))
+        try:
+            from talk_bench_core import logical_actions, matching, value_normalization
+            from talk_bench_core.criteria import Action
+            from talk_bench_core.tools import ToolCallRecord
+            return SimpleNamespace(
+                Action=Action, ToolCallRecord=ToolCallRecord,
+                verdict=matching.compute_action_verdict,
+                record_matches=matching._record_matches_action,
+                args_match=matching._args_match,                    # plain actions: case-insensitive
+                value_equal=value_normalization.criteria_value_equal,  # actions using earlier results
+                result_payload=matching._tool_result_payload,
+                has_records=matching._result_has_records,
+                projection_match=matching._result_projection_match,
+                resolve_path=logical_actions.resolve_action_result_path,
+            )
+        except Exception:
+            return None
+    return None
+
+
+def _ref_of(value: Any) -> tuple[str, str] | None:
+    """(action_id, path) of an argument written as {"$action_result": {action_id, path}}."""
+    ref = value.get("$action_result") if isinstance(value, dict) and len(value) == 1 else None
+    return (ref.get("action_id"), ref.get("path")) if isinstance(ref, dict) else None
+
+
+def _has_ref(value: Any) -> bool:
+    if isinstance(value, dict):
+        return "$action_result" in value or any(_has_ref(v) for v in value.values())
+    return isinstance(value, list) and any(_has_ref(v) for v in value)
+
+
+def _compared_args(action: Any) -> dict[str, Any] | None:
+    """The arguments an action compares: compare_args' keys, else all of them. With compare_args,
+    plain actions skip a key the action has no value for; actions using earlier results fail."""
+    args = action.arguments or {}
+    if action.compare_args is None:
+        return dict(args)
+    return {k: args[k] for k in action.compare_args if k in args}
+
+
+def _projection(actual: Any, expected: Any) -> Any:
+    """`actual` cut down to the shape of `expected`, so a big result shows only what was asked for."""
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        return {k: _projection(actual[k], v) for k, v in expected.items() if k in actual}
+    if isinstance(expected, list) and expected and isinstance(actual, list):
+        return [_projection(a, expected[0]) for a in actual[:20]]
+    return actual
+
+
+def _projection_misses(tb: SimpleNamespace, actual: Any, expected: Any, path: str) -> list[dict]:
+    """Where a nested expected_result value fails: the leaves (or list items) the result lacks,
+    walked the way talk-bench matches it (dicts by key, each list item against a distinct item)."""
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        out = []
+        for k, v in expected.items():
+            sub = f"{path}.{k}"
+            out += (_projection_misses(tb, actual[k], v, sub) if k in actual
+                    else [{"path": sub, "expected": v, "note": "not in the result"}])
+        return out
+    if isinstance(expected, list) and isinstance(actual, list):
+        unmatched, out = list(actual), []
+        for n, item in enumerate(expected):
+            hit = next((j for j, a in enumerate(unmatched) if tb.projection_match(a, item)), None)
+            if hit is not None:
+                unmatched.pop(hit)
+                continue
+            # not found: name the fields that differ in the returned item closest to it
+            sub = f"{path}[{n}]"
+            near = max((a for a in unmatched if isinstance(a, dict)), default=None, key=lambda a: sum(
+                k in a and tb.projection_match(a[k], v) for k, v in item.items())) if isinstance(item, dict) else None
+            if near is not None and any(k in near and tb.projection_match(near[k], v) for k, v in item.items()):
+                closest = "the only one returned" if len(actual) == 1 else f"closest of the {len(actual)} returned"
+                out += [{**m, "note": m.get("note") or closest}
+                        for m in _projection_misses(tb, near, item, sub)]
+            else:
+                out.append({"path": sub, "expected": item, "note": f"no match among the {len(actual)} returned"})
+        return out
+    if tb.projection_match(actual, expected):
+        return []
+    return [{"path": path, "expected": expected, "actual": _projection(actual, expected)}]
+
+
+def _compare_call(tb: SimpleNamespace, action: Any, record: Any, logical: bool,
+                  resolve: Any) -> tuple[list[dict], list[dict]]:
+    """Expected vs actual for one call: argument rows, then result rows (one per gate asked for)."""
+    actual_args = record.arguments or {}
+    rows = []
+    compared = _compared_args(action)
+    if logical and action.compare_args is not None and len(compared) < len(action.compare_args):
+        rows += [{"key": k, "actual": actual_args.get(k), "ok": False, "note": "no expected value"}
+                 for k in action.compare_args if k not in compared]
+    for key, expected in compared.items():
+        row: dict[str, Any] = {"key": key}
+        if (ref := _ref_of(expected)) or _has_ref(expected):
+            row["ref"] = {"action_id": ref[0], "path": ref[1]} if ref else None
+            expected = resolve(expected)
+        if expected is _MISSING:
+            row.update(actual=actual_args.get(key), ok=False, note="value from an earlier result not available")
+        else:
+            row["expected"] = expected
+            if key not in actual_args:
+                row.update(ok=False, note="argument not passed")
+            else:
+                actual = row["actual"] = actual_args[key]
+                row["ok"] = bool(tb.value_equal(actual, expected) if logical
+                                 else tb.args_match({key: actual}, {key: expected}))
+                # JSON shows 36.0 as 36: name the types when only they differ
+                same_text = lambda v: str(v).casefold().removesuffix(".0")
+                if not row["ok"] and type(actual) is not type(expected) and same_text(actual) == same_text(expected):
+                    row["note"] = f"{_TYPE_NAMES.get(type(expected), 'value')} {json.dumps(expected)} expected, " \
+                                  f"{_TYPE_NAMES.get(type(actual), 'value')} {json.dumps(actual)} passed"
+        rows.append(row)
+
+    checks: list[dict] = []
+    if not (action.require_successful_result or action.require_nonempty_result or action.expected_result):
+        return rows, checks
+    payload, error = tb.result_payload(record.result)
+    if error or payload is None:
+        msg = error.get("message") if isinstance(error, dict) else error
+        return rows, [{"check": "error", "actual": msg or "no result", "ok": False}]
+    if action.require_successful_result and isinstance(payload, dict):
+        status, success = payload.get("status"), payload.get("success")
+        checks.append({
+            "check": "status", "expected": "success",
+            "actual": status if status is not None else success,
+            "ok": (status is None or str(status).strip().casefold() in _OK_STATUSES) and success is not False,
+        })
+    if action.require_nonempty_result:
+        count = payload.get("record_count") if isinstance(payload, dict) else None
+        if not isinstance(count, (int, float)) or isinstance(count, bool):
+            records = payload.get("records") if isinstance(payload, dict) else payload
+            count = (sum(len(v) if isinstance(v, (list, dict)) else bool(v) for v in records.values())
+                     if isinstance(records, dict) else len(records) if isinstance(records, (list, str)) else None)
+        checks.append({"check": "records", "actual": count, "ok": bool(tb.has_records(payload))})
+    for key, expected in (action.expected_result or {}).items():
+        has = isinstance(payload, dict) and key in payload
+        check = {"check": "field", "key": key, "expected": expected,
+                 "ok": bool(has and tb.projection_match(payload[key], expected))}
+        if not has:
+            check["note"] = "not in the result"
+        else:
+            check["actual"] = _projection(payload[key], expected)
+            if not check["ok"] and isinstance(expected, (dict, list)):
+                check["misses"] = _projection_misses(tb, payload[key], expected, key)[:12]
+        checks.append(check)
+    return rows, checks
+
+
+def _action_checks(scenario: Any, tool_log: Any) -> dict | None:
+    """Per expected / prohibited action of scenario.json: talk-bench's verdict, the call it was
+    judged on and the expected-vs-actual comparison. Lists line up with scenario.json's."""
+    ev = _as_dict(_as_dict(scenario).get("evaluation"))
+    raw_expected = ev.get("expected_actions") or []
+    raw_prohibited = ev.get("prohibited_actions") or []
+    tb = _tb_matching() if raw_expected or raw_prohibited else None
+    if tb is None or not (tool_log is None or isinstance(tool_log, list)):
+        return None
+    try:
+        expected = [tb.Action.model_validate(a) for a in raw_expected]
+        prohibited = [tb.Action.model_validate(a) for a in raw_prohibited]
+        records = [tb.ToolCallRecord.model_validate(r) for r in tool_log or []]
+        met, violated, _ = tb.verdict(expected, prohibited, records, enforce_order=bool(ev.get("enforce_order")))
+    except Exception:
+        return None
+
+    # the verdict only looks at the agent's own actions and calls
+    is_agent = lambda a: a.requestor in (None, "assistant")
+    agent = [i for i, a in enumerate(expected) if is_agent(a)]
+    met_at = dict(zip(agent, met))
+    log = [(i, r) for i, r in enumerate(records) if r.requestor == "assistant"]
+    ids = Counter(expected[i].action_id for i in agent if expected[i].action_id)
+    by_id = {expected[i].action_id: i for i in agent if expected[i].action_id and ids[expected[i].action_id] == 1}
+    deps = {i: [by_id[d] for d in dict.fromkeys(expected[i].prerequisite_action_ids) if d in by_id] for i in agent}
+
+    def ancestors(i: int, seen: set[int]) -> set[int]:
+        for j in deps[i]:
+            if j not in seen:
+                seen.add(j)
+                ancestors(j, seen)
+        return seen
+
+    # Once an action takes a value from an earlier action's result, talk-bench matches its whole
+    # chain (it and its prerequisites, transitively) with normalized values instead: formatting-
+    # tolerant text ("913-555-0148" = "9135550148") but type-strict numbers (36 ≠ 36.0). Actions
+    # outside such a chain keep plain matching (case-insensitive, None/"" as "null"). A prerequisite
+    # can therefore miss its own credit and still count as matched for the action that uses it.
+    with_ref = {i for i in agent if _has_ref(_compared_args(expected[i]))}
+    normalized = {i for i in agent if i in with_ref or ancestors(i, set()) & with_ref}
+    chain = normalized.union(*(ancestors(i, set()) for i in normalized))
+
+    def call_info(pos: int) -> dict:
+        raw, rec = log[pos]
+        same = [p for p, (_, r) in enumerate(log) if r.tool_name == rec.tool_name]
+        return {"log_index": raw, "n": same.index(pos) + 1, "of": len(same), "timestamp": rec.timestamp or None}
+
+    # producers before consumers, so a "$action_result" reference resolves against the call chosen
+    order, done = [], set()
+    while len(order) < len(agent):
+        ready = [i for i in agent if i not in done and all(j in done or j == i for j in deps[i])]
+        ready = ready or [next(i for i in agent if i not in done)]  # a cycle: take the rest as listed
+        order += ready
+        done.update(ready)
+
+    chosen: dict[int, int] = {}   # expected index -> position in `log` of the call it matched
+    source: dict[int, int] = {}   # the same under normalized matching, for actions in a chain
+    used: dict[str, set[int]] = {}  # calls already credited to an earlier action of the same name
+    name_count = Counter(expected[i].name for i in agent)
+
+    def resolve(value: Any) -> Any:
+        if (ref := _ref_of(value)) is not None:
+            j = by_id.get(ref[0])
+            if j is None or j not in source:
+                return _MISSING
+            payload, _ = tb.result_payload(log[source[j]][1].result)
+            return tb.resolve_path(payload, ref[1], default=_MISSING)
+        if isinstance(value, dict):
+            out = {k: resolve(v) for k, v in value.items()}
+            return _MISSING if any(v is _MISSING for v in out.values()) else out
+        if isinstance(value, list):
+            out = [resolve(v) for v in value]
+            return _MISSING if any(v is _MISSING for v in out) else out
+        return value
+
+    def misses(action: Any, pos: int, norm: bool) -> tuple[list[dict], list[dict], int]:
+        rows, checks = _compare_call(tb, action, log[pos][1], norm, resolve)
+        return rows, checks, sum(not r["ok"] for r in rows + checks)
+
+    out_expected: list[dict | None] = [None] * len(expected)
+    for i in order:
+        a, norm = expected[i], i in normalized
+        matched_at = source if norm else chosen
+        candidates = [p for p, (_, r) in enumerate(log) if r.tool_name == a.name]
+        if a.last_call_only:
+            candidates = candidates[-1:]
+        earliest = max((matched_at[j] + 1 for j in deps[i] if j in matched_at), default=0)
+        taken = used.get(a.name, set()) if name_count[a.name] > 1 else set()
+        # the call shown: one that passes every comparison (after the prerequisites' calls and not
+        # credited to another action already, when there is one), else the one with fewest misses
+        compared = [(p, *misses(a, p, norm)) for p in candidates]
+        best = min(compared, key=lambda c: (c[3] > 0, c[3], c[0] < earliest, c[0] in taken, c[0]), default=None)
+        entry: dict[str, Any] = {"met": met_at[i], "mode": "normalized" if norm else "plain"}
+        if best is None:
+            entry["status"] = "missing"
+        else:
+            p, rows, checks, fails = best
+            entry.update(call=call_info(p), args=rows, result=checks)
+            if fails == 0 and met_at[i]:
+                matched_at[i] = p
+                used.setdefault(a.name, set()).add(p)
+            if met_at[i]:
+                entry["status"] = "ok" if fails == 0 else "ok_unshown"
+            elif fails:
+                entry["status"] = "args" if any(not r["ok"] for r in rows) else "result"
+            elif unmet := [expected[j].action_id for j in deps[i] if j not in matched_at]:
+                entry.update(status="prereq", prereq=unmet)
+            else:  # matches, but not after its prerequisites' calls (or only on a call another took)
+                entry.update(status="order", after=[expected[j].action_id for j in deps[i]],
+                             early=p < earliest)
+        if i in chain and not norm:
+            # how the chain sees this prerequisite: the first call passing normalized matching
+            first = max((source[j] + 1 for j in deps[i] if j in source), default=0)
+            p = next((p for p in candidates if p >= first and misses(a, p, True)[2] == 0), None)
+            if not all(j in source for j in deps[i]):
+                p = None
+            if p is not None:
+                source[i] = p
+                if not met_at[i]:
+                    entry["source_for_later"] = True
+        out_expected[i] = entry
+
+    out_prohibited: list[dict | None] = [None] * len(prohibited)
+    for i, hit in zip([i for i, a in enumerate(prohibited) if is_agent(a)], violated):
+        entry = {"violated": hit}
+        if hit:
+            p = next((p for p, (_, r) in enumerate(log)
+                      if r.tool_name == prohibited[i].name and tb.record_matches(prohibited[i], r)), None)
+            if p is not None:
+                entry.update(call=call_info(p), arguments=log[p][1].arguments)
+        out_prohibited[i] = entry
+    return {"expected": out_expected, "prohibited": out_prohibited, "met": sum(met), "total": len(met)}
+
+
 def _run_meta(sdir: Path) -> dict[str, Any]:
-    """run_meta.json without db_state (huge and rarely needed inline); for a file kept only in
-    S3, the copy of its small fields in the S3 manifest."""
+    """run_meta.json without db_state (huge and rarely needed inline)."""
     meta = _load_json(sdir / "run_meta.json")
-    if meta is None:
-        meta = (ARCHIVE.entry(sdir / "run_meta.json") or {}).get("summary")
     meta = dict(meta) if isinstance(meta, dict) else {}
     meta.pop("db_state", None)
     return meta
@@ -732,24 +1020,23 @@ def api_scenario(path: str = Query(...)):
                 "name": str(relative),
                 "size": f.stat().st_size,
             })
-    # kept only in S3: listed all the same, and downloaded when opened
-    files += [{"name": rel, "size": e["size"], "cloud": True} for rel, e in ARCHIVE.offloaded(sdir).items()]
-    files.sort(key=lambda f: Path(f["name"]).parts)
     conversation = _load_json(sdir / "conversation.json")
     tool_log = _load_json(sdir / "tool_log.json")
+    scenario = _load_json(sdir / "scenario.json")
     transcript = _records_transcript(_load_json(sdir / "records.json"), tool_log)
     return {
         "path": path,
-        "scenario": _load_json(sdir / "scenario.json"),
+        "scenario": scenario,
         "conversation": conversation,
         "tool_log": tool_log,
+        "action_checks": _action_checks(scenario, tool_log),
         "transcript": transcript,
         "run_meta": meta,
         "scenario_summary": scenario_summary,
         "session_result": session_result,
         "files": files,
         "audio": {
-            name: ARCHIVE.exists(sdir / f"{name}.wav")
+            name: (sdir / f"{name}.wav").exists()
             for name in ("conversation", "user", "agent")
         },
         "audio_align": _audio_alignment(sdir, conversation if isinstance(conversation, list) else None, transcript),
@@ -764,9 +1051,9 @@ def _invalidate_index() -> None:
 
 
 # ---- delete a run ----
-# Deletes the archived copy and, with S3 configured, the run's objects in the bucket. The copy a
-# checkout holds is left alone, so the name goes into .deleted_runs.json and Sync skips it from
-# then on; importing the run again (drag & drop, or a Run test job copying it) takes it back off.
+# Deletes the archived copy only. A copy still in a checkout (one Sync keeps there because it can be
+# resumed) is left alone, so the name goes into .deleted_runs.json and Sync skips it from then on;
+# importing the run again (drag & drop, or a Run test job copying it) takes it back off.
 
 DELETED_RUNS_FILE = DATA_DIR / ".deleted_runs.json"
 _deleted_lock = threading.Lock()
@@ -792,13 +1079,10 @@ def api_delete_run(path: str = Query(...)):
            for j in list(_jobs.values())):
         raise HTTPException(status_code=409, detail="a test is still writing this run — stop it first")
     trash = DATA_DIR / f".deleting-{uuid.uuid4().hex[:12]}"
-    try:
-        # under the lock Sync and job snapshots swap run dirs with; moved out of the index at once,
-        # removed from disk afterwards
-        with _mirror_lock:
-            s3_objects = ARCHIVE.delete_run(path, lambda: run_dir.rename(trash))
-    except S3Error as e:
-        raise HTTPException(status_code=503, detail=f"nothing was deleted: {e}")
+    # under the lock Sync and job snapshots swap run dirs with; moved out of the index at once,
+    # removed from disk afterwards
+    with _mirror_lock:
+        run_dir.rename(trash)
     shutil.rmtree(trash, ignore_errors=True)
     with _deleted_lock:
         _write_json(DELETED_RUNS_FILE, sorted(_load_deleted_runs() | {path}))
@@ -811,7 +1095,7 @@ def api_delete_run(path: str = Query(...)):
         if notes.pop(path, None) is not None:
             _write_json(RUN_NOTES_FILE, dict(sorted(notes.items())), indent=2)
     _invalidate_index()
-    return {"deleted": path, "s3_objects": s3_objects}
+    return {"deleted": path}
 
 
 # ---- folder sync: begin -> chunk (repeated) -> commit ----
@@ -886,7 +1170,6 @@ def upload_dir_commit(upload_id: str = Form(...)):
     shutil.move(str(st["dir"]), str(target))
     _undelete(st["run_name"])
     _invalidate_index()
-    ARCHIVE.schedule_push(st["run_name"])
     return {"run": st["run_name"], "files": st["files"]}
 
 
@@ -926,17 +1209,14 @@ def _clone_dir(src: Path, dest: Path) -> None:
 
 
 def _dir_signature(root: Path) -> list[tuple[str, int, int]]:
-    sig = {}
-    for p in root.rglob("*"):
-        if p.is_file():
+    """Size and mtime of every file, without dotfiles: the translations the viewer saves into an
+    archived run (and Finder's .DS_Store) must not make it differ from the checkout's copy."""
+    sig = []
+    for p in sorted(root.rglob("*")):
+        if p.is_file() and not p.name.startswith("."):
             st = p.stat()
-            sig[str(p.relative_to(root))] = (st.st_size, int(st.st_mtime))
-    # an archived run's heavy files may be kept only in S3: they still count, so a run is not
-    # cloned again just because its audio was offloaded
-    for rel, e in ARCHIVE.offloaded(root).items():
-        if is_heavy(rel):
-            sig.setdefault(rel, (e["size"], e["mtime"]))
-    return sorted((rel, size, mtime) for rel, (size, mtime) in sig.items())
+            sig.append((str(p.relative_to(root)), st.st_size, int(st.st_mtime)))
+    return sig
 
 
 # the Sync button and test-job snapshots both stage in .sync-tmp-<run>, so they share one lock
@@ -947,7 +1227,11 @@ def _mirror_run(src: Path) -> str | None:
     """Clone a run dir into the archive: "added" / "updated", or None when unchanged. It is
     staged under a temp name so an interrupted copy is never mistaken for a complete run."""
     target = DATA_DIR / src.name
+    if src.resolve() == target.resolve():  # already in the archive: never swap a run talk-bench may be writing
+        return None
     with _mirror_lock:
+        if not src.is_dir():  # its checkout copy was just released (a test ended during a Sync)
+            return None
         exists = target.exists()
         if exists and _dir_signature(src) == _dir_signature(target):
             return None
@@ -959,6 +1243,38 @@ def _mirror_run(src: Path) -> str | None:
             shutil.rmtree(target)
         tmp.rename(target)
     return "updated" if exists else "added"
+
+
+# Sync moves runs: once the archive holds a run in full, its checkout copy is deleted, provided
+# nothing will write to it again. It needs results.json, --resume must have nothing left to redo
+# or score in it (_resumable), no test of this page may be running in it and, for Sync, none of
+# its files may have changed in the last _QUIET_S seconds (a talk-bench started in a terminal can
+# be writing it). Runs kept back go at a later Sync, once finished.
+_QUIET_S = 120
+_RELEASING = ".viewer-releasing-"  # a checkout copy being deleted; Sync and Resume skip these
+
+
+def _release_source(project: Path, run: Path, quiet_s: float = _QUIET_S) -> bool:
+    """Delete a checkout's copy of a run the archive holds in full; True when it was deleted."""
+    target = DATA_DIR / run.name
+    if not (run / "results.json").is_file() or run.resolve() == target.resolve():
+        return False
+    if any(j["status"] in ("running", "cancelling") and Path(j.get("run_dir") or "").name == run.name
+           for j in list(_jobs.values())):
+        return False
+    if _resumable(project, run):
+        return False
+    trash = run.with_name(_RELEASING + run.name)
+    # under the lock _mirror_run holds, so a Sync never clones a half-deleted copy over the archive's
+    with _mirror_lock:
+        sig = _dir_signature(run)
+        if quiet_s and max((m for _, _, m in sig), default=0) > time.time() - quiet_s:
+            return False
+        if not target.is_dir() or sig != _dir_signature(target):
+            return False
+        run.rename(trash)
+    shutil.rmtree(trash, ignore_errors=True)
+    return True
 
 
 def _source_repos() -> list[Path]:
@@ -991,6 +1307,7 @@ def sync_sources():
             looked = os.environ.get("VIEWER_SOURCE_REPOS", "").strip() or ", ".join(str(p) for p in SOURCE_REPO_CANDIDATES)
             raise HTTPException(status_code=404, detail=f"no source checkout found (looked in: {looked})")
         added, updated, unchanged, skipped = [], [], 0, 0
+        removed, kept, errors = [], 0, []
         synced: set[str] = set()  # run names are globally unique: first checkout wins
         deleted = _load_deleted_runs()
         for repo in repos:
@@ -999,7 +1316,10 @@ def sync_sources():
                 if not src_root.is_dir():
                     continue
                 for run in sorted(src_root.iterdir()):
-                    if not run.is_dir() or run.name in synced:
+                    if run.name.startswith(_RELEASING):  # left over from a delete that failed halfway
+                        shutil.rmtree(run, ignore_errors=True)
+                        continue
+                    if not run.is_dir() or run.name.startswith(".") or run.name in synced:
                         continue
                     synced.add(run.name)
                     if run.name in deleted:
@@ -1010,13 +1330,23 @@ def sync_sources():
                         (updated if outcome == "updated" else added).append(run.name)
                     else:
                         unchanged += 1
+                    try:
+                        if _release_source(repo / proj, run):
+                            removed.append(run.name)
+                        elif run.is_dir():
+                            kept += 1
+                    except OSError as e:
+                        kept += 1
+                        errors.append(f"{run.name}: {e}")
         _invalidate_index()
-        ARCHIVE.schedule_push(*added, *updated)
         return {
             "added": added,
             "updated": updated,
             "unchanged": unchanged,
             "skipped_deleted": skipped,
+            "removed_from_checkout": removed,  # copied in full, then deleted from the checkout
+            "kept_in_checkout": kept,  # not finished, resumable or still being written
+            "errors": errors[:20],
             "repos": [str(r) for r in repos],
         }
     finally:
@@ -1571,7 +1901,7 @@ def api_run_report(req: ReportRequest):
 
 
 # ---- transcript translation: Simplified Chinese under each turn on the scenario page ----
-# Saved beside conversation.json as a dotfile, so it stays out of the file list and S3. It is
+# Saved beside conversation.json as a dotfile, so it stays out of the file list. It is
 # keyed by a hash of the turn texts: a transcript that changed reads as not translated yet.
 
 TRANSLATION_FILE = ".transcript_zh.json"
@@ -1753,6 +2083,7 @@ JOBS_DIR = DATA_DIR / ".test_jobs"
 MAX_RUNNING_TESTS = 4
 _LOG_CHUNK = 512_000  # bytes of log returned per poll
 _SNAPSHOT_INTERVAL_S = 90  # re-clone a running job's partial run dir into the archive this often
+_LIVE_REFRESH_S = 10  # re-read a run talk-bench writes straight into the archive this often
 
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
@@ -2095,7 +2426,7 @@ def _archived_agents() -> list[dict[str, Any]]:
 
 @app.get("/api/test/options")
 def api_test_options():
-    return {"project": _test_project(), "archived": _archived_agents()}
+    return {"project": _test_project(), "archived": _archived_agents(), "data_dir": str(DATA_DIR)}
 
 
 @app.get("/api/test/scenarios")
@@ -2196,7 +2527,7 @@ def _new_job(**fields: Any) -> dict[str, Any]:
     return {
         "id": uuid.uuid4().hex[:12], "created": _now_iso(), "started": time.time(), "finished": None,
         "status": "running", "pid": None, "exit_code": None, "cmd": [], "cwd": None,
-        "run_dir": None, "run_path": None, "synced_at": None,
+        "run_dir": None, "run_path": None, "synced_at": None, "in_archive": False,
         "progress": {"done": 0, "total": None}, "score": None, "errored": None, "error": None,
         "resume_of": None, "scenario_ids": [], "user_simulator": "talk_bench", "speech_complexity": None,
         "schedule_name": None, "scheduled_for": None,
@@ -2299,24 +2630,31 @@ def _locate_run_dir(job: dict[str, Any]) -> None:
         job["run_dir"] = str(best[1])
 
 
+def _in_archive(path: str | Path) -> bool:
+    """Whether a run dir (or the folder runs are written into) sits in the archive itself."""
+    p = Path(path).resolve()
+    return DATA_DIR.resolve() in (p, p.parent)
+
+
 def _sync_job_run(job: dict[str, Any]) -> bool:
-    """Clone the job's run directory into the archive (a no-op when unchanged)."""
+    """Clone the job's run directory into the archive (a no-op when unchanged). A run
+    talk-bench writes straight into the archive is only re-read: True = the index was refreshed."""
     run_dir = Path(job["run_dir"]) if job.get("run_dir") else None
     if not run_dir or not run_dir.is_dir():
         return False
     if not (run_dir / "results.json").is_file() and not _scenario_dirs(run_dir):
         return False  # nothing to browse yet (a config error leaves only run_config.json behind)
-    target = DATA_DIR / run_dir.name
-    if run_dir.resolve() == target.resolve():  # the checkout writes straight into the archive
+    if _in_archive(run_dir):
         job["run_path"] = run_dir.name
-        return False
+        job["synced_at"] = time.time()  # tells the page to reload the run list
+        _invalidate_index()
+        return True
     changed = _mirror_run(run_dir) is not None
     job["run_path"] = run_dir.name
     if changed:
         job["synced_at"] = time.time()
         _undelete(run_dir.name)
         _invalidate_index()
-        ARCHIVE.schedule_push(run_dir.name)
     return changed
 
 
@@ -2337,21 +2675,24 @@ def _watch_job(job_id: str, proc: subprocess.Popen | None) -> None:
     job = _jobs[job_id]
     log_path = _job_dir(job_id) / "log.txt"
     last_snapshot = time.time()
-    last_meta_count = -1
+    last_progress: tuple[int, int] | None = None
     while True:
         alive = (proc.poll() is None) if proc is not None else _pid_alive(job.get("pid"))
         _ingest_log(job, log_path)
         if not job.get("run_dir"):
             _locate_run_dir(job)
-        if alive and job.get("run_dir") and time.time() - last_snapshot >= _SNAPSHOT_INTERVAL_S:
+        # a run written straight into the archive costs nothing to re-read, so it is refreshed often
+        interval = _LIVE_REFRESH_S if job.get("run_dir") and _in_archive(job["run_dir"]) else _SNAPSHOT_INTERVAL_S
+        if alive and job.get("run_dir") and time.time() - last_snapshot >= interval:
             last_snapshot = time.time()
-            done = sum(1 for _ in Path(job["run_dir"]).glob("*/run_meta.json"))
-            if done != last_meta_count:  # only re-clone when a scenario finished since
-                last_meta_count = done
-                try:
+            run_dir = Path(job["run_dir"])
+            try:
+                progress = (len(_scenario_dirs(run_dir)), sum(1 for _ in run_dir.glob("*/run_meta.json")))
+                if progress != last_progress:  # only when a scenario started or finished since
+                    last_progress = progress
                     _sync_job_run(job)
-                except Exception as e:
-                    job["error"] = f"archive snapshot failed: {e}"
+            except Exception as e:
+                job["error"] = f"archive snapshot failed: {e}"
         if not alive:
             break
         time.sleep(1.0)
@@ -2374,6 +2715,10 @@ def _watch_job(job_id: str, proc: subprocess.Popen | None) -> None:
         job["error"] = _last_log_lines(log_path)
     try:
         _sync_job_run(job)
+        # archived in full: the checkout's copy goes too, unless --resume still has work in it
+        if job["status"] == "done" and job.get("run_dir") and job.get("project"):
+            if _release_source(Path(job["project"]), Path(job["run_dir"]), quiet_s=0):
+                job["checkout_removed"] = True
     except Exception as e:
         job["error"] = ((job.get("error") or "") + f" · archive sync failed: {e}").strip(" ·")
     _save_job(job)
@@ -2487,7 +2832,7 @@ def _launch_test(t: dict[str, Any], **fields: Any) -> dict[str, Any]:
             raise HTTPException(status_code=409, detail=f"{MAX_RUNNING_TESTS} tests are already running — wait for one to finish")
         root, agent = t["root"], t["agent"]
         job = _new_job(
-            project=str(root), project_name=root.name, runs_root=str(_runs_root(root)),
+            project=str(root), project_name=root.name, runs_root=str(DATA_DIR), in_archive=True,
             agent_name=agent["name"], module=agent["module"],
             source=t["source"], domain=t["domain"], split=t["split"], scenario_ids=t["scenario_ids"],
             user_simulator=t["user_simulator"], speech_complexity=t["speech_complexity"], **fields,
@@ -2499,6 +2844,7 @@ def _launch_test(t: dict[str, Any], **fields: Any) -> dict[str, Any]:
         cmd = [
             *t["launcher"], "run", "--config", str(config_path),
             "--domain", t["domain"], "--split", t["split"], "--source", t["source"],
+            "--output-dir", str(DATA_DIR),  # the run lands in the archive: nothing to copy
         ]
         if t["scenario_ids"]:
             cmd += ["--scenario-ids", ",".join(t["scenario_ids"])]
@@ -2541,6 +2887,67 @@ def api_test_job(job_id: str, offset: int = 0):
     }
 
 
+def _log_export_header(job: dict[str, Any], config_yaml: str | None) -> str:
+    """`#` lines that make an exported log readable on its own: what ran, how it ended, the agent.yaml."""
+    test = [job.get("source") or "?", f"{job.get('domain') or '?'}/{job.get('split') or '?'}"]
+    if job.get("scenario_ids"):
+        test.append(f"--scenario-ids {','.join(job['scenario_ids'])}")
+    if job.get("user_simulator") == "tau2":
+        test.append("tau2 user simulator")
+    if job.get("speech_complexity"):
+        test.append(f"speech complexity {job['speech_complexity']}")
+    status = [job.get("status") or "?"]
+    if job.get("exit_code") is not None:
+        status.append(f"exit {job['exit_code']}")
+    if job.get("score"):
+        s = job["score"]
+        status.append(f"{s['passed']}/{s['total']} passed ({s['pct']:g}%)")
+    elif (job.get("progress") or {}).get("total"):
+        status.append(f"{job['progress']['done']}/{job['progress']['total']} scenarios")
+    if job.get("errored"):
+        status.append(f"{job['errored']} errored")
+    if job.get("started"):
+        secs = int((job.get("finished") or time.time()) - job["started"])
+        status.append(f"{secs // 3600}h{secs // 60 % 60:02d}m{secs % 60:02d}s" if secs >= 3600 else f"{secs // 60}m{secs % 60:02d}s")
+    lines = [
+        f"talk-bench test {job['id']} · exported {_now_iso()} from the runs viewer",
+        f"agent    {job.get('agent_name') or '?'} ({job.get('module') or '?'})",
+        f"test     {' · '.join(test)}",
+        f"status   {' · '.join(status)}",
+    ]
+    if job.get("run_dir"):
+        lines.append(f"run dir  {job['run_dir']}")
+    if job.get("error"):
+        lines.append(f"error    {job['error']}")
+    if config_yaml:
+        lines += ["", "agent.yaml", *(f"  {ln}" for ln in config_yaml.rstrip().splitlines())]
+    return "".join(f"# {ln}".rstrip() + "\n" for ln in lines) + "\n"
+
+
+@app.get("/api/test/jobs/{job_id}/log")
+def api_export_test_log(job_id: str):
+    """The test's whole log as a download (up to now while it runs), after a header
+    with its settings, outcome and agent.yaml."""
+    job = _get_job(job_id)
+    d = _job_dir(job_id)
+    config_path = d / "agent.yaml"
+    header = _log_export_header(job, config_path.read_text() if config_path.is_file() else None)
+
+    def body():
+        yield header.encode()
+        try:
+            with (d / "log.txt").open("rb") as f:
+                while chunk := f.read(_LOG_CHUNK):
+                    yield chunk
+        except OSError:
+            yield b"(no log was written)\n"
+
+    started = (job.get("created") or "").replace("-", "").replace(":", "")
+    name = "-".join(p for p in (_slug(job.get("agent_name") or ""), _slug(job.get("domain") or ""), _slug(job.get("split") or ""), started, job_id) if p)
+    return StreamingResponse(body(), media_type="text/plain; charset=utf-8",
+                             headers={"Content-Disposition": f'attachment; filename="{name}.log"'})
+
+
 @app.post("/api/test/jobs/{job_id}/cancel")
 def api_cancel_test(job_id: str):
     job = _get_job(job_id)
@@ -2581,7 +2988,8 @@ def _launch_resume(run_dir: str, root: Path, user_simulator: str, config_text: s
         launcher = _launcher(root, user_simulator)
         if launcher is None:
             raise HTTPException(status_code=500, detail="neither uv nor .venv/bin/talk-bench was found for this checkout")
-        job = _new_job(**fields, project=str(root), project_name=root.name, user_simulator=user_simulator, run_dir=run_dir)
+        job = _new_job(**fields, project=str(root), project_name=root.name, user_simulator=user_simulator,
+                       run_dir=run_dir, in_archive=_in_archive(run_dir))
         _job_dir(job["id"]).mkdir(parents=True, exist_ok=True)
         if config_text:
             (_job_dir(job["id"]) / "agent.yaml").write_text(config_text)
@@ -2629,9 +3037,19 @@ def _end_reason_at(path: str, _mtime_ns: int, _size: int) -> str | None:
     return str(meta["end_reason"]) if isinstance(meta, dict) and meta.get("end_reason") else None
 
 
+def _archive_resume_project() -> Path | None:
+    """The checkout an archived run is resumed from when its agent module routes nowhere."""
+    try:
+        return _test_repo() / TEST_PROJECT
+    except HTTPException:
+        return None
+
+
 def _source_runs() -> list[tuple[Path, Path]]:
-    """(project root, run dir) of every run talk-bench wrote into a checkout that
-    --resume can pick up (it has run_config.json); the first checkout wins a name."""
+    """(project root, run dir) of every run --resume can pick up (it has run_config.json):
+    runs talk-bench wrote into a checkout, then runs a test of this page wrote straight
+    into the archive (other archived runs are not scanned: thousands of multi-MB
+    run_meta.json). The checkout's copy wins a name: the archived one may be a snapshot."""
     out, seen = [], set()
     for repo in _source_repos():
         for name in SOURCE_PROJECTS:
@@ -2640,9 +3058,15 @@ def _source_runs() -> list[tuple[Path, Path]]:
             if not (root / "pyproject.toml").is_file() or not runs.is_dir():
                 continue
             for d in sorted(runs.iterdir()):
-                if d.name not in seen and (d / "run_config.json").is_file():
+                if not d.name.startswith(".") and d.name not in seen and (d / "run_config.json").is_file():
                     seen.add(d.name)
                     out.append((root, d))
+    project = _archive_resume_project()
+    if project is not None:
+        names = {Path(j["run_dir"]).name for j in list(_jobs.values()) if j.get("in_archive") and j.get("run_dir")}
+        for name in sorted(names - seen):
+            if (DATA_DIR / name / "run_config.json").is_file():
+                out.append((project, DATA_DIR / name))
     return out
 
 
@@ -2655,6 +3079,9 @@ def _find_source_run(name: str) -> tuple[Path, Path] | None:
             d = _runs_root(root) / name
             if (root / "pyproject.toml").is_file() and (d / "run_config.json").is_file():
                 return root, d
+    project = _archive_resume_project()
+    if project is not None and (DATA_DIR / name / "run_config.json").is_file():
+        return project, DATA_DIR / name  # resumed in place, in the archive
     return None
 
 
@@ -2717,9 +3144,9 @@ def _resume_state(project: Path, run_dir: Path) -> dict[str, Any] | None:
 
 @app.get("/api/test/resumable")
 def api_test_resumable(name: str | None = Query(None)):
-    """Runs in the checkouts that --resume has work for: some scenarios errored, never
+    """Runs (_source_runs) that --resume has work for: some scenarios errored, never
     finished or were never scored. With name: that one run's state, whatever it is
-    (null when no checkout holds it with a run_config.json)."""
+    (null when neither a checkout nor the archive holds it with a run_config.json)."""
     if name is not None:
         found = _find_source_run(name)
         st = _resume_state(*found) if found else None
@@ -2727,11 +3154,20 @@ def api_test_resumable(name: str | None = Query(None)):
     runs = []
     for project, run_dir in _source_runs():
         st = _resume_state(project, run_dir)
-        # a run that left no scenario directory never got going: start the test again instead
-        if st and st["started"] and (st["redo"] or st["rescore"]):
+        if _has_resume_work(st):
             runs.append(_public_job(st))
     runs.sort(key=lambda r: r["timestamp"] or "", reverse=True)
     return {"runs": runs}
+
+
+def _has_resume_work(st: dict[str, Any] | None) -> bool:
+    # a run that left no scenario directory never got going: start the test again instead
+    return bool(st and st["started"] and (st["redo"] or st["rescore"]))
+
+
+def _resumable(project: Path, run_dir: Path) -> bool:
+    """Whether the Run test page lists this checkout run as one to resume."""
+    return _has_resume_work(_resume_state(project, run_dir))
 
 
 class ResumeRunBody(BaseModel):
@@ -2740,14 +3176,14 @@ class ResumeRunBody(BaseModel):
 
 @app.post("/api/test/resume_run")
 def api_resume_run(body: ResumeRunBody):
-    """`talk-bench run --resume <run dir>` for a run in a checkout, wherever it was
-    started from: the run dir's run_config.json says what to run (agent, task set), so
-    nothing else is passed. Runs in the checkout the agent module belongs to."""
+    """`talk-bench run --resume <run dir>` for a run in a checkout or the archive, wherever
+    it was started from: the run dir's run_config.json says what to run (agent, task set),
+    so nothing else is passed. Runs in the checkout the agent module belongs to."""
     found = _find_source_run(body.name)
     if not found:
         raise HTTPException(
             status_code=404,
-            detail="no checkout holds this run with a run_config.json — imported runs and runs made before --resume existed cannot be resumed",
+            detail="neither a checkout nor the archive holds this run with a run_config.json — runs made before --resume existed cannot be resumed",
         )
     project, run_dir = found
     st = _resume_state(project, run_dir)
