@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>talk-bench runs viewer</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎧</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23171717'/><g transform='translate(5 5) scale(.917)' fill='none' stroke='%23fafafa' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 18v-6a9 9 0 0 1 18 0v6'/><path d='M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z'/></g></svg>">
 <script>
   // set the theme before first paint (user override in localStorage, else OS preference)
   let _t = null;
@@ -16,7 +16,8 @@
 </script>
 <style>
   /* Tokens follow shadcn/ui (new-york, neutral) + Vercel Geist accents — hexes are the
-     compiled values from shadcn-ui/ui registry themes and vercel.com Geist tokens. */
+     compiled values from shadcn-ui/ui registry themes and vercel.com Geist tokens, except where WCAG AA
+     needed more contrast: light --muted / --faint / --link, dark --faint, and --focus / --ring. */
   :root {
     --topbar-h: 48px; --side-w: 256px; --radius: 14px;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue", sans-serif;
@@ -27,10 +28,10 @@
     color-scheme: light;
     --bg: #fafafa; --surface: #ffffff; --surface-2: #f5f5f5; --surface-3: #e5e5e5;
     --border: #e5e5e5; --border-soft: #f0f0f0;
-    --fg: #0a0a0a; --fg-soft: #4c4c4c; --muted: #737373; --faint: #a3a3a3;
-    --link: #0072f5;
+    --fg: #0a0a0a; --fg-soft: #4c4c4c; --muted: #6b6b6b; --faint: #8a8a8a;  /* muted: 4.5:1 text on every surface; faint: 3:1 icons and borders, not body text */
+    --link: #0066d9; --focus: #0066d9;
     --primary: #171717; --primary-fg: #fafafa;
-    --ring: rgba(161, 161, 161, .40);
+    --ring: rgba(0, 102, 217, .20);  /* the soft halo around a focused field; --focus is the 3:1 indicator itself */
     --pass: #297a3a; --pass-bg: #effbef; --pass-border: rgba(69, 165, 87, .35);
     --fail: #d00a12; --fail-bg: #fff0f0; --fail-border: rgba(231, 0, 11, .22);
     --na-bg: #f5f5f5; --na-border: #e5e5e5;
@@ -49,10 +50,10 @@
     color-scheme: dark;
     --bg: #0a0a0a; --surface: #171717; --surface-2: #262626; --surface-3: #333333;
     --border: rgba(255, 255, 255, .10); --border-soft: rgba(255, 255, 255, .06);
-    --fg: #fafafa; --fg-soft: #d4d4d4; --muted: #a1a1a1; --faint: #525252;
-    --link: #52a8ff;
+    --fg: #fafafa; --fg-soft: #d4d4d4; --muted: #a1a1a1; --faint: #737373;
+    --link: #52a8ff; --focus: #52a8ff;
     --primary: #e5e5e5; --primary-fg: #171717;
-    --ring: rgba(115, 115, 115, .50);
+    --ring: rgba(82, 168, 255, .28);
     --pass: #62c073; --pass-bg: #0b2212; --pass-border: rgba(98, 192, 115, .35);
     --fail: #ff6467; --fail-bg: #2a1314; --fail-border: rgba(255, 100, 103, .30);
     --na-bg: rgba(161, 161, 161, .10); --na-border: rgba(161, 161, 161, .22);
@@ -69,14 +70,44 @@
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
+  /* checkboxes: a 16px box with a 3:1 border, filled with --primary when on; the tick / dash scale in */
+  input[type=checkbox] {
+    appearance: none; -webkit-appearance: none; flex: none; display: inline-grid; place-content: center;
+    width: 16px; height: 16px; margin: 0; vertical-align: -3px; border: 1px solid var(--faint); border-radius: 4px;
+    background: var(--surface); color: var(--primary-fg); cursor: pointer;
+    transition: background-color var(--dur-1), border-color var(--dur-1);
+  }
+  input[type=checkbox]::before {
+    content: ''; display: block; width: 10px; height: 10px; background: currentColor; transform: scale(0);
+    -webkit-mask: var(--tick) center / contain no-repeat; mask: var(--tick) center / contain no-repeat;
+    transition: transform var(--dur-1) var(--ease-out);
+  }
+  input[type=checkbox]:indeterminate::before { --tick: var(--dash); }
+  input[type=checkbox]:is(:checked, :indeterminate) { background: var(--primary); border-color: var(--primary); }
+  input[type=checkbox]:is(:checked, :indeterminate)::before { transform: none; }
+  input[type=checkbox]:hover:not(:checked, :indeterminate, :disabled) { border-color: var(--muted); }
+  input[type=checkbox]:disabled { opacity: .5; cursor: default; }
+  :root {
+    --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+    --dash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.5' stroke-linecap='round'%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E");
+  }
+  .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
   #sidebar, pre, .rc-list, .chat-log, .scen-list, .table-wrap, .markdown-table-wrap { scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
   body {
     margin: 0; display: flex; min-height: 100vh;
     font: 14px/1.5 var(--sans);
     background: var(--bg); color: var(--fg);
-    -webkit-font-smoothing: antialiased; accent-color: var(--link);
+    -webkit-font-smoothing: antialiased; accent-color: var(--primary);  /* radios / range, if any appear; checkboxes are drawn below */
   }
   ::selection { background: var(--selection); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }  /* the one keyboard focus ring; text fields use a --focus border instead */
+  #main:focus { outline: none; }  /* tabindex=-1: where focus lands after a route change, not a control */
+  .skip-link {
+    position: fixed; top: 8px; left: 8px; z-index: 200; padding: 8px 14px; border: 0; border-radius: 8px;
+    background: var(--primary); color: var(--primary-fg); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+    transform: translateY(-160%);
+  }
+  .skip-link:focus-visible { transform: none; }
   .log-pane::selection, .markdown-body pre ::selection { background: rgba(82, 168, 255, .35); }  /* both panes are dark in either theme */
 
   /* ---------- sidebar ---------- */
@@ -101,7 +132,7 @@
   .side-item:hover { background: var(--surface-2); color: var(--fg); }
   .side-item.active { background: var(--surface-2); color: var(--fg); font-weight: 500; }
   .side-item.active svg { color: var(--fg); }
-  .side-n { margin-left: auto; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .side-n { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .side-foot { padding: 12px 10px 4px; border-top: 1px solid var(--border-soft); color: var(--muted); font-size: 12px; }
   .backdrop { display: none; }
 
@@ -135,8 +166,8 @@
     border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg);
     font: inherit; font-size: 13.5px; transition: border-color var(--dur-1), box-shadow var(--dur-1);
   }
-  #q::placeholder { color: var(--faint); }
-  #q:focus { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
+  #q::placeholder { color: var(--muted); }
+  #q:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--ring); }
   .btn {
     display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px;
     border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg);
@@ -157,7 +188,7 @@
   .card-head h3 { margin: 0; }
   .list-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--border-soft); }
   .list-meta .count { font-size: 13px; color: var(--fg-soft); font-weight: 500; }
-  .list-meta .hint { margin-left: auto; font-size: 12.5px; color: var(--faint); }
+  .list-meta .hint { margin-left: auto; font-size: 12.5px; color: var(--muted); }
   body.drop-hint #main .table-card { box-shadow: 0 0 0 2px var(--link), var(--shadow-card); }  /* run folders are being dragged over the list */
   body.drop-hint #listHint { color: var(--link); }
 
@@ -170,6 +201,8 @@
     box-shadow: inset 0 -1px 0 var(--border);  /* a collapsed border stays on the grid; the shadow travels with a stuck header */
   }
   td { padding: 10px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  .table-card td { line-height: 20px; }  /* one line box in every cell, so text of any size, badges, icons and checkboxes share the first line's centre */
+  .table-card td .badge { line-height: 18px; vertical-align: top; margin-top: -1px; }  /* the 22px pill, centred on that 20px line */
   .table-card th:first-child, .table-card td:first-child { padding-left: 16px; }
   .table-card th:last-child, .table-card td:last-child { padding-right: 16px; }
   .table-card tr:last-child td { border-bottom: none; }
@@ -177,6 +210,9 @@
   .table-card tbody tr:hover { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
   .table-card tbody tr.rowlink:hover { background: var(--surface-2); }
   th[data-sort] { cursor: pointer; user-select: none; }
+  .th-sort { appearance: none; border: 0; padding: 0; background: none; color: inherit; font: inherit; text-align: inherit; white-space: nowrap; cursor: pointer; }
+  .th-sort:focus-visible { outline-offset: 3px; border-radius: 3px; }
+  .th-sort:focus-visible .sort-ind::after { opacity: 1; }
   th[data-sort]:hover { color: var(--fg); }
   .sort-ind::after { content: '↕'; margin-left: 4px; color: var(--faint); opacity: 0; }
   th[data-sort]:hover .sort-ind::after { opacity: 1; }
@@ -192,7 +228,7 @@
   .badge.fail { background: var(--fail-bg); color: var(--fail); border-color: var(--fail-border); }
   .badge.na   { background: var(--na-bg); color: var(--muted); border-color: var(--na-border); }
   h2 .badge { line-height: 18px; }  /* the scenario PASS / FAIL pill: h2's 1.3 would shrink it below the 18px of every other badge */
-  .chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; margin: 14px 0 4px; }
+  .chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin: 14px 0 4px; }
   .chip { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; }
   .chip .k { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chip .v { font-size: 20px; font-weight: 600; letter-spacing: -.02em; margin-top: 2px; font-variant-numeric: tabular-nums; }
@@ -251,8 +287,10 @@
   .audio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 18px; }
   .tool-call { border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 12px; margin: 10px 40px; font-size: 13px; background: var(--surface-2); }
   .tool-call .name { font-weight: 650; }
+  .tool-icon { display: inline-flex; margin-right: 5px; vertical-align: -2px; color: var(--muted); }
+  .tool-icon svg { width: 14px; height: 14px; }
   .tool-call .err { color: var(--fail); font-size: 12.5px; }
-  .ts { color: var(--faint); font-size: 11px; font-family: var(--mono); margin-right: 6px; }
+  .ts { color: var(--muted); font-size: 11px; font-family: var(--mono); margin-right: 6px; }
   button.ts { background: none; border: 0; padding: 0; line-height: inherit; cursor: pointer; }
   button.ts:hover { color: var(--link); text-decoration: underline; }
   .who .badge { margin-left: 2px; padding: 0 7px; font-size: 10.5px; }
@@ -260,7 +298,7 @@
   .hop-route { font-weight: 600; color: var(--fg-soft); }
   .hop-text { white-space: pre-wrap; }
   #transcript:not(.show-hops) .hop { display: none; }
-  .hop-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
+  .hop-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
   .turn .bubble { transition: box-shadow var(--dur-2) var(--ease-out); }  /* the audio-sync ring glides from turn to turn */
   .turn.playing .bubble { box-shadow: 0 0 0 2px var(--link); }
 
@@ -279,7 +317,7 @@
   .tp-toggle > span:first-child { margin-right: auto; }
   .tp-toggle svg { color: var(--muted); transition: transform var(--dur-2) var(--ease-out); }
   .scen-side:not(.collapsed) .tp-toggle svg { transform: rotate(180deg); }
-  .tp-toggle:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--ring); }
+  .tp-toggle:focus-visible { outline-offset: -2px; }  /* inside the card's overflow: hidden */
   .tp-body { padding: 4px 16px 16px; max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--border-soft); scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
   .scen-side.collapsed .tp-body { display: none; }
   @container scen (min-width: 1000px) {
@@ -302,7 +340,7 @@
   .tp-k { margin: 12px 0 3px; font-size: 12px; font-weight: 500; color: var(--muted); }
   .tp-text { margin: 0; white-space: pre-wrap; color: var(--fg-soft); }
   .tp-kv { margin: 0; }
-  .tp-kv dt { margin-top: 5px; font-size: 11.5px; color: var(--faint); }
+  .tp-kv dt { margin-top: 5px; font-size: 11.5px; color: var(--muted); }
   .tp-kv dd { margin: 0 0 2px; color: var(--fg-soft); white-space: pre-wrap; }
   .tp-plain { margin: 0; padding-left: 18px; color: var(--fg-soft); }
   .tp-limits { margin-top: 10px; font-size: 12px; color: var(--muted); }
@@ -336,7 +374,6 @@
   .tp-call { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; }
   .tp-call:hover:not(:disabled) { color: var(--fg); border-color: var(--faint); }
   .tp-call:disabled { cursor: default; opacity: .6; }
-  .tp-call:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
   .tp-verdict { margin: 2px 0 0 20px; font-size: 12px; color: var(--muted); }
   .tp-verdict.bad { color: var(--fail); }
   .tp-cmp { display: grid; grid-template-columns: 14px fit-content(45%) minmax(0, 1fr); gap: 2px 6px; align-items: baseline; margin: 4px 0 0 20px; font-family: var(--mono); font-size: 11.5px; }
@@ -344,7 +381,7 @@
   .tp-cmp .k { color: var(--muted); overflow-wrap: anywhere; }
   .tp-cmp .v { min-width: 0; color: var(--fg-soft); overflow-wrap: anywhere; }
   .tp-cmp.expect .v { color: var(--muted); }
-  .tp-cmp .sub { grid-column: 1 / -1; margin-top: 3px; font-family: var(--sans); font-size: 11px; color: var(--faint); }
+  .tp-cmp .sub { grid-column: 1 / -1; margin-top: 3px; font-family: var(--sans); font-size: 11px; color: var(--muted); }
   .tp-got-line { display: block; color: var(--muted); }
   .tp-got { color: var(--fail); }
   .tp-same { color: var(--faint); }
@@ -365,18 +402,20 @@
     transition: background-color var(--dur-1), box-shadow var(--dur-1), scale var(--dur-1) var(--ease-out);
   }
   .navbtn:hover { background: var(--surface-2); text-decoration: none; }
-  .navbtn:focus-visible { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
   .navbtn.disabled, .navbtn:disabled { color: var(--faint); pointer-events: none; box-shadow: none; }
   button.navbtn { cursor: pointer; font-family: inherit; }
   .navbtn.danger { color: var(--fail); }
   .navbtn.danger:hover { background: var(--fail-bg); border-color: var(--fail-border); }
   .more-chev { display: inline-flex; padding: 4px 10px; border: none; border-radius: 8px; background: none; color: var(--faint); cursor: pointer; }
   .more-chev:hover { background: var(--surface-2); color: var(--fg); }
-  .more-chev:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
   .more-chev svg { width: 18px; height: 18px; transition: transform var(--dur-2) var(--ease-out); }
   .more-chev.open svg { transform: rotate(180deg); }
 
   /* ---------- star / hide / copy ---------- */
+  /* row actions: buttons with a 25px target (padding) around the 15px icon, the row's layout unchanged (margin) */
+  .row-act { appearance: none; border: 0; padding: 5px; margin: -5px; border-radius: 6px; background: none; font: inherit; line-height: 0; cursor: pointer; }
+  /* in a table: a 28px target that takes 20px of height — the first text line's — so the icon's centre is that line's centre */
+  td > .row-act { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: -4px 0; padding: 0; }
   .star { color: var(--faint); display: inline-flex; transition: color var(--dur-1), transform var(--dur-1) var(--ease-out); }
   .star.on { color: var(--star); }
   .star.on svg { fill: currentColor; }
@@ -390,9 +429,11 @@
   .delcell { cursor: pointer; user-select: none; }
   .delcell:hover .trash { color: var(--fail); }
   tr.row-busy { opacity: .5; pointer-events: none; }  /* a run being deleted */
-  .selcell { width: 14px; padding-right: 0 !important; cursor: pointer; user-select: none; }
-  .selcell input { width: 14px; height: 14px; margin: 2px 0 0; vertical-align: top; cursor: pointer; }
-  th.selcell input { margin: 0; vertical-align: -2px; }
+  /* checkbox column: 16px box + 6px, so box, star, eye and trash centres sit 28px apart */
+  .selcell { width: 1px; padding-right: 6px !important; cursor: pointer; user-select: none; }
+  .selcell input { display: grid; margin-top: 2px; }  /* 10px padding + 2px + 8px: centred on the 20px first line */
+  th.selcell { vertical-align: middle; }
+  th.selcell input { margin-top: 0; }
   .table-card tbody tr.selected { background: color-mix(in srgb, var(--link) 7%, transparent); }
   .table-card tbody tr.rowlink.selected:hover { background: color-mix(in srgb, var(--link) 11%, transparent); }
   /* the selected runs' actions: sticks to the bottom of the window while the list runs past it */
@@ -402,19 +443,23 @@
     background: var(--surface); box-shadow: var(--shadow-pop);
   }
   .bulk-bar .bulk-n { margin-right: auto; font-size: 13px; font-weight: 500; }
-  .run-name { overflow-wrap: anywhere; }
-  .run-suffix { color: var(--muted); }  /* -<N>trials-<timestamp>-run-<id>: repeats the Time column */
+  .run-cell { min-width: 280px; }
+  .table-card :is(td, th):is(.starcell, .eyecell, .delcell, .col-star, .col-hide, .col-del) { width: 28px; padding-inline: 0; }  /* icon columns: as wide as their 28px targets */
+  .row-link { color: inherit; }
+  .run-link { display: block; font-weight: 500; overflow-wrap: anywhere; }
+  /* <N>trials-<timestamp>-run-<id>: repeats the Time column, so one line. width 0 / min-width 100%: it never widens the column */
+  .run-suffix { display: block; width: 0; min-width: 100%; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px/1.5 var(--mono); color: var(--muted); }
   .ratio { display: block; width: 56px; height: 3px; margin-top: 7px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
   .ratio::after { content: ''; display: block; height: 100%; background: var(--pass); transform-origin: left; transform: scaleX(var(--r)); }
   .copy-run-name { appearance: none; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: copy; overflow-wrap: anywhere; }
   .copy-run-name:hover { color: var(--link); }
-  .copy-run-name:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; border-radius: 2px; }
+  .copy-run-name:focus-visible { outline-offset: 3px; border-radius: 2px; }
   .copy-icon { display: inline-block; vertical-align: -2px; margin-left: 5px; color: var(--faint); }
   .copy-icon svg { width: 12px; height: 12px; }
   .copy-run-name:hover .copy-icon { color: var(--link); }
   .copy-feedback { margin-left: 5px; color: var(--pass); font-family: var(--sans); font-size: 11px; font-weight: 600; }
   .copy-run-name.copy-error .copy-feedback { color: var(--fail); }
-  .subscore { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+  .subscore { font-size: 11px; line-height: 16px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
   .subscore .ok { color: var(--pass); }
   .subscore .bad { color: var(--fail); }
   .mode-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--fg-soft); white-space: nowrap; }
@@ -432,7 +477,7 @@
     transition: background-color var(--dur-1), border-color var(--dur-1), box-shadow var(--dur-1);
   }
   .rc-btn:hover { background: var(--surface-2); }
-  .rc-btn:focus-visible, .run-combo.open .rc-btn { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
+  .run-combo.open .rc-btn { border-color: var(--focus); box-shadow: 0 0 0 3px var(--ring); }
   .rc-side {
     flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
     border-radius: 6px; background: var(--surface-3); color: var(--fg-soft); font-size: 12px; font-weight: 650;
@@ -462,8 +507,8 @@
     width: 100%; padding: 6px 10px 6px 31px; border: 1px solid var(--border); border-radius: 8px;
     background: var(--surface-2); color: var(--fg); font: inherit; font-size: 13px;
   }
-  .rc-search input::placeholder { color: var(--faint); }
-  .rc-search input:focus { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
+  .rc-search input::placeholder { color: var(--muted); }
+  .rc-search input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--ring); }
   .rc-list { max-height: 340px; overflow-y: auto; padding: 5px; }
   .rc-group { padding: 7px 9px 4px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
   .rc-opt + .rc-group { margin-top: 5px; border-top: 1px solid var(--border-soft); }
@@ -503,10 +548,12 @@
   /* ---------- notes ---------- */
   .note-cell { min-width: 120px; width: 14%; }
   .run-note-input, .run-note-detail textarea { width: 100%; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--fg); font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .run-note-input { display: block; min-width: 100px; min-height: 44px; padding: 5px 7px; resize: vertical; }
-  .run-note-input::placeholder, .run-note-detail textarea::placeholder { color: var(--faint); }
+  .run-note-input { display: block; min-width: 100px; padding: 5px 7px; resize: vertical; field-sizing: content; max-height: 9.5em; }  /* one line when empty; grows with the note where field-sizing is supported */
+  .run-note-input::placeholder { color: var(--faint); }
+  .run-note-detail textarea::placeholder { color: var(--muted); }
+  @media (hover: hover) { tr:not(:hover) > td > .run-note-input:not(:focus)::placeholder { color: transparent; } }  /* 250 "Add a note…" rows were noise */
   .run-note-input:hover { border-color: var(--border); background: var(--surface); }
-  .run-note-input:focus, .run-note-detail textarea:focus { outline: none; border-color: var(--faint); background: var(--surface); box-shadow: 0 0 0 3px var(--ring); }
+  .run-note-input:focus, .run-note-detail textarea:focus { outline: none; border-color: var(--focus); background: var(--surface); box-shadow: 0 0 0 3px var(--ring); }
   .run-note-input.saving { color: var(--muted); }
   .run-note-input.save-error { border-color: var(--fail); background: var(--fail-bg); }
   .run-note-detail { margin-top: 12px; max-width: 720px; }
@@ -527,12 +574,14 @@
   .chat-msg.assistant .bubble { padding: 13px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
   .chat-input { display: flex; gap: 8px; }
   .chat-input input { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 13.5px; background: var(--surface); color: var(--fg); transition: border-color var(--dur-1), box-shadow var(--dur-1); }
-  .chat-input input::placeholder { color: var(--faint); }
-  .chat-input input:focus { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
+  .chat-input input::placeholder { color: var(--muted); }
+  .chat-input input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--ring); }
 
   /* ---------- AI scenario report ---------- */
   .report-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .report-head h3 { margin: 0; }
+  .report-head h3, .icon-h { display: flex; align-items: center; gap: 7px; }
+  :is(.report-head h3, .icon-h) svg { flex: none; color: var(--muted); }
   .report-head .navbtn { margin-left: auto; }
   .report-body { margin-top: 12px; padding: 13px 16px; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 10px; transition: opacity var(--dur-2) var(--ease-out); }
   .mermaid-diagram { margin: 10px 0; padding: 12px; overflow-x: auto; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 10px; text-align: center; }
@@ -572,20 +621,22 @@
   .seg button.active { background: var(--surface); color: var(--fg); font-weight: 600; box-shadow: var(--shadow); }
   .preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
   .preset { text-align: left; border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; background: var(--surface); cursor: pointer; font: inherit; color: var(--fg); box-shadow: var(--shadow); transition: background-color var(--dur-1), border-color var(--dur-1), box-shadow var(--dur-1); }
+  .preset { display: flex; flex-direction: column; justify-content: flex-start; }  /* a button centres its content: top-align, so titles in one row line up */
   .preset:hover { background: var(--surface-2); }
   .preset.active { border-color: var(--fg); }
-  .preset .p-name { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13.5px; }
-  .preset .p-name svg { color: var(--muted); flex: none; }
-  .preset .p-mod { color: var(--faint); font-size: 11px; font-family: var(--mono); margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .preset .p-name { display: flex; align-items: flex-start; gap: 6px; font-weight: 600; font-size: 13.5px; line-height: 20px; }
+  .preset .p-name svg { color: var(--muted); flex: none; margin-top: 2.5px; }  /* on the first line's centre, also for two-line names */
+  .preset .p-mod { color: var(--muted); font-size: 11px; font-family: var(--mono); margin-top: auto; padding-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 16px; margin-top: 14px; }
   .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .field.wide { grid-column: 1 / -1; }
   .field label { font-size: 12px; font-weight: 500; color: var(--muted); }
   .field input:not([type=checkbox]), .field select, .field textarea { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; font-size: 13px; transition: border-color var(--dur-1), box-shadow var(--dur-1); }
   .field textarea { font-family: var(--mono); font-size: 12px; min-height: 120px; resize: vertical; white-space: pre; overflow: auto; }
-  .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--faint); box-shadow: 0 0 0 3px var(--ring); }
-  .field input::placeholder, .field textarea::placeholder { color: var(--faint); }
-  .field .help { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
+  .field input:not([type=checkbox]):focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--ring); }
+  .field input::placeholder { color: var(--muted); }
+  .field textarea::placeholder { color: var(--faint); }  /* a whole example agent.yaml: it must not read as content */
+  .field .help { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
   .field.invalid textarea { border-color: var(--fail); }
   .paste-row { display: flex; gap: 6px; }
   .field .paste-row input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; }
@@ -616,15 +667,22 @@
   .scen-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .scen-head input { max-width: 260px; }
   .scen-list { max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-  .scen-row { display: flex; align-items: baseline; gap: 9px; padding: 5px 10px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; cursor: pointer; }
+  .scen-row { display: flex; align-items: center; gap: 9px; padding: 5px 10px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; cursor: pointer; }
   .scen-row:last-child { border-bottom: none; }
   .scen-row:hover { background: var(--surface-2); }
-  .scen-row input { margin: 0; position: relative; top: 1px; flex: none; }
+  .scen-row > span { line-height: 20px; }
   .scen-row .scen-id { flex: none; }
   .scen-row .scen-sum { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .scen-row .scen-tag { flex: none; font-size: 11px; color: var(--faint); }
+  .scen-row .scen-tag { flex: none; font-size: 11px; color: var(--muted); }
   .scen-empty { padding: 14px; text-align: center; color: var(--muted); font-size: 12.5px; }
   #agentInfo.err { color: var(--fail); font-size: 12px; }
+  .page-head { margin-bottom: 16px; }
+  .page-head h2 { margin: 0; }
+  .step-h { display: flex; align-items: center; gap: 8px; }
+  .step-n {
+    display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: none; border-radius: 50%;
+    background: var(--primary); color: var(--primary-fg); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
   .sched-form { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
 
   /* ---------- motion: opacity / transform only, one easing curve (--ease-out) ---------- */
@@ -702,9 +760,8 @@
   #syncBtn[aria-busy="true"]::before { content: none; }
   #syncBtn[aria-busy="true"] > svg { display: block; animation: spin .9s linear infinite; }  /* its refresh icon spins instead */
 
-  /* press feedback, and the one focus ring inputs, .navbtn, .rc-btn and .more-chev already use */
+  /* press feedback */
   :is(.btn, .navbtn, .icon-btn, .seg button):active { scale: .97; }  /* the scale property composes with .cmp-swap's rotate(90deg) */
-  :is(.btn, .icon-btn, .side-item, .seg button, .preset, .toast-close):focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
 
   ::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--dur-2); }  /* theme toggle cross-fade */
 
@@ -712,7 +769,6 @@
   @media (max-width: 1280px) {  /* the run list and compare tables outgrow their card below this width */
     .table-wrap.wide { overflow-x: auto; }
     .table-wrap.wide > table { min-width: 760px; }
-    .table-wrap.wide .run-name { display: inline-block; min-width: 220px; }
     .table-wrap.wide th { position: static; }  /* sticky inside a scroll container would float mid-table */
   }
   @media (max-width: 900px) {
@@ -729,11 +785,18 @@
     .search-wrap kbd { display: none; }
     .table-wrap { overflow-x: auto; }
     .table-wrap table { min-width: 760px; }
-    .table-wrap .run-name { display: inline-block; min-width: 220px; }
     th { position: static; }
     .filelist { columns: 1; }
     .tool-call { margin: 10px 8px; }
     .turn > div { max-width: 90%; }
+  }
+  @media (max-width: 600px) {  /* phone topbar: the search gets the room — Sync becomes an icon button, and the list's title ("Runs") goes */
+    #syncBtn { padding-inline: 8px; }
+    #syncBtn .btn-label { display: none; }
+    #topbar:has(#searchWrap:not([hidden])) .topbar-title { display: none; }
+    .topbar-actions { flex: 1; justify-content: flex-end; }
+    #listHint { display: none; }  /* no folder drag and drop on a phone */
+    #runTable :is(.col-hide, .col-del, .eyecell, .delcell) { display: none; }  /* hide / delete stay in the selection bar: the run name gets the room */
   }
 
   /* keep LAST: under reduced motion every animation and transition ends at once */
@@ -746,6 +809,7 @@
 </style>
 </head>
 <body>
+<button class="skip-link" type="button" id="skipLink">Skip to content</button>
 <aside id="sidebar">
   <a class="brand" href="#"><span class="brand-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg></span>talk-bench runs</a>
   <nav class="side-nav" id="sideNav"></nav>
@@ -762,11 +826,11 @@
         <input id="q" placeholder="Search runs, agents, notes…" autocomplete="off">
         <kbd>/</kbd>
       </div>
-      <button class="btn" id="syncBtn" hidden type="button" title="Copy new runs from the ai-ds-research checkouts into the archive, then delete the checkout copies of finished runs (runs that can still be resumed stay)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>Sync sources</button>
+      <button class="btn" id="syncBtn" hidden type="button" aria-label="Sync sources" title="Copy new runs from the ai-ds-research checkouts into the archive, then delete the checkout copies of finished runs (runs that can still be resumed stay)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg><span class="btn-label">Sync sources</span></button>
       <button class="icon-btn" id="themeBtn" aria-label="Theme" type="button"></button>
     </div>
   </header>
-  <main id="main"></main>
+  <main id="main" tabindex="-1"></main>
 </div>
 
 <script>
@@ -795,6 +859,8 @@ const ICONS = {
   play: svgIcon('<polygon points="6 4 20 12 6 20 6 4"/>'),
   clock: svgIcon('<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>'),
   resume: svgIcon('<polyline points="21 4 21 10 15 10"/><path d="M19.4 15a8 8 0 1 1-1.9-8.3L21 10"/>'),
+  sparkle: svgIcon('<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15v4M17 17h4"/>'),
+  wrench: svgIcon('<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'),
   trash: svgIcon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>'),
 };
 let RUNS = null;
@@ -816,7 +882,10 @@ async function toggleStar(path, rerender) {
     rerender();
   }
 }
-const starIcon = path => `<span class="star ${STARS.has(path) ? 'on' : ''}">${ICONS.star}</span>`;
+const starIcon = path => {
+  const on = STARS.has(path);
+  return `<button type="button" class="star row-act${on ? ' on' : ''}" aria-pressed="${on}" aria-label="Star this run" title="${on ? 'Starred — click to unstar' : 'Star this run'}">${ICONS.star}</button>`;
+};
 
 // Hidden runs are a per-browser preference: kept in localStorage and never sent to the
 // server, so every computer has its own list.
@@ -844,8 +913,8 @@ function toggleHidden(path, rerender) {
   rerender();
 }
 const hideIcon = path => HIDDEN.has(path)
-  ? `<span class="eye on" title="Hidden on this computer — click to show it again">${ICONS.eyeOff}</span>`
-  : `<span class="eye" title="Hide this run from the list on this computer">${ICONS.eyeOff}</span>`;
+  ? `<button type="button" class="eye row-act on" aria-label="Show this run again" title="Hidden on this computer — click to show it again">${ICONS.eyeOff}</button>`
+  : `<button type="button" class="eye row-act" aria-label="Hide this run" title="Hide this run from the list on this computer">${ICONS.eyeOff}</button>`;
 
 // Deleting a run removes only its files in the archive; a copy still in a checkout is kept and Sync skips the run from then on. Callers ask first (confirm before any busy state).
 const DELETE_NOTE = "Only the files in the viewer's archive are deleted, together with stars and notes. For runs started "
@@ -1161,7 +1230,7 @@ function sortRows(rows, sorters, key, dir) {
 const sortableTh = (key, label, state, cls = '') => {
   const active = state.sort === key;
   return `<th data-sort="${key}" class="${cls} ${active ? (state.dir > 0 ? 'sorted-asc' : 'sorted-desc') : ''}"
-    aria-sort="${active ? (state.dir > 0 ? 'ascending' : 'descending') : 'none'}">${label}<span class="sort-ind"></span></th>`;
+    aria-sort="${active ? (state.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button type="button" class="th-sort">${label}<span class="sort-ind" aria-hidden="true"></span></button></th>`;
 };
 
 function filteredRuns() {
@@ -1184,10 +1253,12 @@ function filteredRuns() {
 const copyNameBtn = name => `<button class="copy-run-name" type="button" data-run-name="${esc(name)}"
   title="Copy run name" aria-label="Copy run name ${esc(name)}"><span>${esc(name)}</span><span class="copy-icon" aria-hidden="true">${ICONS.copy}</span><span class="copy-feedback" aria-live="polite"></span></button>`;
 
-// the part from -<N>trials- on (timestamp + run id) only tells runs of one config apart: muted
-const runNameHTML = name => {
-  const m = String(name ?? '').match(/^(.+?)(-\d+trials-.*)$/);
-  return m ? `${esc(m[1])}<span class="run-suffix">${esc(m[2])}</span>` : esc(name);
+// the config name is the row's link (keyboard, ⌘-click); the part from <N>trials- on (timestamp + run id) only
+// tells runs of one config apart: one muted line, cut with an ellipsis, the whole name in its tooltip
+const runNameHTML = (name, href) => {
+  const m = String(name ?? '').match(/^(.+?)-(\d+trials-.*)$/);
+  return `<a class="row-link run-link" href="${href}">${esc(m ? m[1] : name)}</a>`
+    + (m ? `<span class="run-suffix" title="${esc(name)}">${esc(m[2])}</span>` : '');
 };
 // a 56px bar under the Scenarios badge, so 69/70 and 0/70 no longer look alike
 const ratioBar = (passed, total) => total
@@ -1200,9 +1271,9 @@ function runRowHTML(r) {
     <td class="selcell"><input type="checkbox" class="row-sel" data-path="${esc(r.path)}"${SELECTED.has(r.path) ? ' checked' : ''} aria-label="Select ${esc(r.run_name)}"></td>
     <td class="starcell" data-path="${esc(r.path)}">${starIcon(r.path)}</td>
     <td class="eyecell" data-path="${esc(r.path)}">${hideIcon(r.path)}</td>
-    <td class="delcell" data-path="${esc(r.path)}"><span class="trash" title="Delete this run">${ICONS.trash}</span></td>
+    <td class="delcell" data-path="${esc(r.path)}"><button type="button" class="trash row-act" aria-label="Delete this run" title="Delete this run">${ICONS.trash}</button></td>
     <td class="mono muted">${esc(bjStamp(r.timestamp) || '?')}</td>
-    <td class="mono"><span class="run-name">${runNameHTML(r.run_name)}</span></td>
+    <td class="run-cell">${runNameHTML(r.run_name, `#/run/${encodeURIComponent(r.path)}`)}</td>
     <td>${esc(r.agent_name || '—')}</td>
     <td>${modalityTag(r.modality)}${userSimTag(r.user_simulator)}</td>
     <td>${r.has_results
@@ -1211,7 +1282,7 @@ function runRowHTML(r) {
         : `<span class="badge na">no results (${r.scenario_count} dirs)</span>`}</td>
     <td>${fmtScore(r.primary_score)}</td>
     <td>${fmtScore(r.eval_final)}</td>
-    <td class="note-cell"><textarea class="run-note-input" data-path="${esc(r.path)}" rows="2" wrap="soft" maxlength="2000" placeholder="Add a note…" title="Ctrl/⌘ + Enter or click elsewhere to save">${esc(NOTES[r.path] || '')}</textarea></td>
+    <td class="note-cell"><textarea class="run-note-input" data-path="${esc(r.path)}" rows="${NOTES[r.path] ? 2 : 1}" wrap="soft" maxlength="2000" placeholder="Add a note…" title="Ctrl/⌘ + Enter or click elsewhere to save">${esc(NOTES[r.path] || '')}</textarea></td>
   </tr>`;
 }
 
@@ -1350,7 +1421,7 @@ function updateRunRows() {
   const shown = new Set(shownPaths);
   for (const p of SELECTED) if (!shown.has(p)) SELECTED.delete(p);
   if (!shown.has(selAnchor)) selAnchor = null;
-  head.innerHTML = `<tr><th class="selcell"><input type="checkbox" id="selAll" aria-label="Select every run shown" title="Select every run shown"></th><th></th><th></th><th></th>${sortableTh('timestamp', 'Time (Beijing)', listState)}${sortableTh('run_name', 'Run', listState)}${sortableTh('agent_name', 'Agent', listState)}${sortableTh('modality', 'Mode', listState)}${sortableTh('scenarios', 'Scenarios', listState)}${sortableTh('primary_score', 'Primary', listState)}${sortableTh('eval_final', 'Eval final', listState)}<th>Note</th></tr>`;
+  head.innerHTML = `<tr><th class="selcell"><input type="checkbox" id="selAll" aria-label="Select every run shown" title="Select every run shown"></th><th class="col-star"><span class="sr-only">Star</span></th><th class="col-hide"><span class="sr-only">Hide</span></th><th class="col-del"><span class="sr-only">Delete</span></th>${sortableTh('timestamp', 'Time (Beijing)', listState)}${sortableTh('run_name', 'Run', listState)}${sortableTh('agent_name', 'Agent', listState)}${sortableTh('modality', 'Mode', listState)}${sortableTh('scenarios', 'Scenarios', listState)}${sortableTh('primary_score', 'Primary', listState)}${sortableTh('eval_final', 'Eval final', listState)}<th>Note</th></tr>`;
   tbody.innerHTML = sorted.map(runRowHTML).join('');
   document.getElementById('listCount').textContent =
     `${sorted.length} / ${pool.length} ${listState.view === 'hidden' ? 'hidden runs' : 'runs'}`
@@ -1413,8 +1484,8 @@ function updateSideNav() {
     el.classList.toggle('active',
       el.dataset.href !== undefined ? location.hash.startsWith(el.dataset.href)
       : el.dataset.view !== undefined ? onList && el.dataset.view === listState.view
-      : el.dataset.modality !== undefined ? el.dataset.modality === listState.modality
-      : el.dataset.agent === listState.agent_name);
+      : el.dataset.modality !== undefined ? onList && el.dataset.modality === listState.modality
+      : onList && el.dataset.agent === listState.agent_name);  // elsewhere only the page itself is highlighted
   });
 }
 
@@ -1483,7 +1554,7 @@ const factorOk = v => Array.isArray(v) ? v[0] >= v[1] : v >= 1;
 function scenRowHTML(runPath) {
   return s => `
   <tr class="rowlink" data-href="${scenHref(runPath, s.id)}">
-    <td class="mono">${esc(s.id)}</td>
+    <td class="mono"><a class="row-link" href="${scenHref(runPath, s.id)}">${esc(s.id)}</a></td>
     <td>${passBadge(s.passed)}</td>
     <td>${fmtScore(s.goal_score)}${s.breakdown ? `<div class="subscore">${
       Object.entries(s.breakdown).map(([k, v]) =>
@@ -2071,7 +2142,7 @@ function renderTimeline(d, align) {
     return `
     <div class="tool-call"${it.log_index != null ? ` data-log="${it.log_index}"` : ''}>
       ${atTs(it, 'when the tool was called')}
-      🔧 <span class="name mono">${esc(it.tool_name)}</span>
+      <span class="tool-icon">${ICONS.wrench}</span><span class="name mono">${esc(it.tool_name)}</span>
       ${it.by || it.duration_ms != null ? `<span class="muted">· ${[esc(it.by || ''), it.duration_ms != null ? fmtDur(it.duration_ms) : ''].filter(Boolean).join(' · ')}</span>` : ''}
       ${it.db_changed ? '<span class="badge pass" style="margin-left:8px">db changed</span>' : ''}
       ${error ? `<span class="badge fail" style="margin-left:8px">error</span>` : ''}
@@ -2812,7 +2883,7 @@ async function renderMermaidIn(root) {
 const aiCardsHTML = (reportTitle, reportHint, subject) => `
   <div class="card">
     <div class="report-head">
-      <h3>✨ ${reportTitle}</h3>
+      <h3>${ICONS.sparkle}${reportTitle}</h3>
       <span class="muted" id="reportStatus" style="font-size:12px" aria-live="polite"></span>
       <button class="navbtn" id="reportBtn" type="button">生成报告</button>
     </div>
@@ -2820,10 +2891,10 @@ const aiCardsHTML = (reportTitle, reportHint, subject) => `
     <div id="reportBody" class="markdown-body report-body" hidden></div>
   </div>
   <div class="card">
-    <h3>🤖 Ask AI about this ${subject}</h3>
+    <h3 class="icon-h">${ICONS.bot}Ask AI about this ${subject}</h3>
     <div id="chatLog" class="chat-log"></div>
     <div class="chat-input">
-      <input id="chatText" placeholder="自由提问更细节的问题…">
+      <input id="chatText" placeholder="自由提问更细节的问题…" aria-label="Ask AI about this ${subject}">
       <button class="navbtn" id="chatSend" type="button">Send</button>
     </div>
   </div>`;
@@ -3037,6 +3108,7 @@ applyTheme();
 
 /* ---------- one-time UI wiring (event delegation — nothing rebinds on re-render) ---------- */
 const closeNav = () => document.body.classList.remove('nav-open');
+document.getElementById('skipLink').addEventListener('click', () => $main.focus());
 document.getElementById('menuBtn').addEventListener('click', () => document.body.classList.toggle('nav-open'));
 document.getElementById('backdrop').addEventListener('click', closeNav);
 
@@ -3138,8 +3210,9 @@ $main.addEventListener('click', e => {
   }
   const star = e.target.closest('.starcell');
   if (star) {
-    const path = star.dataset.path;
+    const path = star.dataset.path, refocus = star.contains(document.activeElement);
     toggleStar(path, refreshRunMarks);  // re-renders synchronously, before its first await
+    if (refocus) $main.querySelector(`.starcell[data-path="${CSS.escape(path)}"] .star`)?.focus();  // the button was replaced
     // pop the freshly rendered star(s) that just turned on; un-starring and a rolled-back POST never pop
     $main.querySelectorAll(`.starcell[data-path="${CSS.escape(path)}"] .star.on`).forEach(el => el.classList.add('pop'));
     return;
@@ -3170,15 +3243,18 @@ $main.addEventListener('click', e => {
     const [state, redraw] = table === 'scenTable' ? [scenState, updateScenRows]
       : table === 'cmpTable' ? [cmpState, updateCmpRows]
       : [listState, updateRunRows];
-    const key = th.dataset.sort;
+    const key = th.dataset.sort, refocus = th.contains(document.activeElement);
     if (state.sort === key) state.dir = -state.dir;
     else { state.sort = key; state.dir = key === 'timestamp' ? -1 : 1; }
     redraw();
+    if (refocus) document.querySelector(`#${table} th[data-sort="${key}"] .th-sort`)?.focus();  // the header row was rebuilt
     return;
   }
   if (e.target.closest('a, button, select, textarea, input, audio, summary, .note-cell')) return;
   const row = e.target.closest('tr.rowlink');
-  if (row?.dataset.href) location.hash = row.dataset.href;
+  if (!row?.dataset.href) return;
+  if (e.metaKey || e.ctrlKey) window.open(row.dataset.href, '_blank');  // like the row's link
+  else location.hash = row.dataset.href;
 });
 
 $main.addEventListener('keydown', e => {
@@ -4322,14 +4398,14 @@ async function renderTest(params) {
   const project = opts.project || null;
   setView(`
   <div class="crumbs"><a href="#">All runs</a> / Run test</div>
-  <div class="card">
-    <h2 style="margin:0">Run a test</h2>
+  <div class="page-head">
+    <h2>Run a test</h2>
     ${project ? '' : `<div class="notice warn">No <b>talk-bench</b> checkout was found
       (looked for <code>talk-bench/</code> under <code>VIEWER_SOURCE_REPOS</code>, <code>~/GitHub/ai-ds-research</code> and <code>~/Documents/tau2-bench-fork/ai-ds-research</code>). Clone one to run tests.</div>`}
   </div>
   <div class="card" id="agentCard">
     <div class="card-head" style="padding:0 0 12px;border-bottom:none;flex-wrap:wrap">
-      <h3>1 · Agent</h3>
+      <h3 class="step-h"><span class="step-n">1</span>Agent</h3>
       <div class="seg" id="agentTabs" style="margin-left:auto">
         <button type="button" data-tab="presets">Presets</button>
         <button type="button" data-tab="import">Import YAML / JSON</button>
@@ -4354,7 +4430,7 @@ async function renderTest(params) {
     <div class="muted" id="agentStatus" style="font-size:12px;margin-top:10px" aria-live="polite"></div>
   </div>
   <div class="card">
-    <h3 style="margin:0">2 · Scenarios</h3>
+    <h3 class="step-h" style="margin:0"><span class="step-n">2</span>Scenarios</h3>
     ${settingsFormHTML(project)}
     <div class="actions-row">
       <button class="btn primary" type="button" id="startTestBtn"${project ? '' : ' disabled'}>${ICONS.play}Start test</button>
@@ -4584,9 +4660,13 @@ let routeSeq = 0, enterPending = false, enterTimer = 0, lastHash = '';
 
 // Every render's first write into #main goes through here: it ends the dimmed "stale" page and, once per
 // route(), scrolls to the top and plays the entrance. In-place updates and polling never call it.
+let viewShown = false;  // the first page of a load leaves focus alone: Tab starts at the skip link
 function setView(html) {
   $main.innerHTML = html;
   $main.classList.remove('stale');
+  // the control that navigated went away with the old page: keyboard / screen-reader focus starts on the new one
+  if (viewShown && document.activeElement === document.body) $main.focus({ preventScroll: true });
+  viewShown = true;
   if (!enterPending) return;
   enterPending = false;
   window.scrollTo(0, 0);
