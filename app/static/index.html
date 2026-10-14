@@ -232,6 +232,13 @@
   .chip { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; }
   .chip .k { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chip .v { font-size: 20px; font-weight: 600; letter-spacing: -.02em; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  /* chipMeter: a 0–1 value as a bar under it — neutral while partial, --pass when full */
+  .meter { display: block; height: 3px; margin-top: 8px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+  .meter::after { content: ''; display: block; height: 100%; background: var(--muted); transform-origin: left; transform: scaleX(var(--r)); }
+  .meter.full::after { background: var(--pass); }
+  /* scenario page: end reason, duration and persona as one line under the title */
+  .meta-line { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: -2px 0 14px; font-size: 13px; }
+  .meta-line .k { margin-right: 6px; color: var(--muted); }
 
   /* ---------- text & misc ---------- */
   a { color: var(--link); text-decoration: none; }
@@ -284,7 +291,7 @@
   .bubble .zh { margin-top: 6px; padding-top: 6px; border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); opacity: .8; }
   .transcript-head { margin-bottom: 8px; }
   audio { width: 100%; margin: 4px 0 10px; }
-  .audio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 18px; }
+  .audio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 18px; }  /* three players in one row beside the panel */
   .tool-call { border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 12px; margin: 10px 40px; font-size: 13px; background: var(--surface-2); }
   .tool-call .name { font-weight: 650; }
   .tool-icon { display: inline-flex; margin-right: 5px; vertical-align: -2px; color: var(--muted); }
@@ -530,6 +537,23 @@
   .cmp-agg th { position: static; }  /* sticky inside a scroll container would float mid-table */
   #cmpHead th { top: calc(var(--topbar-h) + 36px); }  /* stack under the stuck A/B group row (36.75px: 9+9 padding + 12.5px x 1.5) */
   tr.cmp-group td { font-size: 12px; color: var(--muted); font-weight: 500; background: var(--surface); }
+  .card-head .seg { margin-left: auto; }
+  .seg-n { margin-left: 2px; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+  .side-tag {
+    display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-right: 6px; vertical-align: 1px;
+    border-radius: 5px; background: var(--surface-3); color: var(--fg-soft); font: 650 11px/1 var(--sans);
+  }
+  .side-tag.b { background: var(--primary); color: var(--primary-fg); }
+  .chip .k .side-tag { width: 15px; height: 15px; margin: 0 1px; font-size: 10px; vertical-align: 0; }
+  /* compare outcomes: the chips' swatches are the legend of the split bar */
+  .sw { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; }
+  .sw-both { background: var(--pass); }
+  .sw-a { background: var(--faint); }
+  .sw-b { background: var(--primary); }
+  .sw-fail { background: var(--fail); }
+  .cmp-chips { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }  /* "Only [A] passes" in full */
+  .cmp-split { display: flex; gap: 2px; height: 8px; margin: 12px 0 2px; border-radius: 999px; overflow: hidden; background: var(--surface-3); }
+  .cmp-split > span { flex-basis: 0; min-width: 4px; }
   .cmp-delta.up { color: var(--pass); }
   .cmp-delta.down { color: var(--fail); }
   .cmp-note { font-size: 12.5px; color: var(--fg-soft); background: var(--surface); border: 1px solid var(--border);
@@ -557,9 +581,13 @@
   .run-note-input.saving { color: var(--muted); }
   .run-note-input.save-error { border-color: var(--fail); background: var(--fail-bg); }
   .run-note-detail { margin-top: 12px; max-width: 720px; }
-  .run-note-detail label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; font-weight: 500; }
-  .run-note-detail textarea { display: block; min-height: 64px; resize: vertical; padding: 8px 10px; border-color: var(--border); }
-  .note-actions { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+  .run-note-detail label { color: var(--muted); font-size: 12px; font-weight: 500; }
+  .run-note-detail textarea { display: block; min-height: 34px; max-height: 12em; resize: vertical; padding: 6px 10px; border-color: var(--border); field-sizing: content; }  /* one line until the note is longer */
+  .note-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+  #runNoteStatus { font-size: 12px; }
+  .note-row { display: flex; align-items: flex-start; gap: 8px; }
+  .note-row textarea { flex: 1; min-width: 0; }
+  .note-row .navbtn { flex: none; padding-block: 7px; }  /* the one-line field's 34px */
 
 
   /* ---------- chat ---------- */
@@ -572,7 +600,10 @@
   .chat-msg.user .who { text-align: right; }
   .chat-msg.user .bubble { width: fit-content; max-width: 82%; margin-left: auto; background: var(--bubble-user); color: var(--bubble-user-fg); }
   .chat-msg.assistant .bubble { padding: 13px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
-  .chat-input { display: flex; gap: 8px; }
+  .chat-input { display: flex; align-items: center; gap: 8px; }
+  .ai-chat { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
+  .chat-label { display: inline-flex; align-items: center; gap: 7px; flex: none; font-size: 14px; font-weight: 600; }
+  .chat-label svg { color: var(--muted); }
   .chat-input input { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 13.5px; background: var(--surface); color: var(--fg); transition: border-color var(--dur-1), box-shadow var(--dur-1); }
   .chat-input input::placeholder { color: var(--muted); }
   .chat-input input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--ring); }
@@ -619,7 +650,7 @@
   .seg button { border: 0; background: none; padding: 5px 12px; border-radius: 7px; font: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer; white-space: nowrap; transition: background-color var(--dur-2), color var(--dur-2), box-shadow var(--dur-2); }
   .seg button:hover { color: var(--fg); }
   .seg button.active { background: var(--surface); color: var(--fg); font-weight: 600; box-shadow: var(--shadow); }
-  .preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+  .preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(max(170px, (100% - 40px) / 5), 1fr)); gap: 10px; }  /* at most 5 a row: Gemini Live + the four Talkdesk presets */
   .preset { text-align: left; border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; background: var(--surface); cursor: pointer; font: inherit; color: var(--fg); box-shadow: var(--shadow); transition: background-color var(--dur-1), border-color var(--dur-1), box-shadow var(--dur-1); }
   .preset { display: flex; flex-direction: column; justify-content: flex-start; }  /* a button centres its content: top-align, so titles in one row line up */
   .preset:hover { background: var(--surface-2); }
@@ -720,6 +751,8 @@
      Opacity only: with border-collapse a translated row tears from its borders. Never used on the polled tables */
   tbody.rows-enter > tr:nth-child(-n+20) { animation: fade-in var(--dur-3) var(--ease-out) var(--d, 0ms) backwards; }
   tbody.rows-enter > tr:nth-child(-n+20) .ratio::after { animation: grow-x .5s var(--ease-out) calc(var(--d, 0ms) + 100ms) backwards; }
+  #main.view-enter .meter::after, #cmpBody .cmp-split { animation: grow-x .5s var(--ease-out) .12s backwards; }  /* run / scenario meters fill on a route's entrance; the split bar when compare results land */
+  .cmp-split { transform-origin: left; }
 
   /* the Run test page polls every 2 s and rebuilds #jobRows, #schedRows and #logMeta: nothing in them transitions,
      and the running dot keeps a shared phase (jobStatusHTML) instead of restarting */
@@ -797,6 +830,15 @@
     .topbar-actions { flex: 1; justify-content: flex-end; }
     #listHint { display: none; }  /* no folder drag and drop on a phone */
     #runTable :is(.col-hide, .col-del, .eyecell, .delcell) { display: none; }  /* hide / delete stay in the selection bar: the run name gets the room */
+    .scen-nav { flex: 1 1 100%; }  /* prev / next shrink to arrows, the scenario picker takes the rest */
+    .scen-nav .nav-id { display: none; }
+    .scen-nav select { flex: 1; min-width: 0; max-width: none; }
+    .chips:not(.cmp-chips) { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }  /* three stat chips a row; labels wrap instead of cutting */
+    .chip { padding: 9px 11px; }
+    .chip .k { font-size: 11.5px; line-height: 1.3; white-space: normal; overflow-wrap: break-word; hyphens: auto; }
+    .chip .v { font-size: 18px; }
+    .card-head:has(> .seg) { flex-wrap: wrap; }  /* the scenario filter drops under its heading */
+    .card-head > .seg { margin-left: 0; flex-wrap: nowrap; }
   }
 
   /* keep LAST: under reduced motion every animation and transition ends at once */
@@ -1116,6 +1158,10 @@ function renderMarkdown(value) {
 
 const fmtScore = v => (v === null || v === undefined) ? '<span class="muted">—</span>' : Number(v).toFixed(v >= 1 || v === 0 ? 2 : 3).replace(/\.?0+$/,'') || '0';
 const fmtDur = ms => ms == null ? '—' : (ms/1000 < 90 ? (ms/1000).toFixed(1)+'s' : (ms/60000).toFixed(1)+'min');
+// a stat chip; r (0–1) adds a meter under the value — neutral while partial, --pass when full
+const chipMeter = r => typeof r === 'number' && r >= 0 && r <= 1
+  ? `<span class="meter${r >= 1 ? ' full' : ''}" style="--r:${r.toFixed(3)}" aria-hidden="true"></span>` : '';
+const chipHTML = (k, v, r = null) => `<div class="chip"><div class="k">${k}</div><div class="v">${v}</div>${chipMeter(r)}</div>`;
 const passBadge = p => p === true ? '<span class="badge pass">PASS</span>' : p === false ? '<span class="badge fail">FAIL</span>' : '<span class="badge na">—</span>';
 
 const jsonPreview = (label, value) => `
@@ -1490,7 +1536,7 @@ function updateSideNav() {
 }
 
 /* ---------- run detail ---------- */
-const scenState = { sort: 'id', dir: 1 };
+const scenState = { sort: 'id', dir: 1, result: 'all' };
 const scenSorters = {
   id: s => s.id,
   passed: s => s.passed === true ? 2 : s.passed === false ? 1 : null,
@@ -1554,7 +1600,7 @@ const factorOk = v => Array.isArray(v) ? v[0] >= v[1] : v >= 1;
 function scenRowHTML(runPath) {
   return s => `
   <tr class="rowlink" data-href="${scenHref(runPath, s.id)}">
-    <td class="mono"><a class="row-link" href="${scenHref(runPath, s.id)}">${esc(s.id)}</a></td>
+    <td class="mono nowrap"><a class="row-link" href="${scenHref(runPath, s.id)}">${esc(s.id)}</a></td>
     <td>${passBadge(s.passed)}</td>
     <td>${fmtScore(s.goal_score)}${s.breakdown ? `<div class="subscore">${
       Object.entries(s.breakdown).map(([k, v]) =>
@@ -1572,10 +1618,19 @@ function updateScenRows() {
   head.innerHTML = `<tr>${sortableTh('id', 'Scenario', scenState)}${sortableTh('passed', 'Result', scenState)}${sortableTh('goal_score', 'Goal score', scenState)}${sortableTh('end_reason', 'End reason', scenState)}${sortableTh('turn_count', 'Turns', scenState)}${sortableTh('duration_ms', 'Duration', scenState)}</tr>`;
   const tbody = document.getElementById('scenRows');
   tbody.classList.remove('rows-enter');
-  tbody.innerHTML =
-    sortRows(CUR_RUN.scenarios, scenSorters, scenState.sort, scenState.dir)
-      .map(scenRowHTML(CUR_RUN.path)).join('');
+  const test = (SCEN_RESULTS.find(([k]) => k === scenState.result) || SCEN_RESULTS[0])[2];
+  const seg = document.getElementById('scenResult');
+  if (seg) seg.innerHTML = SCEN_RESULTS.map(([k, label, t]) => {
+    const on = k === scenState.result;
+    return `<button type="button" data-result="${k}" class="${on ? 'active' : ''}" aria-pressed="${on}">${label} <span class="seg-n">${CUR_RUN.scenarios.filter(t).length}</span></button>`;
+  }).join('');
+  const rows = CUR_RUN.scenarios.filter(test);
+  tbody.innerHTML = rows.length
+    ? sortRows(rows, scenSorters, scenState.sort, scenState.dir).map(scenRowHTML(CUR_RUN.path)).join('')
+    : `<tr><td colspan="6" class="empty">No ${scenState.result === 'pass' ? 'passed' : 'failed'} scenarios in this run.</td></tr>`;
 }
+// the scenario table's result filter: [key, label, test]
+const SCEN_RESULTS = [['all', 'All', () => true], ['pass', 'Passed', s => s.passed === true], ['fail', 'Failed', s => s.passed === false]];
 
 /* The run payload carries no scenario.json, so the passed/total counts arrive after the
    first paint: fetch each evaluated scenario's scenario.json, then redraw the rows once. */
@@ -1599,12 +1654,14 @@ async function renderRun(path) {
   const res = d.results, ev = d.evaluation;
   const chips = [];
   if (res) {
-    chips.push(['Primary score', res.primary_score], ['Passed', `${res.scenarios_passed}/${res.scenarios_total}`], ['Errored', res.scenarios_errored]);
+    chips.push(['Primary score', res.primary_score, res.primary_score],
+               ['Passed', `${res.scenarios_passed}/${res.scenarios_total}`, res.scenarios_total ? res.scenarios_passed / res.scenarios_total : null],
+               ['Errored', res.scenarios_errored]);
   }
   if (d.user_simulator?.engine === 'tau2') chips.push(['User simulator', `τ² native · ${d.user_simulator.llm || '?'}`]);
   if (ev) {
-    chips.push(['Eval final', ev.final], ['Resolution', ev.resolution], ['Experience', ev.experience],
-               ['Responsiveness', ev.responsiveness], ['Conv. quality', ev.conversation_quality]);
+    chips.push(...[['Eval final', ev.final], ['Resolution', ev.resolution], ['Experience', ev.experience],
+               ['Responsiveness', ev.responsiveness], ['Conv. quality', ev.conversation_quality]].map(([k, v]) => [k, v, v]));
   }
   // runs with no tau2 breakdown (non-tau2 domains) show talk_bench_evaluation's factors instead
   const sessById = new Map((ev?.session_results || []).map(r => [r.session_id, r]));
@@ -1614,6 +1671,7 @@ async function renderRun(path) {
   })) };
   scenState.sort = 'id';
   scenState.dir = 1;
+  scenState.result = 'all';
   setView(`
   <div class="crumbs"><a href="#">All runs</a> / ${esc(path)}</div>
   <div class="card">
@@ -1625,16 +1683,18 @@ async function renderRun(path) {
     </div>
     <div class="muted mono">${copyNameBtn(path)}</div>
     <div class="run-note-detail">
-      <label for="runNote">Note</label>
-      <textarea id="runNote" wrap="soft" maxlength="2000" placeholder="Add a note about this run…">${esc(NOTES[path] || '')}</textarea>
-      <div class="note-actions"><button class="navbtn" id="saveRunNoteBtn" type="button">Save note</button><span class="muted" id="runNoteStatus"></span></div>
+      <div class="note-head"><label for="runNote">Note</label><span class="muted" id="runNoteStatus" aria-live="polite"></span></div>
+      <div class="note-row">
+        <textarea id="runNote" wrap="soft" maxlength="2000" placeholder="Add a note about this run…" title="Ctrl/⌘ + Enter saves">${esc(NOTES[path] || '')}</textarea>
+        <button class="navbtn" id="saveRunNoteBtn" type="button">Save note</button>
+      </div>
     </div>
-    <div class="chips">${chips.map(([k, v]) => `<div class="chip"><div class="k">${k}</div><div class="v">${typeof v === 'number' ? fmtScore(v) : esc(v ?? '—')}</div></div>`).join('')}</div>
+    <div class="chips">${chips.map(([k, v, r]) => chipHTML(k, typeof v === 'number' ? fmtScore(v) : esc(v ?? '—'), r)).join('')}</div>
     ${res ? '' : '<p class="muted">This run has no results.json (likely errored or interrupted) — scenario directories are still browsable below.</p>'}
   </div>
   ${aiCardsHTML('AI Run 报告', '一键让 AI 生成整个 run 的详细报告：总体结果、按根因分组的失败原因分布（含图）、高频问题详解（引用具体场景）和改进建议。', 'run')}
   <div class="card table-card">
-    <div class="card-head"><h3>Scenarios (${d.scenarios.length})</h3></div>
+    <div class="card-head"><h3>Scenarios (${d.scenarios.length})</h3><div class="seg" id="scenResult" role="group" aria-label="Show scenarios"></div></div>
     <div class="table-wrap">
       <table id="scenTable">
         <thead id="scenHead"></thead>
@@ -1642,10 +1702,15 @@ async function renderRun(path) {
       </table>
     </div>
   </div>
-  ${res ? `<div class="card">${jsonPreview('Raw results.json', res)}</div>` : ''}
-  ${ev ? `<div class="card">${jsonPreview('Raw talk_bench_evaluation_result.json', ev)}</div>` : ''}`);
+  ${res || ev ? `<div class="card">${res ? jsonPreview('Raw results.json', res) : ''}${ev ? jsonPreview('Raw talk_bench_evaluation_result.json', ev) : ''}</div>` : ''}`);
 
   updateScenRows();
+  document.getElementById('scenResult').addEventListener('click', e => {
+    const b = e.target.closest('button[data-result]');
+    if (!b || b.dataset.result === scenState.result) return;
+    scenState.result = b.dataset.result;
+    updateScenRows();
+  });
   fillCriteriaCounts(path, seq, sessById, enforceIntegrity);
   addResumeLink(path, seq);
   initReport(path, '/api/run_report', '生成中…（大 run 可能需要 1–3 分钟）');
@@ -1661,6 +1726,9 @@ async function renderRun(path) {
       setBusy(button, false);
       setUpStatus('⚠ ' + err.message);
     }
+  });
+  document.getElementById('runNote').addEventListener('keydown', e => {  // like the run list's note fields
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.getElementById('saveRunNoteBtn').click(); }
   });
   document.getElementById('saveRunNoteBtn').addEventListener('click', async () => {
     const input = document.getElementById('runNote');
@@ -1710,6 +1778,8 @@ const cmpSorters = {
 };
 let CUR_CMP = null;  // the /api/compare payload while the compare page is on screen
 
+// the A / B mark of the run pickers, for headers and labels that name a side
+const sideTag = side => `<span class="side-tag${side === 'b' ? ' b' : ''}">${side.toUpperCase()}</span>`;
 const cmpShortName = r => `${r.agent_name || r.path.split('-1trials-')[0]}${r.modality ? ` (${modalityLabel(r.modality)})` : ''}`;
 
 // The other side of the comparison worth defaulting to: same domain and task count,
@@ -1921,12 +1991,12 @@ function cmpSummaryHTML(d) {
   const ev = (side, k) => side.evaluation ? side.evaluation[k] : null;
   const crossModal = a.modality && b.modality && a.modality !== b.modality;
   const pct = n => shared ? ` <span class="muted">(${(100 * n / shared).toFixed(0)}%)</span>` : '';
-  const chips = [
-    ['Shared scenarios', String(shared)],
-    ['Both pass', counts.both_pass + pct(counts.both_pass)],
-    [`Only ${esc(cmpShortName(a))}`, counts.a_only + pct(counts.a_only)],
-    [`Only ${esc(cmpShortName(b))}`, counts.b_only + pct(counts.b_only)],
-    ['Both fail', counts.both_fail + pct(counts.both_fail)],
+  // the four outcomes: chips that double as the legend of the split bar under them
+  const outcomes = [
+    ['both', 'Both pass', counts.both_pass, ''],
+    ['a', `Only ${sideTag('a')} passes`, counts.a_only, cmpShortName(a)],
+    ['b', `Only ${sideTag('b')} passes`, counts.b_only, cmpShortName(b)],
+    ['fail', 'Both fail', counts.both_fail, ''],
   ];
   const voiceOnly = { note: crossModal ? 'voice-only metric' : '' };
   const notComparable = { better: crossModal ? null : 'high', note: crossModal ? 'not comparable across modalities' : '' };
@@ -1956,8 +2026,14 @@ function cmpSummaryHTML(d) {
   ].filter(Boolean).join(' · ');
   return `
   <div class="card">
-    <div class="chips">${chips.map(([k, v]) =>
-      `<div class="chip"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>
+    <div class="chips cmp-chips">
+      <div class="chip"><div class="k">Shared scenarios</div><div class="v">${shared}</div></div>
+      ${outcomes.map(([key, label, n, name]) => `<div class="chip"${name ? ` title="${esc(name)}"` : ''}>
+        <div class="k"><i class="sw sw-${key}" aria-hidden="true"></i>${label}</div><div class="v">${n}${pct(n)}</div></div>`).join('')}
+    </div>
+    <div class="cmp-split" role="img" aria-label="${esc(outcomes.map(([, label, n]) => `${label.replace(/<[^>]+>/g, '')}: ${n}`).join(', '))}">
+      ${outcomes.filter(([, , n]) => n).map(([key, , n]) => `<span class="sw-${key}" style="flex-grow:${n}"></span>`).join('')}
+    </div>
     ${orphans ? `<p class="muted" style="font-size:12.5px">Scenarios outside the overlap are excluded: ${orphans}.</p>` : ''}
     ${crossModal ? `<div class="cmp-note"><b>跨模态提示：</b>text run 没有 responsiveness / voice consistency
       （记为 0 / null，且不计入它的 experience），voice run 则会被这两项拉低 —— 所以
@@ -1967,12 +2043,12 @@ function cmpSummaryHTML(d) {
   <div class="card table-card">
     <div class="card-head"><h3>Aggregates over the ${shared} shared scenarios</h3></div>
     <div class="table-wrap cmp-agg"><table>
-      <thead><tr><th>Metric</th><th>${esc(cmpShortName(a))}</th><th class="cmp-side">${esc(cmpShortName(b))}</th><th>Δ (B − A)</th></tr></thead>
+      <thead><tr><th>Metric</th><th>${sideTag('a')}${esc(cmpShortName(a))}</th><th class="cmp-side">${sideTag('b')}${esc(cmpShortName(b))}</th><th>Δ (B − A)</th></tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table></div>
     <div class="list-meta" style="border-bottom:none;border-top:1px solid var(--border-soft)">
       <span class="count">End reasons</span>
-      <span class="hint" style="margin-left:0">${esc(cmpShortName(a))}: ${reasons(a)} &nbsp;|&nbsp; ${esc(cmpShortName(b))}: ${reasons(b)}</span>
+      <span class="hint" style="margin-left:0">${sideTag('a')}${reasons(a)} &nbsp;|&nbsp; ${sideTag('b')}${reasons(b)}</span>
     </div>
   </div>`;
 }
@@ -2062,7 +2138,7 @@ async function renderCompare(params) {
     </div>
     <div class="table-wrap wide">
       <table id="cmpTable">
-        <thead><tr><th></th><th colspan="5">${esc(cmpShortName(d.a))}</th><th colspan="5" class="cmp-side">${esc(cmpShortName(d.b))}</th></tr></thead>
+        <thead><tr><th></th><th colspan="5">${sideTag('a')}${esc(cmpShortName(d.a))}</th><th colspan="5" class="cmp-side">${sideTag('b')}${esc(cmpShortName(d.b))}</th></tr></thead>
         <thead id="cmpHead"></thead>
         <tbody id="cmpRows"></tbody>
       </table>
@@ -2224,20 +2300,24 @@ function renderScores(summary, sess, scenario) {
   const tools = summary?.tool_metrics || {};
   // passed/total where scenario.json gives the criteria count, else the plain score
   const factors = rewardBreakdown(sess, false, criteriaTotals(scenario)) || {};
-  const factor = (k, v) => Array.isArray(factors[k]) ? fmtFactor(factors[k]) : v;
+  const score = (k, v) => [k, v, v];
+  const factor = (k, key, v) => {
+    const f = factors[key];
+    return Array.isArray(f) ? [k, fmtFactor(f), f[1] ? f[0] / f[1] : null] : [k, v, v];
+  };
   const entries = [
-    ['Goal score', summary?.goal_score],
-    ...Object.entries(summary?.tau2_reward_breakdown || {}).map(([k, v]) => ['tau2 ' + k, v]),
-    ['tau2 goal', summary?.tau2_goal_score],
-    ['Native goal', summary?.native_goal_score],
-    ['Reward', tc.reward],
-    ['Action', factor('ACTION', tc.action_score)],
-    ['Communicate', factor('COMMUNICATE', tc.communicate_score)],
-    ['NL assertions', factor('NL_ASSERTION', tc.nl_assertions_score)],
-    ['DB state', factor('DB', tc.db_state_score)],
-    ['State integrity', tc.state_integrity_score],
-    ['Tool recall', tools.recall],
-    ['Tool precision', tools.precision],
+    score('Goal score', summary?.goal_score),
+    ...Object.entries(summary?.tau2_reward_breakdown || {}).map(([k, v]) => score('tau2 ' + k, v)),
+    score('tau2 goal', summary?.tau2_goal_score),
+    score('Native goal', summary?.native_goal_score),
+    score('Reward', tc.reward),
+    factor('Action', 'ACTION', tc.action_score),
+    factor('Communicate', 'COMMUNICATE', tc.communicate_score),
+    factor('NL assertions', 'NL_ASSERTION', tc.nl_assertions_score),
+    factor('DB state', 'DB', tc.db_state_score),
+    score('State integrity', tc.state_integrity_score),
+    score('Tool recall', tools.recall),
+    score('Tool precision', tools.precision),
     ['Tool calls', tools.total_calls],
   ].filter(([, v]) => v !== null && v !== undefined);
   const flags = [];
@@ -2248,10 +2328,7 @@ function renderScores(summary, sess, scenario) {
     flags.push('prohibited tool calls: ' + summary.tool_metrics.prohibited_violations.join(', '));
   const breach = breachBadge(summary?.breach);
   return `
-  <h3>Scores</h3>
-  <div class="chips">${entries.map(([k, v]) =>
-    `<div class="chip"><div class="k">${k}</div><div class="v">${typeof v === 'number' ? fmtScore(v) : esc(v)}</div></div>`).join('')}
-  </div>
+  <div class="chips">${entries.map(([k, v, r]) => chipHTML(k, typeof v === 'number' ? fmtScore(v) : esc(v), r)).join('')}</div>
   ${flags.map(f => `<div><span class="badge fail" style="margin-top:6px">${esc(f)}</span></div>`).join('')}
   ${breach ? `<div><span class="badge ${breach.cls}" style="margin-top:6px">${esc(breach.text)}</span></div>` : ''}
   ${renderIntegrityViolations(tc.state_integrity_violations)}
@@ -2540,12 +2617,12 @@ function scenarioNav(runPath, siblings, idx) {
   const mark = s => s.passed === true ? '✓ ' : s.passed === false ? '✗ ' : '';
   return `
   <div class="scen-nav">
-    ${prev ? `<a class="navbtn" href="${link(idx - 1)}">← ${esc(prev.id)}</a>` : '<span class="navbtn disabled">←</span>'}
+    ${prev ? `<a class="navbtn" href="${link(idx - 1)}" aria-label="Previous scenario: ${esc(prev.id)}">← <span class="nav-id">${esc(prev.id)}</span></a>` : '<span class="navbtn disabled">←</span>'}
     <select id="scenJump">
       ${siblings.map((s, i) => `<option value="${i}" ${i === idx ? 'selected' : ''}>${mark(s)}${esc(s.id)}</option>`).join('')}
     </select>
     <span class="muted" style="font-size:12px">${idx + 1} / ${siblings.length}</span>
-    ${next ? `<a class="navbtn" href="${link(idx + 1)}">${esc(next.id)} →</a>` : '<span class="navbtn disabled">→</span>'}
+    ${next ? `<a class="navbtn" href="${link(idx + 1)}" aria-label="Next scenario: ${esc(next.id)}"><span class="nav-id">${esc(next.id)}</span> →</a>` : '<span class="navbtn disabled">→</span>'}
   </div>`;
 }
 
@@ -2581,23 +2658,23 @@ async function renderScenario(path) {
       <h2>${esc(scenId)} <span class="muted" style="font-weight:400">· ${esc(sc.domain || '')}</span>
         ${passBadge(d.scenario_summary?.passed ?? d.session_result?.task_completion?.passed)}</h2>
     </div>
-    <div class="chips">
-      <div class="chip"><div class="k">End reason</div><div class="v" style="font-size:14px">${esc(meta.end_reason ?? '—')}</div></div>
-      <div class="chip"><div class="k">Duration</div><div class="v" style="font-size:14px">${fmtDur(meta.total_duration_ms)}</div></div>
-      <div class="chip"><div class="k">Persona</div><div class="v" style="font-size:14px">${esc([persona.age_group, persona.emotion, persona.patience && persona.patience + ' patience'].filter(Boolean).join(', ') || '—')}</div></div>
+    <div class="meta-line">
+      <span><span class="k">End reason</span>${esc(meta.end_reason ?? '—')}</span>
+      <span><span class="k">Duration</span>${fmtDur(meta.total_duration_ms)}</span>
+      <span><span class="k">Persona</span>${esc([persona.age_group, persona.emotion, persona.patience && persona.patience + ' patience'].filter(Boolean).join(', ') || '—')}</span>
     </div>
     ${renderScores(d.scenario_summary, d.session_result, d.scenario)}
     ${panel || !sc.goal?.description ? '' : `<h3>Goal</h3><p>${esc(sc.goal.description)}</p>`}
     ${jsonPreview('Full scenario JSON', sc)}
   </div>
 
+  ${aiCardsHTML('AI 场景报告', '一键让 AI 总结：这个任务要求什么、Agent 实际怎么做的（逐个 tool call）、做得好不好，并画出流程图。', 'scenario')}
+
   ${audioNames.length ? `<div class="card"><h3>Audio</h3>
     <div class="audio-grid">
     ${audioNames.map(n => `<div><div class="muted" style="font-size:12px">${n}.wav</div>
       <audio controls preload="none" src="${dataHref(`${path}/${n}.wav`)}"></audio></div>`).join('')}
   </div></div>` : ''}
-
-  ${aiCardsHTML('AI 场景报告', '一键让 AI 总结：这个任务要求什么、Agent 实际怎么做的（逐个 tool call）、做得好不好，并画出流程图。', 'scenario')}
 
   <div class="card${hopsOn ? ' show-hops' : ''}" id="transcript">
     <div class="report-head transcript-head">
@@ -2880,8 +2957,9 @@ async function renderMermaidIn(root) {
   }
 }
 
+// one card: the one-click report, then the chat (its log opens above the input once there is a message)
 const aiCardsHTML = (reportTitle, reportHint, subject) => `
-  <div class="card">
+  <div class="card ai-card">
     <div class="report-head">
       <h3>${ICONS.sparkle}${reportTitle}</h3>
       <span class="muted" id="reportStatus" style="font-size:12px" aria-live="polite"></span>
@@ -2889,13 +2967,13 @@ const aiCardsHTML = (reportTitle, reportHint, subject) => `
     </div>
     <div class="muted" style="font-size:12.5px;margin-top:6px">${reportHint}</div>
     <div id="reportBody" class="markdown-body report-body" hidden></div>
-  </div>
-  <div class="card">
-    <h3 class="icon-h">${ICONS.bot}Ask AI about this ${subject}</h3>
-    <div id="chatLog" class="chat-log"></div>
-    <div class="chat-input">
-      <input id="chatText" placeholder="自由提问更细节的问题…" aria-label="Ask AI about this ${subject}">
-      <button class="navbtn" id="chatSend" type="button">Send</button>
+    <div class="ai-chat">
+      <div id="chatLog" class="chat-log"></div>
+      <div class="chat-input">
+        <label class="chat-label" for="chatText">${ICONS.bot}Ask AI</label>
+        <input id="chatText" placeholder="关于这个 ${subject} 自由提问更细节的问题…">
+        <button class="navbtn" id="chatSend" type="button">Send</button>
+      </div>
     </div>
   </div>`;
 
@@ -3361,7 +3439,23 @@ ${auth}` },
   ];
 }
 
-const AGENT_PRESETS = [
+const AGENT_PRESETS = [  // first row: Gemini Live and the four Talkdesk presets
+  { id: 'gemini-live', label: 'Gemini Live', modality: 'voice', module: 'voice_agent.gemini_live.GeminiLiveAgent',
+    yaml: `agent:
+  name: my-gemini-live
+  module: voice_agent.gemini_live.GeminiLiveAgent
+  params:
+    model: gemini-3.1-flash-live-preview
+    voice: Zephyr
+    language: en-US
+    greeting_text: Hello
+    temperature: 1
+    thinking_level: high             # minimal | low | medium | high
+    tool_behavior: blocking
+    append_tool_grounding_hints: false
+` },
+  ...talkdeskPresets('qa'),
+  ...talkdeskPresets('stg'),
   { id: 'openai-realtime', label: 'OpenAI Realtime', modality: 'voice', module: 'voice_agent.openai_realtime.OpenAIRealtimeAgent',
     yaml: `agent:
   name: my-openai-realtime
@@ -3379,20 +3473,6 @@ const AGENT_PRESETS = [
       silence_duration_ms: 500
       create_response: true
       interrupt_response: true
-` },
-  { id: 'gemini-live', label: 'Gemini Live', modality: 'voice', module: 'voice_agent.gemini_live.GeminiLiveAgent',
-    yaml: `agent:
-  name: my-gemini-live
-  module: voice_agent.gemini_live.GeminiLiveAgent
-  params:
-    model: gemini-3.1-flash-live-preview
-    voice: Zephyr
-    language: en-US
-    greeting_text: Hello
-    temperature: 1
-    thinking_level: high             # minimal | low | medium | high
-    tool_behavior: blocking
-    append_tool_grounding_hints: false
 ` },
   { id: 'elevenlabs', label: 'ElevenLabs agent (voice)', modality: 'voice', module: 'voice_agent.elevenlabs_sdk.ElevenLabsSdkAgent',
     yaml: `agent:
@@ -3426,8 +3506,6 @@ const AGENT_PRESETS = [
     tool_source: workspace           # client | workspace | mcp
     inject_policy_as_system_prompt: false
 ` },
-  ...talkdeskPresets('qa'),
-  ...talkdeskPresets('stg'),
   { id: 'custom', label: 'Custom module', modality: '', module: 'my_package.my_agent.MyAgent',
     yaml: `# Any VoiceAgent / TextAgent subclass importable in the checkout.
 # params are passed to its constructor as keyword arguments.
@@ -3442,7 +3520,7 @@ const testState = {
   options: null,       // /api/test/options payload
   tab: 'presets',      // presets | import | archived
   preset: null,        // id of the preset the editor was last filled from
-  showYaml: false,     // a compact agent's (Talkdesk / ElevenLabs / Gemini Live) full YAML is expanded (other agents always show it)
+  showYaml: false,     // the agent.yaml editor is expanded (collapsed by default, for every agent)
   parsed: null,        // agent block of the editor's YAML, as the server parsed it
   project: null,       // the checkout the server routes that module to (parse_config's `project`)
   jobs: [],
@@ -3499,7 +3577,7 @@ function fillAgentYaml(text, presetId = null) {
   if (!el) return;
   el.value = text || '';
   testState.preset = presetId;
-  testState.showYaml = false;  // Talkdesk / ElevenLabs / Gemini agents open with the YAML collapsed
+  testState.showYaml = false;  // every agent opens with the YAML collapsed
   renderQuickFields();
   parseAgentYamlNow();
 }
@@ -3533,10 +3611,10 @@ async function parseAgentYamlNow() {
 }
 const parseAgentYaml = debounce(parseAgentYamlNow, 350);
 
-/* Agents whose YAML stays collapsed: only the values that change from test to test get their own
-   fields (pasteable straight from the clipboard) — Talkdesk its MCP tunnel and agent_system_id,
-   ElevenLabs its agent_id, Gemini Live none. The fields edit the YAML text line by line, so its
-   comments and layout survive; "Edit full YAML" opens the rest. */
+/* The YAML starts collapsed for every agent. For these, the values that change from test to test
+   get their own fields (pasteable straight from the clipboard) — Talkdesk its MCP tunnel and
+   agent_system_id, ElevenLabs its agent_id, Gemini Live and OpenAI Realtime none. The fields edit
+   the YAML text line by line, so its comments and layout survive; "Edit full YAML" opens the rest. */
 const QUICK_FIELDS = {
   server_url: { label: 'MCP server', path: 'mcp.server_url', hint: 'https://<your-tunnel>.ngrok-free.dev' },
   agent_system_id: { label: 'Talkdesk agent', path: 'params.agent_system_id', hint: '<agent_system_id of your agent>' },
@@ -3546,6 +3624,7 @@ const COMPACT_AGENTS = [  // matched by the agent module's prefix
   { kind: 'talkdesk', prefix: 'talkdesk_agent.', fields: ['server_url', 'agent_system_id'] },
   { kind: 'elevenlabs', prefix: 'voice_agent.elevenlabs_sdk.', fields: ['agent_id'] },
   { kind: 'gemini', prefix: 'voice_agent.gemini_live.', fields: [] },
+  { kind: 'openai', prefix: 'voice_agent.openai_realtime.', fields: [] },
 ];
 // by the first uncommented module: line — a wrapper's, not the agent it wraps
 function compactAgent(text) {
@@ -3641,8 +3720,8 @@ function quickClean(key, s) {
   return id ? id[0] : s.replace(/^["']+|["']+$/g, '');
 }
 
-// a compact agent shows its fields (values read back from the YAML) and a collapsed YAML; any
-// other agent just the YAML
+// a compact agent shows its fields (values read back from the YAML); the YAML itself stays
+// collapsed until "Edit full YAML" (or an error in it) opens it
 function renderQuickFields() {
   const el = document.getElementById('agentYaml'), box = document.getElementById('quickFields');
   if (!el || !box) return;
@@ -3657,9 +3736,8 @@ function renderQuickFields() {
       </div>`; }).join('');
   }
   box.hidden = !c?.fields.length;
-  document.getElementById('yamlBox').hidden = !!c && !testState.showYaml;
+  document.getElementById('yamlBox').hidden = !testState.showYaml;
   const toggle = document.getElementById('yamlToggle');
-  toggle.hidden = !c;
   toggle.textContent = testState.showYaml ? 'Hide YAML' : 'Edit full YAML';
   for (const key of c?.fields || []) {
     const input = document.getElementById(`quick-${key}`);
@@ -3726,8 +3804,8 @@ function updateAgentNotices() {
   const holes = placeholderPaths(a);
   if (holes.length) {
     // a collapsed YAML may hold placeholders outside the fields (the Talkdesk STG account_id)
-    const c = compactAgent(document.getElementById('agentYaml')?.value);
-    const inYaml = c && !testState.showYaml && holes.some(h => !c.fields.some(k => QUICK_FIELDS[k].path === h));
+    const fields = compactAgent(document.getElementById('agentYaml')?.value)?.fields || [];
+    const inYaml = !testState.showYaml && holes.some(h => !fields.some(k => QUICK_FIELDS[k].path === h));
     notes.push(`Placeholders still to fill in: <code>${holes.map(esc).join('</code>, <code>')}</code>.`
       + (inYaml ? ' Some are only in the full YAML: <button class="navbtn" type="button" data-yaml-open>Edit full YAML</button>' : ''));
   }
@@ -4416,13 +4494,13 @@ async function renderTest(params) {
     <div class="form-grid" id="quickFields" hidden></div>
     <div class="form-grid">
       <div class="field wide">
-        <div class="field" id="yamlBox">
+        <div class="field" id="yamlBox" hidden>
           <label for="agentYaml">agent.yaml</label>
           <textarea id="agentYaml" rows="18" spellcheck="false" placeholder="agent:&#10;  name: my-agent&#10;  module: voice_agent.openai_realtime.OpenAIRealtimeAgent&#10;  params:&#10;    model: gpt-realtime-2"></textarea>
         </div>
         <div class="yaml-foot">
           <span class="help" id="agentInfo"></span>
-          <button class="navbtn" type="button" id="yamlToggle" hidden>Edit full YAML</button>
+          <button class="navbtn" type="button" id="yamlToggle">Edit full YAML</button>
         </div>
       </div>
     </div>

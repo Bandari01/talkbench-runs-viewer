@@ -105,10 +105,10 @@ and written as-is to
 `<data dir>/.test_jobs/<job>/agent.yaml`; fill it from a preset (one per agent module talk-bench
 ships, with QA and STG variants of the Talkdesk Autopilot ones), an imported YAML / JSON file or one of either checkout's `samples/*.yaml`, or the
 `agent_config` recorded in an archived run (also via *Re-run this agent…* on a run page).
-Talkdesk, ElevenLabs and Gemini Live agents open with the YAML collapsed: only the values that
-change per test get fields (MCP server URL, `agent_system_id`, `agent_id`), each with a *Paste*
-button that reduces a copied log line or agent link to the value. The fields edit the YAML text in
-place; *Edit full YAML* opens the rest. The server validates the YAML the way talk-bench's
+Every agent opens with the YAML collapsed (*Edit full YAML* opens it; a YAML error opens it too).
+For Talkdesk, ElevenLabs, Gemini Live and OpenAI Realtime agents the values that change per test
+get fields (MCP server URL, `agent_system_id`, `agent_id`), each with a *Paste* button that reduces
+a copied log line or agent link to the value. The fields edit the YAML text in place. The server validates the YAML the way talk-bench's
 `AgentConfig` does. Source / domain / split are read from the checkout's data files; ticking
 scenarios sets `--scenario-ids`. Jobs show live progress and a streaming log, can be stopped (the
 process group is killed; talk-bench has no graceful stop) and resumed with `--resume`. The run dir
