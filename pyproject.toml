@@ -13,6 +13,8 @@ dependencies = [
     "python-dotenv>=1.0",
     # agent configs for the Run test page are talk-bench YAML files
     "pyyaml>=6.0",
+    # the Settings page rewrites talkbench.yaml and agent YAMLs keeping their comments
+    "ruamel-yaml>=0.18",
 ]
 
 [tool.uv]

@@ -11,9 +11,12 @@ Data layout:
 
 from __future__ import annotations
 
+import ast
+import contextlib
 import fcntl
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -25,6 +28,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 import uuid
 import wave
 from collections import Counter
@@ -35,10 +40,11 @@ from functools import cache, lru_cache
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
-from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from dotenv import dotenv_values, load_dotenv
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -3653,6 +3659,1202 @@ def api_delete_schedule(sid: str):
         schedules.remove(_find_schedule(schedules, sid))
     return {"deleted": sid}
 
+
+
+# ---- settings: the checkout's config files and this viewer's .env, edited from the page ----
+#
+# The Settings page shows this viewer's .env and, for each project of the checkout tests run in
+# (talk-bench, talk-bench-talkdesk), its talkbench.yaml, its .env and its samples/ agent YAMLs; the
+# Provision page adds talk-bench-talkdesk's samples/provision/ YAMLs. Secret values (names with KEY,
+# TOKEN, SECRET, PASSWORD or CREDENTIAL) never leave the server: the page gets their last four
+# characters and sends a value only to replace one. Writing, provisioning and the MCP server controls
+# answer only requests made on this Mac: the viewer is shared through a public tunnel, and whoever can
+# point OPENAI_BASE_URL or TALKDESK_TOKEN_URL at a host of their own collects the keys sent there, so
+# write access is as good as read access to the secrets. Each save keeps the file it replaced under
+# <data dir>/.settings_history (the last 10 per file); talkbench.yaml and agent YAMLs are rewritten
+# with ruamel.yaml so their comments survive.
+
+VIEWER_PROJECT = "viewer"
+TALKDESK_PROJECT = "talk-bench-talkdesk"
+SETTINGS_HISTORY_DIR = DATA_DIR / ".settings_history"
+_SETTINGS_KEEP = 10
+_settings_lock = threading.Lock()
+_LOCAL_NAMES = {"localhost", "127.0.0.1", "::1"}
+_SECRET_RE = re.compile(r"KEY|SECRET|PASSWORD|PASSWD|CREDENTIAL|TOKEN$", re.I)
+_ENV_LINE_RE = re.compile(
+    r"^(?P<lead>\s*)(?P<hash>#\s*)?(?P<export>export\s+)?(?P<key>[A-Za-z_][A-Za-z0-9_]*)(?P<sep>[ \t]*=)(?P<rest>.*)$"
+)
+_ENV_HEADING_RE = re.compile(r"^#\s*-{2,}\s*(?P<title>.*?)\s*-*\s*$")  # "# -- Azure Speech ---------"
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_YAML_FILE_RE = re.compile(r"^\w[\w.\-]*\.ya?ml$")
+# viewer settings read once at start-up: a change to them needs a restart (the rest apply at once)
+_VIEWER_RESTART_KEYS = {"VIEWER_DATA_DIR"}
+
+
+def _is_local_request(request: Request) -> bool:
+    """Made on this Mac to the viewer itself: not forwarded by the ngrok tunnel (which adds
+    X-Forwarded-For and keeps the public Host) and not posted here by a page of another site."""
+    if (request.client.host if request.client else "") not in _LOCAL_NAMES:
+        return False
+    if any(h in request.headers for h in ("x-forwarded-for", "x-forwarded-host", "forwarded", "x-real-ip")):
+        return False
+    if (urlsplit("//" + request.headers.get("host", "")).hostname or "") not in _LOCAL_NAMES:
+        return False
+    origin = request.headers.get("origin")
+    return not origin or (urlsplit(origin).hostname or "") in _LOCAL_NAMES
+
+
+def _require_local(request: Request) -> None:
+    if not _is_local_request(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Settings and provisioning can only be changed on the Mac that runs the viewer (open it at localhost).",
+        )
+
+
+def _settings_projects() -> dict[str, Path]:
+    """Project name -> root: this viewer, then each project of the checkout tests run in."""
+    out = {VIEWER_PROJECT: BASE_DIR}
+    try:
+        repo = _test_repo()
+    except HTTPException:
+        return out
+    for name in SOURCE_PROJECTS:
+        if (repo / name / "pyproject.toml").is_file():
+            out[name] = repo / name
+    return out
+
+
+def _settings_path(project: str, file: str) -> tuple[Path, str]:
+    """The file (project, file) names and its kind: env, project (talkbench.yaml), agent
+    (samples/*.yaml) or provision (samples/provision/*.yaml). No other file can be named."""
+    root = _settings_projects().get(project)
+    if root is None:
+        raise HTTPException(status_code=404, detail=f"no project {project!r}")
+    parts = file.split("/")
+    if file == ".env":
+        return root / file, "env"
+    if project != VIEWER_PROJECT:
+        if file == "talkbench.yaml":
+            return root / file, "project"
+        if len(parts) == 2 and parts[0] == "samples" and _YAML_FILE_RE.match(parts[1]):
+            return root / file, "agent"
+        if (project == TALKDESK_PROJECT and len(parts) == 3 and parts[:2] == ["samples", "provision"]
+                and _YAML_FILE_RE.match(parts[2])):
+            return root / file, "provision"
+    raise HTTPException(status_code=404, detail=f"{file} is not a config file the viewer edits")
+
+
+def _file_version(data: bytes | None) -> str:
+    return hashlib.sha256(data).hexdigest()[:16] if data is not None else "missing"
+
+
+def _read_config(path: Path) -> tuple[str, str]:
+    """(text, version) of a config file; a missing file reads as empty."""
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return "", _file_version(None)
+    return data.decode("utf-8", errors="replace"), _file_version(data)
+
+
+def _write_config(project: str, file: str, path: Path, text: str, version: str | None) -> None:
+    """Replace the file atomically when it still is the version the page loaded, keeping its
+    permissions (a new .env is 0600) and the old text in the settings history."""
+    old, current = _read_config(path)
+    if version is not None and version != current:
+        raise HTTPException(status_code=409, detail=f"{file} changed on disk since it was loaded — reload it first")
+    target = path.resolve() if path.exists() else path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f".{target.name}.viewer-tmp")
+    tmp.write_text(text)
+    if target.exists():
+        shutil.copymode(target, tmp)
+    else:
+        os.chmod(tmp, 0o600 if target.name == ".env" else 0o644)
+    if current != "missing":
+        hist = SETTINGS_HISTORY_DIR / project
+        hist.mkdir(parents=True, exist_ok=True)
+        stem = file.replace("/", "__")
+        snap = hist / f"{stem}.{time.strftime('%Y%m%dT%H%M%S')}"
+        snap.write_text(old)
+        os.chmod(snap, 0o600)
+        for stale in sorted(hist.glob(f"{stem}.*"))[:-_SETTINGS_KEEP]:
+            stale.unlink(missing_ok=True)
+    os.replace(tmp, target)
+
+
+# -- .env files --
+
+def _env_value(rest: str) -> tuple[str, int, int]:
+    """The value of the text after '=' the way python-dotenv reads it, and the (start, end)
+    of its source in rest. What follows end (an inline # comment) survives a rewrite."""
+    start = len(rest) - len(rest.lstrip())
+    s = rest[start:]
+    if s[:1] in ("'", '"'):
+        quote, i, out = s[0], 1, []
+        while i < len(s) and s[i] != quote:
+            if quote == '"' and s[i] == "\\" and i + 1 < len(s):
+                out.append({"n": "\n", "t": "\t", "r": "\r"}.get(s[i + 1], s[i + 1]))
+                i += 2
+                continue
+            out.append(s[i])
+            i += 1
+        return "".join(out), start, start + min(i + 1, len(s))
+    m = re.search(r"(?:^|\s)#", s)
+    value = (s[:m.start()] if m else s).rstrip()
+    return value, start, start + len(value)
+
+
+def _env_quote(value: str) -> str:
+    if re.fullmatch(r"[\w@%+=:,./~\-{}?&!*\[\]]*", value):
+        return value
+    if "'" not in value:
+        return f"'{value}'"  # single quotes: no escapes, no ${VAR} expansion
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _mask(value: str) -> str:
+    return "" if not value else "…" + value[-4:] if len(value) >= 12 else "•" * 6
+
+
+def _env_items(text: str) -> list[dict[str, Any]]:
+    """The page's view of a .env, in file order: headings ("# -- Title ---"), notes (a comment
+    block on its own) and entries (KEY=value, or "# KEY=value" commented out) carrying the comment
+    lines right above them as help. Secret values are masked."""
+    items: list[dict[str, Any]] = []
+    block: list[str] = []
+
+    def flush() -> None:
+        if block:
+            items.append({"type": "note", "text": "\n".join(block)})
+            block.clear()
+
+    for n, line in enumerate(text.split("\n")):
+        stripped = line.strip()
+        if not stripped:
+            flush()
+            continue
+        m = _ENV_LINE_RE.match(line)
+        if m:
+            value, _, end = _env_value(m["rest"])
+            secret = bool(_SECRET_RE.search(m["key"]))
+            items.append({
+                "type": "entry", "line": n, "key": m["key"], "active": not m["hash"], "secret": secret,
+                "value": None if secret else value, "hint": _mask(value) if secret else None, "set": bool(value),
+                "help": "\n".join(block), "inline": m["rest"][end:].strip().lstrip("#").strip(),
+            })
+            block.clear()
+        elif (h := _ENV_HEADING_RE.match(stripped)):
+            flush()
+            if h["title"]:
+                items.append({"type": "heading", "text": h["title"]})
+        elif stripped.startswith("#"):
+            block.append(re.sub(r"^#\s?", "", stripped))
+        else:
+            flush()
+            items.append({"type": "note", "text": line, "raw": True})  # a line python-dotenv skips
+    flush()
+    return items
+
+
+def _env_example_keys(root: Path) -> list[dict[str, str]]:
+    """Variables the project's .env.example documents, for the page's "add a variable" list."""
+    text, _ = _read_config(root / ".env.example")
+    seen: dict[str, str] = {}
+    for item in _env_items(text):
+        if item["type"] == "entry" and item["key"] not in seen:
+            seen[item["key"]] = item["help"] or item["inline"]
+    return [{"key": k, "help": h} for k, h in seen.items()]
+
+
+class EnvEdit(BaseModel):
+    line: int
+    key: str
+    value: str | None = None  # None: keep the value
+    active: bool | None = None  # False: comment the line out
+    delete: bool = False
+
+
+class EnvAdd(BaseModel):
+    key: str
+    value: str = ""
+    active: bool = True
+
+
+def _check_env_value(key: str, value: str) -> None:
+    if not _ENV_KEY_RE.match(key):
+        raise HTTPException(status_code=400, detail=f"{key!r} is not a valid variable name")
+    if "\n" in value or "\r" in value or "\0" in value:
+        raise HTTPException(status_code=400, detail=f"{key}: a value must be a single line")
+
+
+def _env_apply(text: str, edits: list[EnvEdit], adds: list[EnvAdd]) -> str:
+    lines = text.split("\n")
+    drop: set[int] = set()
+    for e in edits:
+        m = _ENV_LINE_RE.match(lines[e.line]) if 0 <= e.line < len(lines) else None
+        if not m or m["key"] != e.key:
+            raise HTTPException(status_code=409, detail=f"line {e.line + 1} is no longer {e.key} — reload the file")
+        if e.delete:
+            drop.add(e.line)
+            continue
+        rest = m["rest"]
+        if e.value is not None:
+            _check_env_value(e.key, e.value)
+            _, start, end = _env_value(rest)
+            tail = rest[end:]
+            rest = rest[:start] + _env_quote(e.value) + (" " + tail if tail.startswith("#") else tail)
+        active = not m["hash"] if e.active is None else e.active
+        lines[e.line] = f"{m['lead']}{'' if active else '# '}{m['export'] or ''}{e.key}{m['sep']}{rest}"
+    kept = [line for n, line in enumerate(lines) if n not in drop]
+    out = "\n".join(kept)
+    if adds:
+        set_keys = {m["key"]: n for n, line in enumerate(kept) if (m := _ENV_LINE_RE.match(line)) and not m["hash"]}
+        new = []
+        for a in adds:
+            _check_env_value(a.key, a.value)
+            if a.active and a.key in set_keys:
+                raise HTTPException(status_code=400, detail=f"{a.key} is already set on line {set_keys[a.key] + 1}")
+            new.append(f"{'' if a.active else '# '}{a.key}={_env_quote(a.value)}")
+        out = (out.rstrip("\n") + "\n" if out.strip() else "") + "\n".join(new) + "\n"
+    return out
+
+
+def _apply_viewer_env(old: dict[str, str | None], path: Path) -> list[str]:
+    """Bring this process in line with the viewer .env just saved, the way load_dotenv would
+    have at start-up (a variable the shell set wins). Returns the changed keys that only a
+    restart applies."""
+    global LLM_MODEL
+    new = dotenv_values(path)
+    restart = []
+    for key in set(old) | set(new):
+        if key in _BASE_ENV or old.get(key) == new.get(key):
+            continue
+        if new.get(key) is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = new[key]
+        if key in _VIEWER_RESTART_KEYS:
+            restart.append(key)
+    LLM_MODEL = os.environ.get("VIEWER_LLM_MODEL", "azure/gpt-4.1")
+    return restart
+
+
+# -- YAML files: talkbench.yaml through talk-bench's own ProjectConfig, agent and provision YAMLs --
+
+@cache
+def _tb_project_config() -> Any | None:
+    _tb_matching()  # puts the checkout's talk_bench_core on sys.path
+    try:
+        from talk_bench_core.project_config import ProjectConfig
+    except Exception:
+        return None
+    return ProjectConfig
+
+
+def _project_yaml_check(text: str) -> list[str]:
+    """Validate talkbench.yaml with talk-bench's ProjectConfig (unknown fields inside a block are
+    errors, unknown top-level keys are dropped with a warning). Returns the warnings."""
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        raise HTTPException(status_code=400, detail=f"not valid YAML: {e}")
+    if doc is None:
+        doc = {}
+    if not isinstance(doc, dict):
+        raise HTTPException(status_code=400, detail="talkbench.yaml must be a mapping")
+    pc = _tb_project_config()
+    if pc is None:
+        return ["talk-bench's ProjectConfig could not be loaded, so this was only checked as YAML"]
+    known = {f.alias or name for name, f in pc.model_fields.items()}
+    warnings = [f"unknown top-level key {k!r}: talk-bench ignores it" for k in sorted(set(doc) - known, key=str)]
+    try:
+        pc.model_validate(doc)
+    except Exception as e:
+        errors = e.errors() if hasattr(e, "errors") else []
+        lines = [f"{'.'.join(str(p) for p in err['loc']) or '(file)'}: {err['msg']}" for err in errors] or [str(e)]
+        raise HTTPException(status_code=400, detail="talkbench.yaml is not valid:\n" + "\n".join(lines))
+    return warnings
+
+
+def _provision_fields(root: Path) -> list[str]:
+    """ProvisionConfig's fields, read from talkdesk_agent's provisioner.py without importing it."""
+    src = root / "libs" / "talkdesk_agent" / "src" / "talkdesk_agent" / "provisioner.py"
+    try:
+        tree = ast.parse(src.read_text())
+    except (OSError, SyntaxError):
+        return []
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == "ProvisionConfig":
+            return [s.target.id for s in node.body if isinstance(s, ast.AnnAssign) and isinstance(s.target, ast.Name)]
+    return []
+
+
+def _provision_yaml(text: str) -> dict[str, Any]:
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        raise HTTPException(status_code=400, detail=f"not valid YAML: {e}")
+    if not isinstance(doc, dict):
+        raise HTTPException(status_code=400, detail="a provisioning config must be a YAML mapping")
+    missing = [k for k in ("agent_name", "api_base_url") if not doc.get(k)]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"missing required field(s): {', '.join(missing)}")
+    return doc
+
+
+def _yaml_text_check(kind: str, text: str) -> list[str]:
+    if len(text) > 400_000:
+        raise HTTPException(status_code=413, detail="file is too large")
+    if kind == "project":
+        return _project_yaml_check(text)
+    if kind == "agent":
+        _parse_config_text(text)
+        return []
+    doc = _provision_yaml(text)
+    fields = _provision_fields(_settings_projects().get(TALKDESK_PROJECT, BASE_DIR))
+    return [f"unknown field {k!r}: talkdesk-agent ignores it" for k in doc if fields and k not in fields]
+
+
+def _yaml_rt():
+    from ruamel.yaml import YAML
+
+    y = YAML()  # round-trip mode: comments, key order and quoting survive
+    y.preserve_quotes = True
+    y.width = 4096
+    y.indent(mapping=2, sequence=2, offset=0)
+    return y
+
+
+def _rt_load(text: str):
+    from ruamel.yaml.comments import CommentedMap
+
+    try:
+        doc = _yaml_rt().load(text)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"not valid YAML: {e}")
+    if doc is None:
+        doc = CommentedMap()
+    if not isinstance(doc, CommentedMap):
+        raise HTTPException(status_code=400, detail="the file must be a YAML mapping")
+    return doc
+
+
+def _rt_dump(doc, original: str) -> str:
+    buf = io.StringIO()
+    _yaml_rt().dump(doc, buf)
+    out = buf.getvalue()
+    if not doc:
+        out = ""
+    trail = original[len(original.rstrip("\n")):] or "\n"  # ruamel drops trailing blank lines
+    return out.rstrip("\n") + trail
+
+
+def _post_comment(m, key):
+    item = m.ca.items.get(key)
+    return item[2] if item and len(item) > 2 else None
+
+
+def _last_leaf(m, key):
+    """For a mapping value the comment lines below an entry sit on its deepest last key."""
+    value = m.get(key)
+    while hasattr(value, "ca") and isinstance(value, dict) and len(value):
+        m, key = value, next(reversed(value))
+        value = m[key]
+    return m, key
+
+
+def _append_post(m, key, lines: str) -> None:
+    from ruamel.yaml.error import CommentMark
+    from ruamel.yaml.tokens import CommentToken
+
+    tok = _post_comment(m, key)
+    if tok is None:
+        m.ca.items.setdefault(key, [None, None, None, None])[2] = CommentToken("\n" + lines, CommentMark(0), None)
+    else:
+        tok.value = tok.value + lines
+
+
+def _yaml_put(m, key, value) -> None:
+    """Add a new key at the end of mapping m: the comment lines that followed the old last
+    entry (usually the next block's header) move below the new one."""
+    last = next(reversed(m), None) if len(m) else None
+    m[key] = value
+    if last is None:
+        return
+    lm, lk = _last_leaf(m, last)
+    tok = _post_comment(lm, lk)
+    if tok is None:
+        return
+    head, _, tail = tok.value.partition("\n")
+    if tail.strip():
+        tok.value = head + "\n"
+        _append_post(*_last_leaf(m, key), tail)
+
+
+def _yaml_pop(m, key, carry: str = "") -> str:
+    """Delete m[key], keeping the comment lines below it (its own end-of-line comment goes with
+    it): they move below the entry before, or above the new first one. Returns them when m is
+    left empty, for the caller to place."""
+    keys = list(m)
+    i = keys.index(key)
+    lm, lk = _last_leaf(m, key)
+    tok = _post_comment(lm, lk)
+    tail = (tok.value.partition("\n")[2] if tok else "") + carry
+    m.ca.items.pop(key, None)
+    del m[key]
+    if not tail.strip():
+        return ""
+    if i > 0:
+        _append_post(*_last_leaf(m, keys[i - 1]), tail)
+        return ""
+    if len(m):
+        lines = [re.sub(r"^#\s?", "", ln.strip()) for ln in tail.strip("\n").split("\n")]
+        m.yaml_set_comment_before_after_key(next(iter(m)), before="\n".join(lines), indent=getattr(m.lc, "col", 0) or 0)
+        return ""
+    return tail
+
+
+def _yaml_set_path(doc, path: list[str], value: Any) -> None:
+    from ruamel.yaml.comments import CommentedMap
+    from ruamel.yaml.scalarstring import DoubleQuotedScalarString, SingleQuotedScalarString
+
+    node = doc
+    for i, k in enumerate(path[:-1]):
+        child = node.get(k)
+        if not isinstance(child, CommentedMap):
+            nested = value
+            for kk in reversed(path[i + 1:]):
+                nested = CommentedMap([(kk, nested)])
+            if k in node:
+                node[k] = nested  # a scalar or null block, e.g. `evaluation:` with nothing under it
+            else:
+                _yaml_put(node, k, nested)
+            return
+        node = child
+    key = path[-1]
+    if key not in node:
+        _yaml_put(node, key, value)
+        return
+    old = node[key]
+    if isinstance(value, str) and isinstance(old, (DoubleQuotedScalarString, SingleQuotedScalarString)):
+        value = type(old)(value)  # keep the quoting the file used
+    node[key] = value
+
+
+def _yaml_unset_path(doc, path: list[str]) -> None:
+    chain, node = [doc], doc
+    for k in path[:-1]:
+        node = node.get(k) if isinstance(node, dict) else None
+        if not isinstance(node, dict):
+            return
+        chain.append(node)
+    if path[-1] not in node:
+        return
+    carry = _yaml_pop(node, path[-1])
+    # a block the unset left empty goes too ("user_persona: {}" would read as a choice)
+    for i in range(len(chain) - 1, 0, -1):
+        if len(chain[i]):
+            if carry:
+                _append_post(*_last_leaf(chain[i], next(reversed(chain[i]))), carry)
+            return
+        carry = _yaml_pop(chain[i - 1], path[i - 1], carry)
+
+
+def _scalar_end(line: str, col: int) -> int | None:
+    """Where the scalar token starting at col ends on its line (None: it is not a one-line scalar)."""
+    q = line[col:col + 1]
+    if q in ("|", ">", "[", "{", "&", "*", "!", ""):
+        return None
+    if q in ("'", '"'):
+        i = col + 1
+        while i < len(line):
+            if q == '"' and line[i] == "\\":
+                i += 2
+                continue
+            if line[i] == q:
+                if q == "'" and line[i + 1:i + 2] == "'":
+                    i += 2
+                    continue
+                return i + 1
+            i += 1
+        return None
+    m = re.compile(r"\s#").search(line, col)
+    return len((line[:m.start()] if m else line).rstrip())
+
+
+def _yaml_scalar(value: Any, quote: str) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    value = str(value)
+    if quote == "'":
+        return "'" + value.replace("'", "''") + "'"
+    plain = quote != '"' and re.fullmatch(r"[\w./@~+-][\w./@~+:,=-]*", value) and yaml.safe_load(value) == value
+    return value if plain else json.dumps(value, ensure_ascii=False)
+
+
+def _yaml_edit(text: str, changes: list[tuple[list[str], Any]]) -> str:
+    """Apply (path, value) changes (value None: remove the key) to a YAML text. A new value for an
+    existing one-line scalar is written over the old one on its line, so the rest of the line (an
+    aligned # comment) stays as it was; adding and removing keys goes through ruamel.yaml."""
+    from ruamel.yaml.comments import CommentedMap
+
+    doc, lines, rest = _rt_load(text), text.split("\n"), []
+    for path, value in changes:
+        node = doc
+        for k in path[:-1]:
+            node = node.get(k) if isinstance(node, CommentedMap) else None
+        key, end = path[-1], None
+        if (value is not None and not isinstance(value, (dict, list)) and isinstance(node, CommentedMap)
+                and key in node and not isinstance(node[key], (dict, list))):
+            row, col = node.lc.value(key)
+            end = _scalar_end(lines[row], col)
+        if end is None:
+            rest.append((path, value))
+            continue
+        lines[row] = lines[row][:col] + _yaml_scalar(value, lines[row][col]) + lines[row][end:]
+    text = "\n".join(lines)
+    if not rest:
+        return text
+    doc = _rt_load(text)
+    for path, value in rest:
+        _yaml_unset_path(doc, path) if value is None else _yaml_set_path(doc, path, value)
+    return _rt_dump(doc, text)
+
+
+class YamlChange(BaseModel):
+    path: list[str]
+    value: Any = None  # None: remove the key (talk-bench's default applies)
+
+
+# -- endpoints --
+
+def _settings_file_payload(project: str, file: str) -> dict[str, Any]:
+    path, kind = _settings_path(project, file)
+    text, version = _read_config(path)
+    out: dict[str, Any] = {
+        "project": project, "file": file, "kind": kind, "path": str(path),
+        "exists": version != "missing", "version": version,
+    }
+    if kind == "env":
+        root = path.parent
+        out.update(items=_env_items(text), example_keys=_env_example_keys(root))
+        if project == VIEWER_PROJECT:
+            out["applies"] = "Applies at once; VIEWER_DATA_DIR needs a viewer restart. A variable set in the shell that started the viewer wins over this file."
+        else:
+            out["applies"] = "Read by every test or provisioning started after the save."
+        return out
+    out["text"] = text
+    try:
+        out["warnings"] = _yaml_text_check(kind, text) if text.strip() else []
+        out["error"] = None
+    except HTTPException as e:
+        out["warnings"], out["error"] = [], e.detail
+    if kind == "project":
+        pc = _tb_project_config()
+        out["schema"] = pc.model_json_schema(by_alias=True) if pc else None
+        try:
+            doc = yaml.safe_load(text) or {}
+        except yaml.YAMLError:
+            doc = None
+        out["doc"] = json.loads(json.dumps(doc, default=str)) if isinstance(doc, dict) else None
+        out["suggest"] = _project_suggestions()
+    return out
+
+
+def _project_suggestions() -> dict[str, list[str]]:
+    """Values written for each key in the projects' talkbench.yaml files, commented-out
+    alternatives included — the form's suggestions for its text fields."""
+    out: dict[str, set[str]] = {}
+    for name, root in _settings_projects().items():
+        if name == VIEWER_PROJECT:
+            continue
+        text, _ = _read_config(root / "talkbench.yaml")
+        for m in re.finditer(r"^\s*#?\s*([a-z_]+):[ \t]+([^\s#'\"]\S*|'[^'\n]*'|\"[^\"\n]*\")[ \t]*(?:#.*)?$", text, re.M):
+            out.setdefault(m[1], set()).add(m[2].strip("'\""))
+    return {k: sorted(v) for k, v in out.items()}
+
+
+@app.get("/api/settings")
+def api_settings(request: Request):
+    projects = []
+    for name, root in _settings_projects().items():
+        files = [{"file": ".env", "kind": "env", "exists": (root / ".env").is_file()}]
+        if name != VIEWER_PROJECT:
+            files.insert(0, {"file": "talkbench.yaml", "kind": "project", "exists": (root / "talkbench.yaml").is_file()})
+            for s in _sample_configs(root):
+                files.append({"file": f"samples/{s['file']}", "kind": "agent", "exists": True,
+                              "name": s.get("name"), "module": s.get("module")})
+        projects.append({"name": name, "root": str(root), "files": files})
+    return {"local": _is_local_request(request), "projects": projects}
+
+
+@app.get("/api/settings/file")
+def api_settings_file(project: str = Query(...), file: str = Query(...)):
+    return _settings_file_payload(project, file)
+
+
+class SettingsSaveBody(BaseModel):
+    project: str
+    file: str
+    version: str | None = None  # None: create a file that must not exist yet
+    text: str | None = None  # YAML files: the whole new text
+    changes: list[YamlChange] | None = None  # talkbench.yaml: form edits applied to the file as it is
+    env_edits: list[EnvEdit] = []
+    env_adds: list[EnvAdd] = []
+
+
+@app.post("/api/settings/file")
+def api_settings_save(body: SettingsSaveBody, request: Request):
+    _require_local(request)
+    path, kind = _settings_path(body.project, body.file)
+    with _settings_lock:
+        text, current = _read_config(path)
+        if body.version is None and current != "missing":
+            raise HTTPException(status_code=409, detail=f"{body.file} already exists")
+        if kind == "env":
+            old = dotenv_values(path) if path.is_file() else {}
+            new_text = _env_apply(text, body.env_edits, body.env_adds)
+        elif body.changes is not None and kind == "project":
+            if not all(ch.path and all(p for p in ch.path) for ch in body.changes):
+                raise HTTPException(status_code=400, detail="invalid field path")
+            new_text = _yaml_edit(text, [(ch.path, ch.value) for ch in body.changes])
+        elif body.text is not None:
+            new_text = body.text
+        else:
+            raise HTTPException(status_code=400, detail="nothing to save")
+        warnings = [] if kind == "env" else _yaml_text_check(kind, new_text)
+        _write_config(body.project, body.file, path, new_text, body.version)
+        restart = _apply_viewer_env(old, path) if kind == "env" and body.project == VIEWER_PROJECT else []
+    return {**_settings_file_payload(body.project, body.file), "saved_warnings": warnings, "restart": restart}
+
+
+# ---- Talkdesk provisioning and the MCP server, run in talk-bench-talkdesk ----
+#
+# The steps of talk-bench-talkdesk's README, Step 3: an MCP server for the domain, reachable from
+# Talkdesk (`talkdesk-mcp-server --source S --domain D --ngrok`), then
+# `talkdesk-agent provision --config samples/provision/<x>.yaml`, which creates the MCP server record
+# and the agent system and prints its agent_system_id; that id then goes into the agent YAML a test
+# runs (agent.params.agent_system_id). Like `talkdesk-agent generate`, the preview patches the template
+# without any API call, but into a copy (see _TD_PREVIEW); provision, like the CLI, writes the patched
+# template back to libs/talkdesk_agent/templates. Both load talk-bench-talkdesk/.env (TALKDESK_ACCOUNT_ID /
+# OAUTH_PATH / TOKEN_URL / MCP_URL, NGROK_AUTHTOKEN). Processes started here get their own process
+# group and survive a viewer restart; their logs live under <data dir>/.talkdesk_jobs/<id>/.
+
+TD_JOBS_DIR = DATA_DIR / ".talkdesk_jobs"
+_td_jobs: dict[str, dict[str, Any]] = {}
+_td_lock = threading.Lock()
+_td_loaded = False
+_TD_ID_RE = re.compile(r"^[0-9a-f]{12}$")
+_TD_RESULT_RES = {
+    "agent_system_id": re.compile(r"Agent System ID:\s*(\S+)"),
+    "mcp_server_id": re.compile(r"MCP server created\. ID:\s*(\S+)"),
+    "agent_name": re.compile(r"Agent Name:\s*(.+?)\s*$", re.M),
+    "url": re.compile(r"ngrok URL:\s*(\S+)"),
+    "local_url": re.compile(r"Starting MCP Streamable HTTP server on (\S+)"),
+}
+
+
+def _td_root() -> Path:
+    root = _settings_projects().get(TALKDESK_PROJECT)
+    if root is None:
+        raise HTTPException(status_code=404, detail="no talk-bench-talkdesk project in the checkout")
+    return root
+
+
+def _td_cli(root: Path, script: str) -> list[str]:
+    uv = _uv_bin()
+    if uv:
+        return [uv, "run", script]
+    shim = root / ".venv" / "bin" / script
+    if shim.is_file():
+        return [str(shim)]
+    raise HTTPException(status_code=500, detail=f"neither uv nor {shim} was found")
+
+
+def _td_env_values(root: Path) -> dict[str, str]:
+    return {k: v for k, v in dotenv_values(root / ".env").items() if v is not None} if (root / ".env").is_file() else {}
+
+
+def _td_mcp_domains(root: Path) -> dict[str, list[str]]:
+    """The --domain choices of talkdesk-mcp-server per --source, read from its backends.py."""
+    src = root / "apps" / "talkdesk_mcp_server" / "src" / "talkdesk_mcp_server" / "backends.py"
+    out = {"talk_bench": [], "tau2": []}
+    try:
+        tree = ast.parse(src.read_text())
+    except (OSError, SyntaxError):
+        return out
+    names = {"_TALK_BENCH_DOMAINS": "talk_bench", "_TAU2_DOMAINS": "tau2"}
+    for node in tree.body:
+        target = node.target if isinstance(node, ast.AnnAssign) else node.targets[0] if isinstance(node, ast.Assign) else None
+        if isinstance(target, ast.Name) and target.id in names and isinstance(node.value, ast.Call) and node.value.args:
+            try:
+                out[names[target.id]] = sorted(ast.literal_eval(node.value.args[0]))
+            except ValueError:
+                pass
+    return out
+
+
+def _td_load() -> None:
+    global _td_loaded
+    if _td_loaded:
+        return
+    _td_loaded = True
+    if TD_JOBS_DIR.is_dir():
+        for d in TD_JOBS_DIR.iterdir():
+            job = _load_json(d / "job.json")
+            if isinstance(job, dict) and job.get("id") == d.name:
+                _td_jobs[d.name] = job
+
+
+def _td_save(job: dict[str, Any]) -> None:
+    d = TD_JOBS_DIR / job["id"]
+    d.mkdir(parents=True, exist_ok=True)
+    _write_json(d / "job.json", {k: v for k, v in job.items() if not k.startswith("_")})
+
+
+def _td_log(job_id: str) -> Path:
+    return TD_JOBS_DIR / job_id / "log.txt"
+
+
+def _td_scan(job: dict[str, Any]) -> None:
+    """Pick what the log says so far: ids printed by provision, the URLs an MCP server serves on
+    (printed at its start: its log grows with every tool call, so only the head is read)."""
+    try:
+        with _td_log(job["id"]).open("rb") as f:
+            text = f.read(65536 if job["kind"] == "mcp" else -1).decode("utf-8", errors="replace")
+    except OSError:
+        return
+    for key, rx in _TD_RESULT_RES.items():
+        if (m := rx.search(text)):
+            job.setdefault("result", {})[key] = m[1]
+    if job["kind"] == "provision" and job["status"] in ("error", "interrupted"):
+        errs = re.findall(r"^Error: (.+)$", text, re.M)
+        job["error"] = errs[-1][:500] if errs else job.get("error")
+
+
+def _td_settle(job: dict[str, Any], code: int | None) -> None:
+    job["finished"] = time.time()
+    job["exit_code"] = code
+    if job["kind"] == "mcp":
+        job["status"] = "stopped"
+    elif code == 0:
+        job["status"] = "done"
+    else:
+        job["status"] = "error" if code is not None else "interrupted"
+    _td_scan(job)
+    if job["kind"] == "provision" and job["status"] != "done" and not job.get("error"):
+        job["error"] = _last_log_lines(_td_log(job["id"]))
+    _td_save(job)
+
+
+def _td_watch(job_id: str, proc: subprocess.Popen) -> None:
+    code = proc.wait()
+    with _td_lock:
+        _td_settle(_td_jobs[job_id], code)
+
+
+def _td_refresh() -> None:
+    """Settle jobs whose process ended while no watcher was waiting (a viewer restart)."""
+    with _td_lock:
+        _td_load()
+        for job in _td_jobs.values():
+            if job["status"] == "running":
+                if not job.get("_watched") and not _pid_alive(job.get("pid")):
+                    _td_settle(job, None)
+                else:
+                    _td_scan(job)
+
+
+def _td_start(kind: str, cmd: list[str], root: Path, config_text: str | None = None, **fields: Any) -> dict[str, Any]:
+    job = {
+        "id": uuid.uuid4().hex[:12], "kind": kind, "status": "running", "started": time.time(),
+        "finished": None, "exit_code": None, "pid": None, "cmd": cmd, "cwd": str(root), "result": {},
+        "error": None, **fields,
+    }
+    d = TD_JOBS_DIR / job["id"]
+    d.mkdir(parents=True, exist_ok=True)
+    if config_text is not None:
+        (d / "config.yaml").write_text(config_text)
+        cmd[cmd.index("@config")] = str(d / "config.yaml")
+    with _td_log(job["id"]).open("ab") as log:
+        log.write(f"$ cd {shlex.quote(str(root))} && {shlex.join(cmd)}\n\n".encode())
+        log.flush()
+        try:
+            proc = subprocess.Popen(
+                cmd, cwd=root, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                env=_child_env(), start_new_session=True,
+            )
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"could not start {cmd[0]}: {e}")
+    job["pid"] = proc.pid
+    with _td_lock:
+        _td_jobs[job["id"]] = job
+        _td_save(job)
+        job["_watched"] = True  # not saved: after a restart the pid is polled instead
+    threading.Thread(target=_td_watch, args=(job["id"], proc), daemon=True).start()
+    return job
+
+
+def _td_public(job: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in job.items() if not k.startswith("_")}
+
+
+def _etime_start(etime: str) -> float | None:
+    """When a process started, from ps's elapsed time ([[dd-]hh:]mm:ss)."""
+    days, _, clock = etime.rpartition("-")
+    try:
+        parts = [int(x) for x in clock.split(":")]
+        secs = sum(v * 60 ** i for i, v in enumerate(reversed(parts))) + int(days or 0) * 86400
+    except ValueError:
+        return None
+    return time.time() - secs
+
+
+def _argv_opt(argv: list[str], name: str, default: str) -> str:
+    return argv[argv.index(name) + 1] if name in argv[:-1] else default  # talkdesk-mcp-server's own defaults
+
+
+def _mcp_processes() -> list[dict[str, Any]]:
+    """talkdesk-mcp-server processes on this Mac, one per process group (uv run + its python),
+    with the options they were started with."""
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,pgid=,etime=,command="], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    groups: dict[int, dict[str, Any]] = {}
+    members: dict[int, list[str]] = {}
+    for line in out.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) < 4:
+            continue
+        pid, pgid, etime, command = int(parts[0]), int(parts[1]), parts[2], parts[3]
+        members.setdefault(pgid, []).append(command)
+        if "talkdesk-mcp-server" not in command or pid == os.getpid():
+            continue
+        argv = command.split()
+        port = _argv_opt(argv, "--port", "3030")
+        g = groups.setdefault(pgid, {"pgid": pgid, "pids": [], "started": _etime_start(etime)})
+        g["pids"].append(pid)
+        g.update(source=_argv_opt(argv, "--source", "talk_bench"), domain=_argv_opt(argv, "--domain", "airline"),
+                 port=int(port) if port.isdigit() else 3030, ngrok="--ngrok" in argv)
+    for pgid, g in groups.items():  # a group holding anything else (a shell) is stopped pid by pid
+        g["own_group"] = all("talkdesk-mcp-server" in c for c in members.get(pgid, []))
+    return list(groups.values())
+
+
+def _mcp_probe(url: str, timeout: float) -> dict[str, Any]:
+    """GET <url>/ of an MCP server: it answers with its name, talkdesk-mcp-<source>-<domain>."""
+    req = urllib.request.Request(url.rstrip("/") + "/", headers={"Accept": "application/json", "ngrok-skip-browser-warning": "1"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            info = json.loads(resp.read(65536) or b"{}")
+    except urllib.error.HTTPError as e:
+        return {"ok": False, "error": f"HTTP {e.code}"}
+    except Exception as e:
+        return {"ok": False, "error": str(getattr(e, "reason", e))[:200]}
+    name = str(info.get("name") or "") if isinstance(info, dict) else ""
+    m = re.match(r"^talkdesk-mcp-(talk_bench|tau2)-(.+)$", name)
+    return {"ok": True, "name": name, "source": m[1] if m else None, "domain": m[2] if m else None}
+
+
+def _mcp_servers() -> list[dict[str, Any]]:
+    _td_refresh()
+    by_pid = {j["pid"]: j for j in _td_jobs.values() if j["kind"] == "mcp" and j["status"] == "running"}
+    servers = []
+    for g in _mcp_processes():
+        job = by_pid.get(g["pgid"])
+        local = _mcp_probe(f"http://127.0.0.1:{g['port']}", 0.8)
+        servers.append({
+            **g, "job_id": job["id"] if job else None, "url": (job or {}).get("result", {}).get("url"),
+            "serving": local.get("ok", False), "name": local.get("name"),
+        })
+    return servers
+
+
+def _td_resolve(root: Path, doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """What talkdesk-agent will use for each setting: the YAML's value, else the .env fallback."""
+    env = _td_env_values(root)
+    rows = []
+    for key, env_key in (("account_id", "TALKDESK_ACCOUNT_ID"), ("oauth_path", "TALKDESK_OAUTH_PATH"),
+                         ("token_url", "TALKDESK_TOKEN_URL"), ("mcp_url", "TALKDESK_MCP_URL")):
+        value, source = (doc.get(key), "yaml") if doc.get(key) else (env.get(env_key) or None, f".env {env_key}")
+        row = {"key": key, "value": value, "source": source if value else None, "ok": bool(value) or key == "token_url"}
+        if key == "oauth_path" and value:
+            row["ok"] = (root / Path(str(value)).expanduser()).is_file()
+            row["note"] = None if row["ok"] else "file not found next to talk-bench-talkdesk"
+        if not value:
+            row["note"] = "not set (YAML or .env)" if key != "token_url" else "not set: talkdesk_agent's default"
+        rows.append(row)
+    template = str(doc.get("template_name") or "airline-agent-template.json")
+    found = (root / "libs" / "talkdesk_agent" / "templates" / template).is_file()
+    rows.append({"key": "template_name", "value": template, "source": "yaml" if doc.get("template_name") else "default",
+                 "ok": found, "note": None if found else "no such template in libs/talkdesk_agent/templates"})
+    return rows
+
+
+def _td_platform(url: str | None) -> str | None:
+    host = urlsplit(str(url or "")).hostname or ""
+    for tag, label in (("talkdeskqa", "QA"), ("talkdeskstg", "STG"), ("talkdeskapp", "PRD")):
+        if tag in host:
+            return label
+    return None
+
+
+@app.get("/api/talkdesk")
+def api_talkdesk(request: Request):
+    root = _td_root()
+    _td_refresh()
+    prov = root / "samples" / "provision"
+    configs = []
+    for f in sorted(prov.glob("*.y*ml")) if prov.is_dir() else []:
+        try:
+            doc = yaml.safe_load(f.read_text())
+        except yaml.YAMLError:
+            doc = None
+        doc = doc if isinstance(doc, dict) else {}
+        configs.append({"file": f"samples/provision/{f.name}", "agent_name": doc.get("agent_name"),
+                        "platform": _td_platform(doc.get("api_base_url")), "template_name": doc.get("template_name")})
+    templates = sorted(p.name for p in (root / "libs" / "talkdesk_agent" / "templates").glob("*.json"))
+    agents = [{"file": f"samples/{s['file']}", "name": s.get("name"), "module": s.get("module")}
+              for s in _sample_configs(root) if str(s.get("module") or "").startswith("talkdesk_agent.")]
+    env = _td_env_values(root)
+    jobs = sorted((_td_public(j) for j in _td_jobs.values()), key=lambda j: j["started"], reverse=True)
+    return {
+        "local": _is_local_request(request), "root": str(root), "configs": configs, "templates": templates,
+        "agent_samples": agents, "domains": _td_mcp_domains(root), "mcp_url": env.get("TALKDESK_MCP_URL"),
+        "has_ngrok_token": bool(env.get("NGROK_AUTHTOKEN")), "servers": _mcp_servers(), "jobs": jobs,
+    }
+
+
+@app.post("/api/talkdesk/check")
+def api_talkdesk_check(body: ConfigTextBody):
+    root = _td_root()
+    doc = _provision_yaml(body.text)
+    fields = _provision_fields(root)
+    return {
+        "agent_name": doc.get("agent_name"), "api_base_url": doc.get("api_base_url"),
+        "platform": _td_platform(doc.get("api_base_url")), "resolved": _td_resolve(root, doc),
+        "warnings": [f"unknown field {k!r}: talkdesk-agent ignores it" for k in doc if fields and k not in fields],
+    }
+
+
+# What `talkdesk-agent generate` prints, patched into a copy of the template: talkdesk_agent's
+# _patch_template writes its result back to the template it read, and the bundled one is in git.
+_TD_PREVIEW = """\
+import json, os, shutil, sys, tempfile
+from pathlib import Path
+from dotenv import load_dotenv
+from talkdesk_agent.provisioner import _TEMPLATES_DIR, ProvisionConfig, generate_template
+load_dotenv(".env")
+config = ProvisionConfig.from_yaml_and_env(yaml_path=Path(sys.argv[1]), env=dict(os.environ))
+with tempfile.TemporaryDirectory() as tmp:
+    copy = Path(tmp) / config.template_name
+    shutil.copyfile(_TEMPLATES_DIR / config.template_name, copy)
+    print(json.dumps(generate_template(config, template_path=copy), indent=2))
+"""
+
+
+@app.post("/api/talkdesk/generate")
+def api_talkdesk_generate(body: ConfigTextBody, request: Request):
+    """The template provision would deploy, with no API call and no file changed."""
+    _require_local(request)
+    root = _td_root()
+    _provision_yaml(body.text)
+    uv, python = _uv_bin(), root / ".venv" / "bin" / "python"
+    launcher = [uv, "run", "python"] if uv else [str(python)] if python.is_file() else None
+    if launcher is None:
+        raise HTTPException(status_code=500, detail=f"neither uv nor {python} was found")
+    TD_JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", dir=TD_JOBS_DIR, delete=False) as f:
+        f.write(body.text)
+    try:
+        proc = subprocess.run([*launcher, "-c", _TD_PREVIEW, f.name], cwd=root,
+                              capture_output=True, text=True, timeout=180, env=_child_env())
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="the template preview did not finish in 3 minutes")
+    finally:
+        Path(f.name).unlink(missing_ok=True)
+    if proc.returncode != 0:
+        tail = "\n".join((proc.stderr or proc.stdout).strip().splitlines()[-12:])
+        raise HTTPException(status_code=400, detail=tail or f"the template preview exited with {proc.returncode}")
+    try:
+        template = json.loads(proc.stdout)
+    except ValueError:
+        raise HTTPException(status_code=500, detail="the template preview printed no JSON")
+    agents = template.get("agents") if isinstance(template, dict) else None
+    tools = sum(len(a.get("tools") or []) for a in agents or [] if isinstance(a, dict))
+    return {"json": json.dumps(template, indent=2, ensure_ascii=False), "agents": len(agents or []), "tools": tools}
+
+
+class ProvisionBody(BaseModel):
+    text: str
+    file: str | None = None  # the samples/provision file the text came from, for the history
+
+
+@app.post("/api/talkdesk/provision")
+def api_talkdesk_provision(body: ProvisionBody, request: Request):
+    _require_local(request)
+    root = _td_root()
+    doc = _provision_yaml(body.text)
+    _td_refresh()
+    with _td_lock:
+        busy = [j for j in _td_jobs.values() if j["kind"] == "provision" and j["status"] == "running"]
+    if busy:
+        raise HTTPException(status_code=409, detail="a provisioning run is still going — wait for it to finish")
+    job = _td_start(
+        "provision", [*_td_cli(root, "talkdesk-agent"), "provision", "--config", "@config"], root,
+        config_text=body.text, file=body.file, agent_name=str(doc.get("agent_name")),
+        api_base_url=str(doc.get("api_base_url")), platform=_td_platform(doc.get("api_base_url")),
+        mcp_url=doc.get("mcp_url") or _td_env_values(root).get("TALKDESK_MCP_URL"),  # for the agent YAML afterwards
+    )
+    return {"job": _td_public(job)}
+
+
+class McpStartBody(BaseModel):
+    source: str = "talk_bench"
+    domain: str
+    port: int = 3030
+    ngrok: bool = True
+
+
+@app.post("/api/talkdesk/mcp")
+def api_talkdesk_mcp_start(body: McpStartBody, request: Request):
+    _require_local(request)
+    root = _td_root()
+    domains = _td_mcp_domains(root)
+    if body.source not in domains:
+        raise HTTPException(status_code=400, detail="source must be talk_bench or tau2")
+    if domains[body.source] and body.domain not in domains[body.source]:
+        raise HTTPException(status_code=400, detail=f"talkdesk-mcp-server serves no {body.source} domain {body.domain!r}")
+    if not 1024 <= body.port <= 65535:
+        raise HTTPException(status_code=400, detail="port must be between 1024 and 65535")
+    running = _mcp_processes()
+    if any(s["port"] == body.port for s in running):
+        raise HTTPException(status_code=409, detail=f"an MCP server already listens on port {body.port} — stop it first")
+    if body.ngrok and any(s["ngrok"] for s in running):
+        raise HTTPException(status_code=409, detail="an MCP server with an ngrok tunnel is running — stop it first")
+    cmd = [*_td_cli(root, "talkdesk-mcp-server"), "--source", body.source, "--domain", body.domain, "--port", str(body.port)]
+    job = _td_start("mcp", cmd + (["--ngrok"] if body.ngrok else []), root,
+                    source=body.source, domain=body.domain, port=body.port, ngrok=body.ngrok)
+    return {"job": _td_public(job)}
+
+
+class McpStopBody(BaseModel):
+    pgid: int
+
+
+@app.post("/api/talkdesk/mcp/stop")
+def api_talkdesk_mcp_stop(body: McpStopBody, request: Request):
+    _require_local(request)
+    server = next((s for s in _mcp_processes() if s["pgid"] == body.pgid), None)
+    if server is None:
+        raise HTTPException(status_code=404, detail="that MCP server is not running")
+    if body.pgid == os.getpgrp():
+        raise HTTPException(status_code=400, detail="refusing to stop the viewer's own process group")
+
+    def _signal(sig: int) -> None:
+        if server["own_group"]:
+            with contextlib.suppress(OSError):
+                os.killpg(body.pgid, sig)
+        for pid in server["pids"]:
+            with contextlib.suppress(OSError):
+                os.kill(pid, sig)
+
+    _signal(signal.SIGTERM)
+
+    def _force() -> None:
+        time.sleep(5)
+        if any(_pid_alive(p) for p in server["pids"]):
+            _signal(signal.SIGKILL)
+
+    threading.Thread(target=_force, daemon=True).start()
+    return {"stopped": body.pgid}
+
+
+class McpCheckBody(BaseModel):
+    url: str
+
+
+@app.post("/api/talkdesk/mcp/check")
+def api_talkdesk_mcp_check(body: McpCheckBody, request: Request):
+    _require_local(request)  # the server fetches the URL: not for anyone on the tunnel
+    if urlsplit(body.url).scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="the MCP URL must start with http:// or https://")
+    return _mcp_probe(body.url, 8)
+
+
+@app.get("/api/talkdesk/jobs/{job_id}")
+def api_talkdesk_job(job_id: str, offset: int = 0):
+    if not _TD_ID_RE.match(job_id):
+        raise HTTPException(status_code=404, detail="no such job")
+    _td_refresh()
+    job = _td_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="no such job")
+    log, next_offset = "", offset
+    try:
+        with _td_log(job_id).open("rb") as f:
+            size = f.seek(0, 2)
+            if offset > size:
+                offset = 0
+            f.seek(offset)
+            chunk = f.read(_LOG_CHUNK)
+            log, next_offset = chunk.decode("utf-8", errors="replace"), offset + len(chunk)
+    except OSError:
+        pass
+    config = (TD_JOBS_DIR / job_id / "config.yaml")
+    return {"job": _td_public(job), "log": log, "next_offset": next_offset,
+            "config_text": config.read_text() if config.is_file() else None}
+
+
+@app.delete("/api/talkdesk/jobs/{job_id}")
+def api_talkdesk_job_delete(job_id: str, request: Request):
+    _require_local(request)
+    if not _TD_ID_RE.match(job_id):
+        raise HTTPException(status_code=404, detail="no such job")
+    _td_refresh()
+    with _td_lock:
+        job = _td_jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="no such job")
+        if job["status"] == "running":
+            raise HTTPException(status_code=409, detail="still running")
+        _td_jobs.pop(job_id)
+    shutil.rmtree(TD_JOBS_DIR / job_id, ignore_errors=True)
+    return {"deleted": job_id}
+
+
+class ApplyBody(BaseModel):
+    file: str  # samples/<agent>.yaml of talk-bench-talkdesk
+    agent_system_id: str
+    mcp_url: str | None = None  # also set agent.mcp.server_url
+    version: str | None = None
+
+
+@app.post("/api/talkdesk/apply")
+def api_talkdesk_apply(body: ApplyBody, request: Request):
+    """Put a provisioned agent_system_id (and the MCP URL it was provisioned with) into an agent YAML."""
+    _require_local(request)
+    path, kind = _settings_path(TALKDESK_PROJECT, body.file)
+    if kind != "agent":
+        raise HTTPException(status_code=400, detail="pick an agent YAML from samples/")
+    if not re.fullmatch(r"[\w\-]{3,100}", body.agent_system_id):
+        raise HTTPException(status_code=400, detail="that does not look like an agent_system_id")
+    with _settings_lock:
+        text, version = _read_config(path)
+        doc = yaml.safe_load(text)
+        at = ["agent"] if isinstance(doc, dict) and isinstance(doc.get("agent"), dict) else []
+        changes = [(at + ["params", "agent_system_id"], body.agent_system_id)]
+        if body.mcp_url:
+            changes.append((at + ["mcp", "server_url"], body.mcp_url))
+        new_text = _yaml_edit(text, changes)
+        _parse_config_text(new_text)
+        _write_config(TALKDESK_PROJECT, body.file, path, new_text, body.version or version)
+    return _settings_file_payload(TALKDESK_PROJECT, body.file)
 
 
 @app.get("/")

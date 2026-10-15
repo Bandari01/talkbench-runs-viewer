@@ -799,6 +799,64 @@
 
   ::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--dur-2); }  /* theme toggle cross-fade */
 
+  /* ---------- settings & provision ---------- */
+  .set-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .set-card { padding: 0; }
+  .set-card > .card-head { flex-wrap: wrap; }
+  #setHead .seg { margin-left: 0; }
+  .set-path { flex-basis: 100%; font-family: var(--mono); font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+  .set-body { padding: 16px 20px 18px; }
+  .set-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .set-bar select { padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; font-size: 13px; max-width: 100%; }
+  .set-bar .seg { margin-left: auto; }
+  .set-applies { font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+  .set-foot { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-top: 1px solid var(--border-soft); background: var(--surface); border-radius: 0 0 var(--radius) var(--radius); }
+  .set-msg { flex: 1; min-width: 0; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .set-msg.err, .set-err { color: var(--fail); }
+  .set-err { font-size: 12.5px; white-space: pre-wrap; margin: 8px 0 0; }
+  .env-h { margin: 22px 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); }
+  .env-h:first-child { margin-top: 0; }
+  .env-note { margin: 4px 0 8px; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+  .env-row, .env-add { display: grid; grid-template-columns: 22px minmax(150px, 270px) minmax(0, 1fr) 28px; gap: 4px 12px; align-items: start; padding: 9px 0; border-top: 1px solid var(--border-soft); }
+  .env-on { display: flex; padding-top: 8px; }
+  .env-key { min-width: 0; padding-top: 6px; }
+  .env-key code { font: 600 12.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+  .env-key svg { width: 12px; height: 12px; margin-left: 5px; vertical-align: -1px; color: var(--muted); }
+  .env-help, .env-help summary { font-size: 11.5px; line-height: 1.45; color: var(--muted); white-space: pre-wrap; margin-top: 2px; }
+  .env-help summary { cursor: pointer; white-space: normal; overflow: hidden; text-overflow: ellipsis; }
+  .env-val input, .env-add input { width: 100%; padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: 12.5px/18px var(--mono); }
+  .env-val input:focus, .env-add input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--ring); }
+  .env-val .env-dup { font-size: 11.5px; color: var(--fail); margin-top: 3px; }
+  .env-del { padding-top: 5px; color: var(--faint); }
+  .env-del:hover { color: var(--fail); }
+  .env-row.off .env-key code, .env-row.off .env-val input { color: var(--muted); }
+  .env-row.off .env-val input { background: var(--surface-2); }
+  .env-row.deleted { opacity: .45; }
+  .env-row.deleted .env-key code { text-decoration: line-through; }
+  .env-row.changed .env-key code::after, .field.changed > label::after { content: ' ●'; color: var(--link); font-size: 9px; vertical-align: 2px; }
+  .env-add { border-top-style: dashed; padding-top: 14px; }
+  .env-add .btn { justify-self: start; }
+  .set-block { border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px 14px 14px; margin: 0 0 14px; min-width: 0; }
+  .set-block > legend { font: 600 13px var(--mono); padding: 0 6px; }
+  .set-block .block-help { font-size: 12px; color: var(--muted); margin: 0; }
+  .set-block .form-grid { margin-top: 10px; }
+  .set-sub { grid-column: 1 / -1; padding-top: 10px; border-top: 1px dashed var(--border); }
+  .set-sub > .set-sub-h { font: 600 12px var(--mono); color: var(--fg-soft); }
+  .set-sub .form-grid { margin-top: 8px; }
+  .check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; }
+  .check input { display: inline-grid; }
+  .res-table td { padding: 7px 10px; font-size: 12.5px; overflow-wrap: anywhere; }
+  .res-table td:first-child { font-family: var(--mono); white-space: nowrap; }
+  .res-table .ok { color: var(--pass); }
+  .res-table .subscore { white-space: normal; }
+  .res-table .bad { color: var(--fail); }
+  .mcp-url { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--muted); }
+  .mcp-url .mono { color: var(--fg); overflow-wrap: anywhere; }
+  .pj-id { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; font-size: 13px; }
+  .pj-id code { font: 600 13px var(--mono); padding: 3px 8px; border-radius: 6px; background: var(--surface-2); overflow-wrap: anywhere; }
+  #provYaml, #setYaml { min-height: 220px; }
+  #provPreviewOut .log-pane, #mcpLog, #pjLog { max-height: 360px; padding: 12px 14px; font: 12px/1.5 var(--mono); }
+
   /* ---------- responsive ---------- */
   @media (max-width: 1280px) {  /* the run list and compare tables outgrow their card below this width */
     .table-wrap.wide { overflow-x: auto; }
@@ -840,6 +898,11 @@
     .chip .v { font-size: 18px; }
     .card-head:has(> .seg) { flex-wrap: wrap; }  /* the scenario filter drops under its heading */
     .card-head > .seg { margin-left: 0; flex-wrap: nowrap; }
+    .env-row { grid-template-columns: 22px minmax(0, 1fr) 28px; }  /* the value goes under its name */
+    .env-row .env-val { grid-column: 2 / 4; grid-row: 2; }
+    .env-row .env-del { grid-column: 3; grid-row: 1; }
+    .env-add { grid-template-columns: minmax(0, 1fr); }
+    .env-add > span:first-child { display: none; }
   }
 
   /* keep LAST: under reduced motion every animation and transition ends at once */
@@ -904,6 +967,9 @@ const ICONS = {
   resume: svgIcon('<polyline points="21 4 21 10 15 10"/><path d="M19.4 15a8 8 0 1 1-1.9-8.3L21 10"/>'),
   sparkle: svgIcon('<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15v4M17 17h4"/>'),
   wrench: svgIcon('<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'),
+  lock: svgIcon('<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+  gear: svgIcon('<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>'),
+  server: svgIcon('<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/>'),
   trash: svgIcon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>'),
 };
 let RUNS = null;
@@ -1513,6 +1579,8 @@ function renderSideNav() {
     ${viewItem('hidden', ICONS.eyeOff, 'Hidden', hiddenN)}
     <button class="side-item" type="button" data-href="#/compare">${ICONS.compare}<span>Compare runs</span></button>
     <button class="side-item" type="button" data-href="#/test">${ICONS.play}<span>Run test</span></button>
+    <button class="side-item" type="button" data-href="#/provision">${ICONS.server}<span>Provision</span></button>
+    <button class="side-item" type="button" data-href="#/settings">${ICONS.gear}<span>Settings</span></button>
     <div class="side-sec">Modality</div>
     <button class="side-item" type="button" data-modality="">${ICONS.list}<span>All modalities</span><span class="side-n">${RUNS.length}</span></button>
     ${modalityCounts().map(([k, label, n]) =>
@@ -4845,6 +4913,17 @@ async function renderTest(params) {
   const from = params.get('from');
   if (from) await prefillFromRun(from).catch(e => setAgentStatus('⚠ ' + e.message));
   if (seq !== routeSeq) return;
+  // "Run test with it" on the Settings / Provision pages: <project>/<file in samples/>
+  const sample = params.get('sample'), cut = sample ? sample.indexOf('/') : -1;
+  if (cut > 0) {
+    const project = sample.slice(0, cut), file = sample.slice(cut + 1);
+    try {
+      const r = await getJSON(`/api/test/sample?file=${encodeURIComponent(file)}&project=${encodeURIComponent(project)}`);
+      if (seq !== routeSeq) return;
+      fillAgentYaml(r.text);
+      setAgentStatus(`loaded ${project}/samples/${file}`);
+    } catch (e) { setAgentStatus('⚠ ' + e.message); }
+  }
   const jobId = params.get('job');
   if (jobId && testState.jobs.some(j => j.id === jobId)) selectJob(jobId, false);
   // "Resume…" on a run page lands here with that run picked. Not awaited: route() puts the page at the
@@ -4861,6 +4940,729 @@ async function renderTest(params) {
     if (seq === routeSeq) document.getElementById('resumeSel').innerHTML = `<option value="">⚠ ${esc(e.message)}</option>`;
   });
 }
+
+/* ---------- settings: the checkout's config files and this viewer's .env ---------- */
+// Secret values never reach the page (only their last four characters); a typed value replaces one.
+// Edits stay in setState until Save, which sends just the changes: the env lines touched, the
+// talkbench.yaml fields changed (the server rewrites them in place, comments kept) or a YAML text.
+const setState = { meta: null, project: null, file: null, data: null, view: 'form', env: null, form: null };
+const SET_LOCAL_NOTE = 'Read-only here: settings can only be saved on the Mac that runs the viewer (open it at localhost). Secret values are never shown.';
+// the talkbench.yaml blocks the form shows; the others (defaults, agent, custom_*) are edited as YAML
+const FORM_BLOCKS = ['simulator', 'evaluation', 'simulator_gate', 'mid_turn_speak_gate', 'terminal_hangup_gate', 'USE_S3_STORAGE_FOR_RESULTS'];
+const FIELD_HELP = {
+  'simulator.llm_model': 'LiteLLM model of the user simulator, provider/model.',
+  'simulator.llm_temperature': 'Reasoning deployments accept only 1.',
+  'simulator.tts_model': 'The caller\'s voice: azure-speech-tts/<voice> or elevenlabs/<model>.',
+  'simulator.tts_voice': 'Persona gender mapping may override it per scenario.',
+  'simulator.asr_model': 'Transcribes the agent: azure-speech/<locale> or deepgram/<model>.',
+  'simulator.loop_detection_embedding_model': 'For the runner\'s loop detector during the live conversation, not for scoring.',
+  'simulator.user_persona': 'Forced on every scenario of a run, over each scenario\'s own user_persona. Only talkbench.yaml can set it.',
+  'simulator.user_persona.barge_in_mode': 'prepared_fact lets a barge-in fire from a fact prepared on an earlier turn; llm_only always asks the LLM.',
+  'evaluation.judge_model': 'The LLM judge.',
+  'evaluation.temperature': 'Judge temperature. Reasoning deployments need 1.',
+  'simulator_gate.max_retries': '0 – 10.',
+  'USE_S3_STORAGE_FOR_RESULTS': 'Upload finished runs to S3; needs the AWS_* keys and TALKBENCH_S3_BUCKET in .env.',
+};
+const FIELD_UNSET = {  // what applies while a field is unset
+  'evaluation.judge_model': 'unset → simulator.llm_model',
+  'evaluation.temperature': 'unset → 0',
+  'mid_turn_speak_gate.model': 'unset → simulator.llm_model',
+  'terminal_hangup_gate.model': 'unset → simulator.llm_model',
+  'mid_turn_speak_gate.timeout_s': 'unset → 3.0',
+  'terminal_hangup_gate.timeout_s': 'unset → 3.0',
+  'mid_turn_speak_gate.enabled': 'unset (off)',
+  'terminal_hangup_gate.enabled': 'unset (off)',
+};
+const fileTab = f => f === 'talkbench.yaml' || f === '.env' ? f : 'samples';
+const settingsHash = (p, f) => `#/settings?p=${encodeURIComponent(p)}&f=${encodeURIComponent(f)}`;
+
+async function renderSettings(params) {
+  const seq = routeSeq;
+  const meta = await getJSON('/api/settings');
+  if (seq !== routeSeq) return;
+  setState.meta = meta;
+  const projects = meta.projects;
+  const project = projects.find(p => p.name === params.get('p')) || projects.find(p => p.name !== 'viewer') || projects[0];
+  const file = project.files.some(f => f.file === params.get('f')) ? params.get('f') : project.files[0].file;
+  setView(`<div id="settingsPage">
+    <div class="page-head"><h2>Settings</h2>
+      <div class="muted" style="font-size:13px;margin-top:4px">The config files of the ai-ds-research checkout tests run in, and this viewer's own .env.</div></div>
+    ${meta.local ? '' : `<div class="notice warn" style="margin:0 0 14px">${esc(SET_LOCAL_NOTE)}</div>`}
+    <div class="set-top"><div class="seg" id="setProjects">${projects.map(p =>
+      `<button type="button" data-set-project="${esc(p.name)}">${esc(p.name === 'viewer' ? 'This viewer' : p.name)}</button>`).join('')}</div></div>
+    <div class="card set-card">
+      <div class="card-head" id="setHead"></div>
+      <div class="set-body" id="setBody"></div>
+      <div class="set-foot"><span class="set-msg" id="setMsg"></span>
+        <button class="navbtn" type="button" id="setDiscard">Discard</button>
+        <button class="btn primary" type="button" id="setSave"${meta.local ? '' : ` disabled title="${esc(SET_LOCAL_NOTE)}"`}>Save</button></div>
+    </div></div>`);
+  await openSettingsFile(project.name, file, seq, true);
+}
+
+function settingsChanges() {
+  const d = setState.data;
+  if (!d) return 0;
+  if (d.kind === 'env') return setState.env.edits.size + setState.env.adds.length;
+  if (d.kind === 'project' && setState.view === 'form') return setState.form.size;
+  const ta = document.getElementById('setYaml');
+  return ta && ta.value !== d.text ? 1 : 0;
+}
+
+async function openSettingsFile(project, file, seq = routeSeq, force = false) {
+  if (!force && settingsChanges() && !confirm('Discard the unsaved changes?')) return;
+  const data = await getJSON(`/api/settings/file?project=${encodeURIComponent(project)}&file=${encodeURIComponent(file)}`);
+  if (seq !== routeSeq) return;
+  Object.assign(setState, { project, file, data, env: { edits: new Map(), adds: [] }, form: new Map() });
+  if (data.kind === 'project' && !data.schema) setState.view = 'yaml';
+  if (location.hash !== settingsHash(project, file)) history.replaceState(null, '', settingsHash(project, file));
+  lastHash = decodeURIComponent(location.hash);
+  renderSettingsHead();
+  renderSettingsBody();
+}
+
+function renderSettingsHead() {
+  const proj = setState.meta.projects.find(p => p.name === setState.project);
+  document.querySelectorAll('[data-set-project]').forEach(b => b.classList.toggle('active', b.dataset.setProject === setState.project));
+  const tab = fileTab(setState.file), samples = proj.files.filter(f => f.kind === 'agent');
+  const tabs = proj.files.filter(f => f.kind !== 'agent').map(f => [f.file, f.file]);
+  if (samples.length) tabs.push(['samples', `Agent samples <span class="seg-n">${samples.length}</span>`]);
+  document.getElementById('setHead').innerHTML = `<div class="seg">${tabs.map(([k, label]) =>
+    `<button type="button" class="${tab === k ? 'active' : ''}" data-set-tab="${esc(k)}">${label}</button>`).join('')}</div>
+    <span class="set-path" title="${esc(setState.data.path)}">${esc(setState.data.path)}${setState.data.exists ? '' : ' · not created yet'}</span>`;
+}
+
+function renderSettingsBody() {
+  const d = setState.data, body = document.getElementById('setBody');
+  let html = '';
+  if (d.kind === 'agent') {
+    const proj = setState.meta.projects.find(p => p.name === setState.project);
+    html += `<div class="set-bar"><select id="setSample" aria-label="Agent sample">${proj.files.filter(f => f.kind === 'agent').map(f =>
+      `<option value="${esc(f.file)}"${f.file === setState.file ? ' selected' : ''}>${esc(f.file.slice(8))} — ${esc(f.name || '')} (${esc(shortModule(f.module))})</option>`).join('')}</select>
+      <a class="navbtn" href="#/test?sample=${encodeURIComponent(setState.project + '/' + setState.file.slice(8))}" title="Open the Run test page with this file in the editor">Run test with it</a>
+      <button class="navbtn" type="button" id="setSaveAs"${setState.meta.local ? '' : ' disabled'}>Save as new file…</button></div>`;
+  }
+  if (d.kind === 'project') {
+    html += `<div class="set-bar"><span class="set-applies" style="margin:0">talk-bench reads it at the start of every run from ${esc(setState.project)}; agent YAML blocks and CLI flags override it.</span>
+      <div class="seg">${['form', 'yaml'].map(v => `<button type="button" data-set-view="${v}" class="${setState.view === v ? 'active' : ''}"${v === 'form' && !d.schema ? ' disabled title="talk-bench\'s schema could not be loaded"' : ''}>${v === 'form' ? 'Form' : 'YAML'}</button>`).join('')}</div></div>`;
+  }
+  if (d.kind === 'env') html += `<p class="set-applies">${esc(d.applies)}</p>` + envEditorHTML();
+  else if (d.kind === 'project' && setState.view === 'form') html += projectFormHTML();
+  else html += `<div class="field"><textarea id="setYaml" spellcheck="false" rows="26" aria-label="${esc(setState.file)}">${esc(d.text)}</textarea></div>`;
+  if (d.kind !== 'env' && (d.error || d.warnings?.length)) {
+    html += `<div class="set-err">${esc(d.error ? 'The file on disk does not pass the check: ' + d.error : '')}${d.error && d.warnings?.length ? '\n' : ''}${
+      d.warnings?.length ? `<span class="muted">${esc(d.warnings.join('\n'))}</span>` : ''}</div>`;
+  }
+  body.innerHTML = html;
+  markEnvRows();
+  updateSettingsFoot();
+}
+
+function updateSettingsFoot(msg = null, err = false) {
+  const n = settingsChanges(), el = document.getElementById('setMsg');
+  if (!el) return;
+  el.classList.toggle('err', !!err);
+  el.textContent = msg ?? (n ? `${n} unsaved change${n === 1 ? '' : 's'}` : 'No changes');
+  document.getElementById('setDiscard').disabled = !n;
+  if (setState.meta.local) document.getElementById('setSave').disabled = !n;
+}
+
+/* -- .env -- */
+function envEditorHTML() {
+  const items = setState.data.items;
+  const rows = items.map(it => {
+    if (it.type === 'heading') return `<div class="env-h">${esc(it.text)}</div>`;
+    if (it.type === 'note') return `<div class="env-note">${esc(it.text)}</div>`;
+    const help = [it.help, it.inline].filter(Boolean).join('\n');
+    const helpHTML = !help ? '' : help.length > 140
+      ? `<details class="env-help"><summary>${esc(help.split('\n')[0])}</summary>${esc(help.split('\n').slice(1).join('\n'))}</details>`
+      : `<div class="env-help">${esc(help)}</div>`;
+    const ph = it.secret ? (it.set ? `secret ${it.hint.startsWith('…') ? 'ending in ' + it.hint.slice(1) : 'set'} — type to replace` : 'not set') : 'empty';
+    return `<div class="env-row" data-line="${it.line}">
+      <label class="env-on" title="Unchecked: the line is commented out"><input type="checkbox" data-env-on${it.active ? ' checked' : ''} aria-label="Use ${esc(it.key)}"></label>
+      <div class="env-key"><code>${esc(it.key)}</code>${it.secret ? `<span title="Secret: the value stays on the server">${ICONS.lock}</span>` : ''}${helpHTML}</div>
+      <div class="env-val"><input type="text" data-env-val value="${esc(it.secret ? '' : it.value)}" placeholder="${esc(ph)}" spellcheck="false" autocomplete="off" aria-label="${esc(it.key)} value"><div class="env-dup" hidden></div></div>
+      <button class="row-act env-del" type="button" data-env-del title="Delete this line" aria-label="Delete ${esc(it.key)}">${ICONS.trash}</button>
+    </div>`;
+  }).join('');
+  const present = new Set(items.filter(i => i.type === 'entry').map(i => i.key));
+  const known = (setState.data.example_keys || []).filter(k => !present.has(k.key));
+  const adds = setState.env.adds.map((a, i) => `<div class="env-row changed" data-add="${i}">
+      <span></span><div class="env-key"><code>${esc(a.key)}</code><div class="env-help">new line at the end of the file</div></div>
+      <div class="env-val"><input type="text" value="${esc(a.value)}" disabled></div>
+      <button class="row-act env-del" type="button" data-env-add-del="${i}" title="Remove" aria-label="Remove ${esc(a.key)}">${ICONS.trash}</button></div>`).join('');
+  return `<div class="env-list">${rows || '<div class="env-note">The file is empty.</div>'}${adds}</div>
+    <div class="env-add"><span></span>
+      <input id="envAddKey" list="envKnown" placeholder="NEW_VARIABLE" spellcheck="false" autocomplete="off" aria-label="Variable name">
+      <input id="envAddVal" placeholder="value" spellcheck="false" autocomplete="off" aria-label="Value">
+      <button class="btn" type="button" id="envAddBtn">Add</button></div>
+    <datalist id="envKnown">${known.map(k => `<option value="${esc(k.key)}">${esc((k.help || '').split('\n')[0].slice(0, 90))}</option>`).join('')}</datalist>`;
+}
+
+// changed / off / deleted marks and "set again below" warnings, from the edits (no re-render: typing keeps focus)
+function markEnvRows() {
+  if (setState.data?.kind !== 'env') return;
+  const byLine = new Map(setState.data.items.filter(i => i.type === 'entry').map(i => [i.line, i]));
+  const lastActive = new Map();
+  for (const [line, it] of byLine) {
+    const ed = setState.env.edits.get(line) || {};
+    if ((ed.active ?? it.active) && !ed.delete) lastActive.set(it.key, line);
+  }
+  for (const a of setState.env.adds) if (a.active) lastActive.set(a.key, Infinity);
+  document.querySelectorAll('.env-row[data-line]').forEach(row => {
+    const line = Number(row.dataset.line), it = byLine.get(line), ed = setState.env.edits.get(line) || {};
+    const active = ed.active ?? it.active;
+    row.classList.toggle('changed', setState.env.edits.has(line));
+    row.classList.toggle('off', !active);
+    row.classList.toggle('deleted', !!ed.delete);
+    const later = active && !ed.delete ? lastActive.get(it.key) : undefined;
+    const dup = row.querySelector('.env-dup');
+    dup.hidden = later === undefined || later === line;
+    if (!dup.hidden) dup.textContent = later === Infinity ? 'set again by a new line below — that one wins' : `set again on line ${later + 1} — that one wins`;
+  });
+}
+
+function envEdit(line, patch) {
+  const it = setState.data.items.find(i => i.type === 'entry' && i.line === line);
+  const ed = { ...(setState.env.edits.get(line) || {}), ...patch };
+  if (ed.value !== undefined && (it.secret ? ed.value === '' : ed.value === it.value)) delete ed.value;
+  if (ed.active !== undefined && ed.active === it.active) delete ed.active;
+  if (!ed.delete) delete ed.delete;
+  Object.keys(ed).length ? setState.env.edits.set(line, ed) : setState.env.edits.delete(line);
+  markEnvRows();
+  updateSettingsFoot();
+}
+
+/* -- talkbench.yaml form, built from talk-bench's own ProjectConfig JSON schema -- */
+function schemaNode(schema, n) {
+  if (n?.$ref) return schemaNode(schema, schema.$defs[n.$ref.split('/').pop()]);
+  if (n?.anyOf) {
+    const real = n.anyOf.filter(x => x.type !== 'null');
+    if (real.length === 1) return { ...schemaNode(schema, real[0]), description: n.description };
+  }
+  return n || {};
+}
+const fieldKind = n => n.enum ? 'enum' : n.type === 'boolean' ? 'bool' : n.type === 'integer' ? 'int'
+  : n.type === 'number' ? 'num' : n.type === 'string' ? 'text' : n.type === 'object' && n.properties ? 'object' : 'other';
+const docAt = (doc, path) => path.reduce((o, k) => (o && typeof o === 'object' ? o[k] : undefined), doc);
+
+function projectFormHTML() {
+  const { schema, doc } = setState.data;
+  if (!doc) return `<div class="set-err">talkbench.yaml is not valid YAML — fix it in the YAML view.</div>`;
+  const props = schema.properties || {};
+  const general = [], blocks = [];
+  for (const key of FORM_BLOCKS) {
+    if (!props[key]) continue;
+    const n = schemaNode(schema, props[key]);
+    if (fieldKind(n) === 'object') {
+      const desc = FIELD_HELP[key] || n.description || '';
+      blocks.push(`<fieldset class="set-block"><legend>${esc(key)}</legend>${desc ? `<p class="block-help">${esc(desc.split('\n\n')[0])}</p>` : ''}
+        <div class="form-grid">${Object.entries(n.properties).map(([k, sub]) => formFieldHTML([key, k], schemaNode(schema, sub))).join('')}</div></fieldset>`);
+    } else general.push(formFieldHTML([key], n));
+  }
+  const rest = Object.keys(doc).filter(k => !FORM_BLOCKS.includes(k) && k !== 'schema_version');
+  return blocks.join('') + (general.length ? `<fieldset class="set-block"><legend>results</legend><div class="form-grid">${general.join('')}</div></fieldset>` : '')
+    + `<p class="set-applies" style="margin:4px 0 0">An empty field is left out of the file, so talk-bench's default applies. ${rest.length
+      ? `This file also sets <span class="mono">${rest.map(esc).join(', ')}</span> — edit ${rest.length === 1 ? 'it' : 'them'} in the YAML view.`
+      : 'defaults, agent, custom_scenarios and custom_domains are edited in the YAML view.'}</p>`;
+}
+
+function formFieldHTML(path, n) {
+  const pk = path.join('.'), kind = fieldKind(n), id = 'sf-' + path.join('-');
+  if (kind === 'object') {
+    return `<div class="set-sub"><div class="set-sub-h">${esc(path.at(-1))}</div>${FIELD_HELP[pk] ? `<div class="help" style="font-size:11.5px;color:var(--muted)">${esc(FIELD_HELP[pk])}</div>` : ''}
+      <div class="form-grid">${Object.entries(n.properties).map(([k, sub]) => formFieldHTML([...path, k], schemaNode(setState.data.schema, sub))).join('')}</div></div>`;
+  }
+  const orig = docAt(setState.data.doc, path);
+  const cur = setState.form.has(pk) ? setState.form.get(pk) : orig;
+  const attrs = `id="${id}" data-path='${esc(JSON.stringify(path))}' data-kind="${kind}"`;
+  const unset = FIELD_UNSET[pk] || 'unset';
+  let input;
+  if (kind === 'bool' || kind === 'enum') {
+    const opts = kind === 'bool' ? ['true', 'false'] : n.enum;
+    const val = cur === undefined || cur === null ? '' : String(cur);
+    input = `<select ${attrs}><option value="">— ${esc(unset)} —</option>${opts.map(o => `<option${o === val ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+  } else if (kind === 'int' || kind === 'num') {
+    input = `<input type="number" ${attrs} step="${kind === 'int' ? 1 : 'any'}"${n.minimum != null ? ` min="${n.minimum}"` : ''}${n.maximum != null ? ` max="${n.maximum}"` : ''} value="${esc(cur ?? '')}" placeholder="${esc(unset)}">`;
+  } else if (kind === 'text') {
+    const sugg = setState.data.suggest?.[path.at(-1)] || [];
+    input = `<input type="text" ${attrs} value="${esc(cur ?? '')}" placeholder="${esc(unset)}" spellcheck="false" autocomplete="off"${sugg.length ? ` list="${id}-dl"` : ''}>${
+      sugg.length ? `<datalist id="${id}-dl">${sugg.map(s => `<option value="${esc(s)}">`).join('')}</datalist>` : ''}`;
+  } else {
+    input = `<input type="text" value="${esc(JSON.stringify(cur ?? null))}" disabled title="Edit in the YAML view">`;
+  }
+  return `<div class="field${setState.form.has(pk) ? ' changed' : ''}"><label for="${id}">${esc(path.at(-1))}</label>${input}${
+    FIELD_HELP[pk] ? `<div class="help">${esc(FIELD_HELP[pk])}</div>` : ''}</div>`;
+}
+
+function formEdit(el) {
+  const path = JSON.parse(el.dataset.path), pk = path.join('.'), kind = el.dataset.kind, raw = el.value;
+  let v;
+  if (kind === 'bool') v = raw === '' ? null : raw === 'true';
+  else if (kind === 'enum') v = raw === '' ? null : raw;
+  else if (kind === 'int' || kind === 'num') {
+    if (raw.trim() === '') v = null;
+    else if (Number.isNaN(Number(raw))) return;
+    else v = kind === 'int' ? Math.trunc(Number(raw)) : Number(raw);
+  } else v = raw.trim() === '' ? null : raw.trim();
+  const orig = docAt(setState.data.doc, path) ?? null;
+  JSON.stringify(v) === JSON.stringify(orig) ? setState.form.delete(pk) : setState.form.set(pk, v);
+  el.closest('.field').classList.toggle('changed', setState.form.has(pk));
+  updateSettingsFoot();
+}
+
+async function saveSettings() {
+  const d = setState.data, btn = document.getElementById('setSave');
+  const body = { project: setState.project, file: setState.file, version: d.version };
+  if (d.kind === 'env') {
+    body.env_edits = [...setState.env.edits].map(([line, ed]) => ({ line, key: d.items.find(i => i.line === line).key, ...ed }));
+    body.env_adds = setState.env.adds;
+  } else if (d.kind === 'project' && setState.view === 'form') {
+    body.changes = [...setState.form].map(([pk, value]) => ({ path: pk.split('.'), value }));
+  } else body.text = document.getElementById('setYaml').value;
+  setBusy(btn, true);
+  try {
+    const res = await postJSON('/api/settings/file', body);
+    setState.data = res;
+    setState.env = { edits: new Map(), adds: [] };
+    setState.form = new Map();
+    renderSettingsHead();
+    renderSettingsBody();
+    const notes = [...(res.saved_warnings || []), ...(res.restart?.length ? [`${res.restart.join(', ')} takes effect after a viewer restart`] : [])];
+    updateSettingsFoot(`Saved ${setState.file}${notes.length ? ' — ' + notes.join('; ') : ''}`);
+    if (setState.project === 'viewer') invalidateRuns();  // /api/runs carries the Ask AI model
+  } catch (e) {
+    updateSettingsFoot(e.message, true);
+  } finally {
+    setBusy(btn, false);
+    if (!settingsChanges()) btn.disabled = true;
+  }
+}
+
+document.addEventListener('click', async e => {
+  if (!e.target.closest('#settingsPage')) return;
+  const t = e.target.closest('button, a');
+  if (!t) return;
+  if (t.dataset.setProject && t.dataset.setProject !== setState.project) {
+    const proj = setState.meta.projects.find(p => p.name === t.dataset.setProject);
+    const keep = proj.files.find(f => f.file === fileTab(setState.file)) || proj.files[0];
+    openSettingsFile(proj.name, keep.file).catch(err => updateSettingsFoot(err.message, true));
+  } else if (t.dataset.setTab) {
+    const proj = setState.meta.projects.find(p => p.name === setState.project);
+    const f = t.dataset.setTab === 'samples' ? proj.files.find(x => x.kind === 'agent').file : t.dataset.setTab;
+    if (f !== setState.file) openSettingsFile(setState.project, f).catch(err => updateSettingsFoot(err.message, true));
+  } else if (t.dataset.setView && t.dataset.setView !== setState.view) {
+    if (settingsChanges() && !confirm('Discard the unsaved changes?')) return;
+    setState.view = t.dataset.setView;
+    setState.form = new Map();
+    renderSettingsBody();
+    document.querySelectorAll('[data-set-view]').forEach(b => b.classList.toggle('active', b.dataset.setView === setState.view));
+  } else if (t.id === 'setSave') {
+    saveSettings();
+  } else if (t.id === 'setDiscard') {
+    setState.env = { edits: new Map(), adds: [] };
+    setState.form = new Map();
+    renderSettingsBody();
+  } else if (t.hasAttribute('data-env-del')) {
+    const line = Number(t.closest('.env-row').dataset.line);
+    envEdit(line, { delete: !setState.env.edits.get(line)?.delete });
+  } else if (t.dataset.envAddDel !== undefined) {
+    setState.env.adds.splice(Number(t.dataset.envAddDel), 1);
+    renderSettingsBody();
+  } else if (t.id === 'envAddBtn') {
+    const key = document.getElementById('envAddKey').value.trim(), value = document.getElementById('envAddVal').value;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) { updateSettingsFoot('A variable name is letters, digits and _ and does not start with a digit', true); return; }
+    setState.env.adds.push({ key, value, active: true });
+    renderSettingsBody();
+    document.getElementById('envAddKey').focus();
+  } else if (t.id === 'setSaveAs') {
+    const name = prompt('New file name in samples/ (.yaml)', setState.file.slice(8).replace(/\.ya?ml$/, '') + '_copy.yaml');
+    if (!name) return;
+    const file = 'samples/' + (/\.ya?ml$/.test(name) ? name : name + '.yaml');
+    try {
+      await postJSON('/api/settings/file', { project: setState.project, file, version: null, text: document.getElementById('setYaml').value });
+      setState.meta = await getJSON('/api/settings');
+      setState.data.text = document.getElementById('setYaml').value;  // the edits went into the new file
+      await openSettingsFile(setState.project, file, routeSeq, true);
+      updateSettingsFoot(`Created ${file}`);
+    } catch (err) { updateSettingsFoot(err.message, true); }
+  }
+});
+document.addEventListener('input', e => {
+  if (!e.target.closest('#settingsPage')) return;
+  if (e.target.hasAttribute('data-env-val')) envEdit(Number(e.target.closest('.env-row').dataset.line), { value: e.target.value });
+  else if (e.target.dataset.path && e.target.tagName === 'INPUT') formEdit(e.target);
+  else if (e.target.id === 'setYaml') updateSettingsFoot();
+});
+document.addEventListener('change', e => {
+  if (!e.target.closest('#settingsPage')) return;
+  if (e.target.hasAttribute('data-env-on')) envEdit(Number(e.target.closest('.env-row').dataset.line), { active: e.target.checked });
+  else if (e.target.dataset.path && e.target.tagName === 'SELECT') formEdit(e.target);
+  else if (e.target.id === 'setSample') {
+    const prev = setState.file;
+    openSettingsFile(setState.project, e.target.value).then(() => { if (setState.file === prev) e.target.value = prev; })
+      .catch(err => updateSettingsFoot(err.message, true));
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.target.closest?.('#settingsPage') && (e.metaKey || e.ctrlKey) && e.key === 's') {
+    e.preventDefault();
+    if (setState.meta?.local && settingsChanges()) saveSettings();
+  } else if (e.target.id === 'envAddVal' && e.key === 'Enter') document.getElementById('envAddBtn').click();
+});
+window.addEventListener('beforeunload', e => {
+  if ((location.hash.startsWith('#/settings') && settingsChanges()) || (location.hash.startsWith('#/provision') && provDirty())) e.preventDefault();
+});
+
+/* ---------- provision: MCP server → talkdesk-agent provision → agent config, in talk-bench-talkdesk ---------- */
+const provState = { data: null, json: '', cfgFile: '', cfgVersion: null, cfgText: '', checkSeq: 0, selected: null, logs: {} };
+const TD_PROJECT = 'talk-bench-talkdesk';
+const provDirty = () => { const ta = document.getElementById('provYaml'); return !!ta && ta.value !== provState.cfgText; };
+const platformBadge = p => p ? `<span class="badge ${p === 'PRD' ? 'fail' : 'na'}">${esc(p)}</span>` : '';
+
+async function renderProvision(params) {
+  const seq = routeSeq;
+  const d = await getJSON('/api/talkdesk');
+  if (seq !== routeSeq) return;
+  provState.data = d;
+  provState.json = '';
+  const lock = d.local ? '' : ` disabled title="${esc(SET_LOCAL_NOTE)}"`;
+  setView(`<div id="provPage">
+    <div class="page-head"><h2>Provision</h2>
+      <div class="muted" style="font-size:13px;margin-top:4px">Create a Talkdesk Autopilot agent system from a talk-bench-talkdesk template, then point an agent config at it — the README's Step 3, without the terminals. Runs in <span class="mono">${esc(d.root)}</span>.</div></div>
+    ${d.local ? '' : `<div class="notice warn" style="margin:0 0 14px">Read-only here: servers and provisioning can only be started on the Mac that runs the viewer (open it at localhost).</div>`}
+    <div class="card">
+      <h3 class="step-h"><span class="step-n">1</span>MCP server</h3>
+      <p class="muted" style="font-size:12.5px;margin:6px 0 12px">Talkdesk calls the domain's tools through this server's public (ngrok) URL, so it has to be up when you provision and while tests run. Its <span class="mono">--source</span> / <span class="mono">--domain</span> must match the test's.</p>
+      <div class="table-wrap jobs-wrap"><table id="mcpTable" style="min-width:640px"><thead><tr><th>Serves</th><th>Port</th><th>Public URL</th><th>Up</th><th></th></tr></thead><tbody id="mcpRows"></tbody></table></div>
+      <div class="empty" id="mcpEmpty" hidden>No talkdesk-mcp-server is running.</div>
+      <div class="form-grid">
+        <div class="field"><label for="mcpSource">--source</label><select id="mcpSource">${Object.keys(d.domains).map(s => `<option>${esc(s)}</option>`).join('')}</select></div>
+        <div class="field"><label for="mcpDomain">--domain</label><select id="mcpDomain"></select></div>
+        <div class="field"><label for="mcpPort">--port</label><input id="mcpPort" type="number" min="1024" max="65535" value="3030"></div>
+        <div class="field"><label>Tunnel</label><label class="check" style="padding-top:7px"><input type="checkbox" id="mcpNgrok" checked> --ngrok${d.has_ngrok_token ? '' : ' <span class="muted">(no NGROK_AUTHTOKEN in .env)</span>'}</label></div>
+      </div>
+      <div class="actions-row"><button class="btn" type="button" id="mcpStart"${lock}>${ICONS.play} Start server</button><span class="muted" style="font-size:12.5px" id="mcpStatus"></span></div>
+      <div class="mcp-url">TALKDESK_MCP_URL in .env <span class="mono">${esc(d.mcp_url || 'not set')}</span>${d.mcp_url ? `<button class="navbtn" type="button" id="mcpCheck"${lock}>Check</button>` : ''}<span id="mcpCheckOut"></span>
+        <a href="${settingsHash(TD_PROJECT, '.env')}" style="margin-left:auto">Edit .env</a></div>
+      <div id="mcpLogWrap" hidden><div class="actions-row" style="margin-top:14px"><b style="font-size:13px" id="mcpLogTitle"></b><button class="navbtn" type="button" id="mcpLogClose" style="margin-left:auto">Hide log</button></div>
+        <pre class="log-pane" id="mcpLog" style="margin-top:8px"></pre></div>
+    </div>
+    <div class="card">
+      <h3 class="step-h"><span class="step-n">2</span>Provision an agent system</h3>
+      <div class="set-bar" style="margin-top:12px"><select id="provCfg" aria-label="Provisioning config"><option value="">New config…</option>${d.configs.map(c =>
+        `<option value="${esc(c.file)}">${esc(c.file.slice(18))} — ${esc(c.agent_name || '?')}${c.platform ? ' · ' + esc(c.platform) : ''}</option>`).join('')}</select>
+        <span class="muted" style="font-size:12px">samples/provision/ — the YAML talkdesk-agent reads; account, OAuth file, token URL and MCP URL fall back to .env</span></div>
+      <div class="field"><textarea id="provYaml" rows="11" spellcheck="false" aria-label="Provisioning config YAML"></textarea></div>
+      <div id="provResolved"></div>
+      <div class="actions-row">
+        <button class="btn primary" type="button" id="provRun"${lock}>Provision…</button>
+        <button class="btn" type="button" id="provPreview"${lock} title="The template provision would deploy, patched into a copy: no API call, no file changed">Preview template</button>
+        <button class="navbtn" type="button" id="provSave"${lock}>Save</button>
+        <button class="navbtn" type="button" id="provSaveAs"${lock}>Save as…</button>
+        <span class="muted" style="font-size:12.5px;white-space:pre-wrap" id="provStatus"></span>
+      </div>
+      <div id="provPreviewOut"></div>
+    </div>
+    <div class="card" id="pjCard" hidden></div>
+    <div class="card table-card">
+      <div class="list-meta"><span class="count">Provisioning history</span></div>
+      <div class="table-wrap jobs-wrap"><table style="min-width:720px"><thead><tr><th>Status</th><th>Agent system</th><th>Platform</th><th>Started (Beijing)</th><th>agent_system_id</th><th></th></tr></thead><tbody id="pjRows"></tbody></table></div>
+      <div class="empty" id="pjEmpty" hidden>Nothing provisioned from here yet.</div>
+    </div></div>`);
+  fillMcpDomains();
+  renderProvRows();
+  const first = d.configs.find(c => c.file === params.get('config')) || d.configs[0];
+  if (first) await loadProvConfig(first.file, seq);
+  if (seq !== routeSeq) return;
+  // after route() put the page at the top: the job's card scrolls into view
+  const job = params.get('job');
+  if (job && d.jobs.some(j => j.id === job)) setTimeout(() => { if (seq === routeSeq) selectProvJob(job); });
+  clearInterval(testPollTimer);
+  let tick = 0;
+  testPollTimer = setInterval(async () => {  // route() clears it; polling never touches setView
+    if (!document.getElementById('provPage')) { clearInterval(testPollTimer); testPollTimer = null; return; }
+    try {
+      if (++tick % 2 === 0 || provState.data.jobs.some(j => j.status === 'running')) await refreshProvision();
+      for (const id of Object.keys(provState.logs)) await followLog(id);
+    } catch (_) { /* transient — the next tick retries */ }
+  }, 2500);
+}
+
+function fillMcpDomains() {
+  const src = document.getElementById('mcpSource').value, sel = document.getElementById('mcpDomain');
+  const list = provState.data.domains[src] || [];
+  sel.innerHTML = list.map(d => `<option${d === 'airline' ? ' selected' : ''}>${esc(d)}</option>`).join('');
+}
+
+async function refreshProvision() {
+  const d = await getJSON('/api/talkdesk');
+  const json = provRowsKey(d);
+  provState.data = d;
+  if (json !== provState.json) renderProvRows();
+  else {
+    document.querySelectorAll('.mcp-up').forEach(td => { td.textContent = fmtElapsed(Number(td.dataset.started) || null); });
+    if (provState.selected) renderProvJob();  // the running time in its status line
+  }
+}
+// what the two tables show, minus the clock: a poll that changes nothing re-renders nothing
+const provRowsKey = d => JSON.stringify([d.servers.map(s => ({ ...s, started: Math.round((s.started || 0) / 10) })), d.jobs]);
+
+function renderProvRows() {
+  const d = provState.data;
+  provState.json = provRowsKey(d);
+  const lock = d.local ? '' : ' disabled';
+  document.getElementById('mcpRows').innerHTML = d.servers.map(s => `<tr>
+    <td class="nowrap">${jobStatusHTML({ status: s.serving ? 'running' : 'starting' }).replace('starting', 'starting…')} <b>${esc(s.source)} · ${esc(s.domain)}</b>${
+      s.job_id ? '' : '<div class="subscore">started outside the viewer</div>'}</td>
+    <td>${s.port}</td>
+    <td class="mono" style="overflow-wrap:anywhere">${s.url ? esc(s.url) : s.ngrok ? `<span class="muted">${s.job_id ? 'waiting for ngrok…' : 'ngrok (see its terminal)'}</span>` : '<span class="muted">local only</span>'}</td>
+    <td class="nowrap mcp-up" data-started="${s.started || ''}">${fmtElapsed(s.started)}</td>
+    <td><div class="job-actions">${s.job_id ? `<button class="navbtn" type="button" data-mcp-log="${s.job_id}">Log</button>` : ''}<button class="navbtn" type="button" data-mcp-stop="${s.pgid}"${lock}>Stop</button></div></td></tr>`).join('');
+  document.getElementById('mcpEmpty').hidden = !!d.servers.length;
+  const jobs = d.jobs.filter(j => j.kind === 'provision');
+  document.getElementById('pjRows').innerHTML = jobs.map(j => `<tr class="${provState.selected === j.id ? 'tr-selected' : ''}">
+    <td class="nowrap">${jobStatusHTML(j)}</td>
+    <td><b>${esc(j.result?.agent_name || j.agent_name)}</b><div class="subscore">${esc(j.file ? j.file.slice(18) : 'edited config')}</div></td>
+    <td>${platformBadge(j.platform)}</td>
+    <td class="nowrap">${esc(fmtWhen(j.started))}</td>
+    <td class="mono" style="overflow-wrap:anywhere">${esc(j.result?.agent_system_id || (j.status === 'running' ? '…' : '—'))}</td>
+    <td><div class="job-actions"><button class="navbtn" type="button" data-pj-open="${j.id}">Open</button>${
+      j.status !== 'running' ? `<button class="navbtn" type="button" data-pj-del="${j.id}"${lock} aria-label="Remove from the history">×</button>` : ''}</div></td></tr>`).join('');
+  document.getElementById('pjEmpty').hidden = !!jobs.length;
+  if (provState.selected) renderProvJob();
+}
+
+async function loadProvConfig(file, seq = routeSeq) {
+  const ta = document.getElementById('provYaml');
+  if (!file) {
+    provState.cfgFile = ''; provState.cfgVersion = null;
+    ta.value = provState.cfgText = 'agent_name: \napi_base_url: "https://api.talkdeskqa.com"\nmcp_name_prefix: ""\nmcp_description: ""\ntemplate_name: ""\n# account_id / oauth_path / token_url / mcp_url: unset → TALKDESK_* in .env\n';
+  } else {
+    const r = await getJSON(`/api/settings/file?project=${TD_PROJECT}&file=${encodeURIComponent(file)}`);
+    if (seq !== routeSeq) return;
+    provState.cfgFile = file; provState.cfgVersion = r.version;
+    ta.value = provState.cfgText = r.text;
+  }
+  document.getElementById('provCfg').value = file;
+  document.getElementById('provPreviewOut').innerHTML = '';
+  await checkProvConfig();
+}
+
+async function checkProvConfig() {
+  const seq = ++provState.checkSeq, out = document.getElementById('provResolved');
+  try {
+    const r = await postJSON('/api/talkdesk/check', { text: document.getElementById('provYaml').value });
+    if (seq !== provState.checkSeq || !out.isConnected) return;
+    const rows = [['agent_name', r.agent_name, 'yaml', true], ['api_base_url', r.api_base_url, 'yaml', true],
+      ...r.resolved.map(x => [x.key, x.value, x.source, x.ok, x.note])];
+    out.innerHTML = `<table class="res-table" style="margin-top:12px"><tbody>${rows.map(([k, v, src, ok, note]) => `<tr>
+      <td>${esc(k)}</td><td><span class="mono">${esc(v ?? '—')}</span>${k === 'api_base_url' ? ' ' + platformBadge(r.platform) : ''}${
+        src && src !== 'yaml' ? `<div class="subscore">from ${esc(src)}</div>` : ''}</td>
+      <td class="${ok ? 'ok' : 'bad'}">${ok ? ICONS.check : esc(note || 'missing')}</td></tr>`).join('')}</tbody></table>${
+      r.warnings.length ? `<div class="set-err">${esc(r.warnings.join('\n'))}</div>` : ''}`;
+  } catch (e) {
+    if (seq === provState.checkSeq && out.isConnected) out.innerHTML = `<div class="set-err">${esc(e.message)}</div>`;
+  }
+}
+
+function selectProvJob(id) {
+  provState.selected = id;
+  provState.logs = Object.fromEntries(Object.entries(provState.logs).filter(([, l]) => l.el !== 'pjLog'));
+  provState.logs[id] = { el: 'pjLog', offset: 0, text: '' };
+  renderProvRows();
+  renderProvJob();
+  document.getElementById('pjCard').scrollIntoView({ behavior: smoothScroll(), block: 'start' });
+  followLog(id).catch(() => {});
+}
+
+function renderProvJob() {
+  const card = document.getElementById('pjCard'), j = provState.data.jobs.find(x => x.id === provState.selected);
+  if (!card || !j) return;
+  const id = j.result?.agent_system_id;
+  const agents = provState.data.agent_samples;
+  // samples/provision/<x>.yaml provisions what samples/<x>.yaml runs, by the checkout's naming
+  const pick = agents.find(a => j.file && a.file === 'samples/' + j.file.split('/').pop())
+    || agents.find(a => a.name === (j.result?.agent_name || j.agent_name)) || agents[0];
+  const keep = id && card.dataset.job === j.id && card.dataset.state === j.status;  // keep the user's picks while polling
+  card.hidden = false;
+  if (!keep || !document.getElementById('pjLog')) {
+    card.dataset.job = j.id;
+    card.dataset.state = j.status;
+    card.innerHTML = `<h3 class="step-h"><span class="step-n">3</span>${id ? 'Point an agent config at it' : 'Provisioning'}</h3>
+      <div class="muted" style="font-size:12.5px;margin:6px 0 10px" id="pjMeta"></div>
+      <div class="cmdline">${esc(j.cmd.map(shellQuote).join(' '))}</div>
+      <pre class="log-pane" id="pjLog" style="margin-top:10px"></pre>
+      ${id ? `<div class="pj-id">agent_system_id <code>${esc(id)}</code><button class="navbtn" type="button" data-copy="${esc(id)}">Copy</button>${
+        j.result.mcp_server_id ? `<span class="muted">MCP server record ${esc(j.result.mcp_server_id)}</span>` : ''}</div>
+      <div class="form-grid"><div class="field wide"><label for="pjAgent">Agent config (talk-bench-talkdesk/samples) to run tests against it</label>
+        <select id="pjAgent">${agents.map(a => `<option value="${esc(a.file)}"${a === pick ? ' selected' : ''}>${esc(a.file.slice(8))} — ${esc(a.name || '')}</option>`).join('')}</select></div></div>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="pjMcp"${j.mcp_url ? ' checked' : ' disabled'}> also set agent.mcp.server_url to <span class="mono">${esc(j.mcp_url || '(no MCP URL)')}</span></label>
+      <div class="actions-row"><button class="btn primary" type="button" id="pjApply"${provState.data.local ? '' : ' disabled'}>Write it into the config</button><span id="pjApplyOut" style="font-size:12.5px"></span></div>` : ''}`;
+    const log = provState.logs[j.id];
+    if (log) document.getElementById('pjLog').textContent = log.text;
+  }
+  document.getElementById('pjMeta').innerHTML = `${jobStatusHTML(j)} · ${esc(j.result?.agent_name || j.agent_name)} ${platformBadge(j.platform)} · ${esc(j.api_base_url)} · ${fmtElapsed(j.started, j.finished)}${
+    j.error ? ` · <span style="color:var(--fail)">${esc(j.error)}</span>` : ''}`;
+}
+
+async function followLog(id) {
+  const log = provState.logs[id];
+  if (!log) return;
+  const d = await getJSON(`/api/talkdesk/jobs/${id}?offset=${log.offset}`);
+  if (provState.logs[id] !== log) return;
+  if (d.next_offset < log.offset) log.text = '';
+  log.text += d.log;
+  log.offset = d.next_offset;
+  const el = document.getElementById(log.el);
+  if (el && d.log) {
+    const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    el.textContent = log.text;
+    if (atEnd) el.scrollTop = el.scrollHeight;
+  }
+}
+
+document.addEventListener('click', async e => {
+  if (!e.target.closest('#provPage')) return;
+  const t = e.target.closest('button');
+  if (!t) return;
+  const status = msg => { document.getElementById('provStatus').textContent = msg; };
+  if (t.id === 'mcpStart') {
+    setBusy(t, true);
+    try {
+      const r = await postJSON('/api/talkdesk/mcp', { source: document.getElementById('mcpSource').value, domain: document.getElementById('mcpDomain').value,
+        port: Number(document.getElementById('mcpPort').value), ngrok: document.getElementById('mcpNgrok').checked });
+      mcpSay('starting… (uv run takes a few seconds)');
+      provState.data.jobs.unshift(r.job);
+      openMcpLog(r.job);
+      await refreshProvision();
+    } catch (err) { mcpSay('⚠ ' + err.message); }
+    finally { setBusy(t, false); }
+  } else if (t.dataset.mcpStop) {
+    const s = provState.data.servers.find(x => String(x.pgid) === t.dataset.mcpStop);
+    if (!confirm(`Stop the MCP server serving ${s?.source} · ${s?.domain} on port ${s?.port}?${s?.job_id ? '' : '\n\nIt was started outside the viewer (in a terminal).'}\nTests and agents using it lose their tools.`)) return;
+    setBusy(t, true);
+    try { await postJSON('/api/talkdesk/mcp/stop', { pgid: Number(t.dataset.mcpStop) }); mcpSay('stopping…'); }
+    catch (err) { mcpSay('⚠ ' + err.message); setBusy(t, false); }
+  } else if (t.dataset.mcpLog) {
+    openMcpLog(provState.data.jobs.find(j => j.id === t.dataset.mcpLog));
+  } else if (t.id === 'mcpLogClose') {
+    document.getElementById('mcpLogWrap').hidden = true;
+    for (const [id, l] of Object.entries(provState.logs)) if (l.el === 'mcpLog') delete provState.logs[id];
+  } else if (t.id === 'mcpCheck') {
+    const out = document.getElementById('mcpCheckOut');
+    setBusy(t, true);
+    out.textContent = '';
+    try {
+      const r = await postJSON('/api/talkdesk/mcp/check', { url: provState.data.mcp_url });
+      out.innerHTML = r.ok ? `<span style="color:var(--pass)">serves ${esc(r.source && r.domain ? r.source + ' · ' + r.domain : r.name || 'something')}</span>`
+        : `<span style="color:var(--fail)">not reachable: ${esc(r.error)}</span>`;
+    } catch (err) { out.innerHTML = `<span style="color:var(--fail)">${esc(err.message)}</span>`; }
+    finally { setBusy(t, false); }
+  } else if (t.id === 'provPreview') {
+    const out = document.getElementById('provPreviewOut');
+    setBusy(t, true);
+    status('talkdesk-agent generate…');
+    try {
+      const r = await postJSON('/api/talkdesk/generate', { text: document.getElementById('provYaml').value });
+      status('');
+      out.innerHTML = `<details open style="margin-top:14px"><summary style="cursor:pointer;font-size:13px">Template provision would deploy · ${r.agents} agent${r.agents === 1 ? '' : 's'}, ${r.tools} tool${r.tools === 1 ? '' : 's'} · IDs are PLACEHOLDER until provisioning</summary>
+        <pre class="log-pane" style="margin-top:8px">${esc(r.json)}</pre></details>`;
+    } catch (err) { status('⚠ ' + err.message); out.innerHTML = ''; }
+    finally { setBusy(t, false); }
+  } else if (t.id === 'provRun') {
+    const text = document.getElementById('provYaml').value;
+    let chk;
+    try { chk = await postJSON('/api/talkdesk/check', { text }); } catch (err) { status('⚠ ' + err.message); return; }
+    const missing = chk.resolved.filter(x => !x.ok).map(x => x.key);
+    if (missing.length) { status(`⚠ fix ${missing.join(', ')} first`); return; }
+    const template = chk.resolved.find(x => x.key === 'template_name').value;
+    if (!confirm(`Provision "${chk.agent_name}" on ${chk.platform || chk.api_base_url}?\n\nThis creates an MCP server record and a new agent system in the Talkdesk account ${chk.resolved.find(x => x.key === 'account_id').value} (${chk.api_base_url}). Like the CLI, it also writes the patched template back to libs/talkdesk_agent/templates/${template}.`)) return;
+    setBusy(t, true);
+    try {
+      const r = await postJSON('/api/talkdesk/provision', { text, file: provDirty() ? null : provState.cfgFile || null });
+      provState.data.jobs.unshift(r.job);
+      status('');
+      selectProvJob(r.job.id);
+    } catch (err) { status('⚠ ' + err.message); }
+    finally { setBusy(t, false); }
+  } else if (t.id === 'provSave' || t.id === 'provSaveAs') {
+    const text = document.getElementById('provYaml').value;
+    let file = provState.cfgFile, version = provState.cfgVersion;
+    if (t.id === 'provSaveAs' || !file) {
+      const name = prompt('File name in samples/provision/', file ? file.slice(18).replace(/\.ya?ml$/, '') + '_copy.yaml' : 'my_agent_qa.yaml');
+      if (!name) return;
+      file = 'samples/provision/' + (/\.ya?ml$/.test(name) ? name : name + '.yaml');
+      version = null;
+    }
+    setBusy(t, true);
+    try {
+      const r = await postJSON('/api/settings/file', { project: TD_PROJECT, file, version, text });
+      provState.cfgFile = file; provState.cfgVersion = r.version; provState.cfgText = text;
+      const d = await getJSON('/api/talkdesk');
+      provState.data = d;
+      document.getElementById('provCfg').innerHTML = `<option value="">New config…</option>${d.configs.map(c =>
+        `<option value="${esc(c.file)}">${esc(c.file.slice(18))} — ${esc(c.agent_name || '?')}${c.platform ? ' · ' + esc(c.platform) : ''}</option>`).join('')}`;
+      document.getElementById('provCfg').value = file;
+      status(`saved ${file}${r.saved_warnings?.length ? ' — ' + r.saved_warnings.join('; ') : ''}`);
+    } catch (err) { status('⚠ ' + err.message); }
+    finally { setBusy(t, false); }
+  } else if (t.dataset.pjOpen) {
+    selectProvJob(t.dataset.pjOpen);
+  } else if (t.dataset.pjDel) {
+    try {
+      await postJSON(`/api/talkdesk/jobs/${t.dataset.pjDel}`, null, 'DELETE');
+      if (provState.selected === t.dataset.pjDel) { provState.selected = null; document.getElementById('pjCard').hidden = true; }
+      await refreshProvision();
+    } catch (err) { status('⚠ ' + err.message); }
+  } else if (t.dataset.copy) {
+    await copyText(t.dataset.copy).catch(() => {});
+    t.textContent = 'Copied';
+    setTimeout(() => { t.textContent = 'Copy'; }, 1200);
+  } else if (t.id === 'pjApply') {
+    const j = provState.data.jobs.find(x => x.id === provState.selected), file = document.getElementById('pjAgent').value;
+    const out = document.getElementById('pjApplyOut');
+    setBusy(t, true);
+    try {
+      await postJSON('/api/talkdesk/apply', { file, agent_system_id: j.result.agent_system_id, mcp_url: document.getElementById('pjMcp').checked ? j.mcp_url : null });
+      out.innerHTML = `<span style="color:var(--pass)">written into ${esc(file)}</span> · <a href="#/test?sample=${encodeURIComponent(TD_PROJECT + '/' + file.slice(8))}">Run test with it</a> · <a href="${settingsHash(TD_PROJECT, file)}">open the file</a>`;
+    } catch (err) { out.innerHTML = `<span style="color:var(--fail)">${esc(err.message)}</span>`; }
+    finally { setBusy(t, false); }
+  }
+});
+
+let mcpSayTimer = 0;
+const mcpSay = msg => {
+  const el = document.getElementById('mcpStatus');
+  if (el) el.textContent = msg;
+  clearTimeout(mcpSayTimer);
+  if (!msg.startsWith('⚠')) mcpSayTimer = setTimeout(() => { if (el) el.textContent = ''; }, 10000);
+};
+
+function openMcpLog(job) {
+  if (!job) return;
+  for (const [id, l] of Object.entries(provState.logs)) if (l.el === 'mcpLog') delete provState.logs[id];
+  provState.logs[job.id] = { el: 'mcpLog', offset: 0, text: '' };
+  document.getElementById('mcpLogWrap').hidden = false;
+  document.getElementById('mcpLogTitle').textContent = `talkdesk-mcp-server · ${job.source} · ${job.domain}`;
+  document.getElementById('mcpLog').textContent = '';
+  followLog(job.id).catch(() => {});
+}
+
+let provCheckTimer = 0;
+document.addEventListener('input', e => {
+  if (e.target.id !== 'provYaml') return;
+  clearTimeout(provCheckTimer);
+  provCheckTimer = setTimeout(checkProvConfig, 400);
+});
+document.addEventListener('change', e => {
+  if (!e.target.closest('#provPage')) return;
+  if (e.target.id === 'mcpSource') fillMcpDomains();
+  else if (e.target.id === 'provCfg') {
+    if (provDirty() && !confirm('Discard the edits to this config?')) { e.target.value = provState.cfgFile; return; }
+    loadProvConfig(e.target.value).catch(err => { document.getElementById('provStatus').textContent = '⚠ ' + err.message; });
+  }
+});
 
 /* ---------- router ---------- */
 let scenKeyNav = null;
@@ -4950,6 +5752,12 @@ async function route() {
     } else if (h.startsWith('#/test')) {
       setTopTitle('Run test');
       await renderTest(params);
+    } else if (h.startsWith('#/settings')) {
+      setTopTitle('Settings');
+      await renderSettings(params);
+    } else if (h.startsWith('#/provision')) {
+      setTopTitle('Provision');
+      await renderProvision(params);
     } else if (h.startsWith('#/scenario/')) {
       const p = h.slice('#/scenario/'.length);
       setTopTitle(p.split('/').pop());

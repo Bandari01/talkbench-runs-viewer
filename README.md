@@ -53,7 +53,9 @@ are per-process.
 
 There is no authentication: every visitor can star, note, import runs and start tests. If you expose
 the viewer through a tunnel, put the access control there (e.g. `ngrok http 8377 --oauth google
---oauth-allow-domain <your domain>`).
+--oauth-allow-domain <your domain>`). The Settings and Provision pages are the exception: they only
+save, start or stop anything for requests made on the Mac itself (`localhost`, no `X-Forwarded-For`
+from a tunnel, no foreign `Origin`), and are read-only through the tunnel.
 
 ### Features
 
@@ -171,8 +173,9 @@ the run list. Resume keeps the simulator.
 
 Requirements: `uv` (or `.venv/bin/talk-bench` in the checkout) and a populated `.env` in the
 checkout. Agents that use an MCP tool server (Talkdesk, ElevenLabs with `tool_source: mcp`) need
-that server started by hand with the same `--source` / `--domain` (the Talkdesk presets' YAML comments
-show the command; the line under the editor says "tools via MCP" when the YAML has an `mcp.server_url`).
+that server running with the same `--source` / `--domain` — start it on the **Provision** page or by
+hand (the Talkdesk presets' YAML comments show the command; the line under the editor says "tools via
+MCP" when the YAML has an `mcp.server_url`).
 
 ### Scheduled tests
 
@@ -197,7 +200,51 @@ Scheduled tests are stored in `data/.test_schedules.json`, changed under an `flo
 `data/.test_schedules.lock`, so a second viewer process on the same data dir (e.g. a `--reload` dev
 server) does not start one twice.
 
+### Settings
+
+The **Settings** page edits the config files of the checkout tests run in and of the viewer itself:
+
+- **This viewer** — its `.env` (`VIEWER_LLM_MODEL`, provider keys, `VIEWER_DATA_DIR`,
+  `VIEWER_SOURCE_REPOS`). Changes apply at once, except `VIEWER_DATA_DIR`, which needs a restart; a
+  variable set in the shell that started the viewer still wins over the file.
+- **talk-bench / talk-bench-talkdesk** — `talkbench.yaml` (a form generated from talk-bench's own
+  `ProjectConfig` schema, or the raw YAML), `.env`, and the agent YAMLs in `samples/` (with *Save as
+  new file…* and *Run test with it*). They apply to the next test or provisioning.
+
+A `.env` is shown line by line in its own sections: each variable can be changed, commented out /
+back in (the checkbox), deleted, or added (names from `.env.example` are suggested), and a variable
+set twice is flagged. Values of secrets (names containing KEY, SECRET, PASSWORD, CREDENTIAL, or ending
+in TOKEN) never reach the browser — the page shows their last four characters, and typing a value
+replaces it. YAML saves are validated first (talk-bench's schema for `talkbench.yaml`, the Run test
+checks for agent YAMLs) and edit the file in place: a changed value is rewritten on its own line,
+added / removed keys go through ruamel.yaml, so comments and layout survive. A save is refused when
+the file changed on disk since it was loaded, and the replaced version is kept under
+`data/.settings_history/<project>/` (last 10 per file).
+
+### Provision
+
+The **Provision** page runs talk-bench-talkdesk's provisioning steps (its README, Step 3) in that
+project:
+
+1. **MCP server** — lists the running `talkdesk-mcp-server` processes (also those started in a
+   terminal), and starts / stops one with `--source`, `--domain`, `--port` and `--ngrok`. *Check* asks
+   the `TALKDESK_MCP_URL` of `.env` which source / domain it serves. Servers started here keep running
+   when the viewer restarts.
+2. **Provision** — pick or edit a `samples/provision/*.yaml` (*Save* / *Save as…*); the table shows
+   what `talkdesk-agent` will use for each setting (YAML, else the `TALKDESK_*` `.env` fallback) and
+   whether the OAuth file and template exist. *Preview template* shows what `talkdesk-agent generate`
+   prints, patched into a copy of the template (no API call, no file changed — the CLI writes the
+   patched template back to `libs/talkdesk_agent/templates/`); *Provision…* runs `talkdesk-agent
+   provision` after a confirmation, with a live log. Like the CLI, it leaves the patched template
+   (with the new ids) in that git-tracked file.
+3. **Point an agent config at it** — writes the printed `agent_system_id` (and, ticked, the MCP URL
+   as `agent.mcp.server_url`) into an agent YAML in `samples/`, preselecting the one named like the
+   provisioning config; *Run test with it* opens that file on the Run test page.
+
+Provisioning runs and MCP server logs are kept under `data/.talkdesk_jobs/<id>/`.
+
 ### LLM config (Ask AI)
 
 Copy `.env.example` to `.env` and set `VIEWER_LLM_MODEL` (litellm naming, default `azure/gpt-4.1`;
-for Azure use the deployment name) plus the provider key. Restart the server after changes.
+for Azure use the deployment name) plus the provider key — in the file, or on the Settings page,
+which applies them without a restart.
