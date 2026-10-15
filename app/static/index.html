@@ -36,6 +36,7 @@
     --fail: #d00a12; --fail-bg: #fff0f0; --fail-border: rgba(231, 0, 11, .22);
     --na-bg: #f5f5f5; --na-border: #e5e5e5;
     --star: #f59e0b;
+    --warn: #a35200; --warn-bg: #fff6e5; --warn-border: rgba(245, 158, 11, .40);  /* 5.6:1 on --warn-bg */
     --code-bg: #f5f5f5; --code-text: #be185d;
     --md-pre-bg: #171717; --md-pre-text: #e5e5e5; --md-pre-border: #333333;
     --bubble-user: #e3edfb; --bubble-user-fg: #1e3a5f;
@@ -58,6 +59,7 @@
     --fail: #ff6467; --fail-bg: #2a1314; --fail-border: rgba(255, 100, 103, .30);
     --na-bg: rgba(161, 161, 161, .10); --na-border: rgba(161, 161, 161, .22);
     --star: #fbbf24;
+    --warn: #fbbf24; --warn-bg: #2a1f0b; --warn-border: rgba(251, 191, 36, .30);
     --code-bg: #262626; --code-text: #f0a8c8;
     --md-pre-bg: #0a0a0a; --md-pre-text: #d4d4d4; --md-pre-border: rgba(255, 255, 255, .10);
     --bubble-user: #24344a; --bubble-user-fg: #cfe0f5;
@@ -227,6 +229,7 @@
   .badge.pass { background: var(--pass-bg); color: var(--pass); border-color: var(--pass-border); }
   .badge.fail { background: var(--fail-bg); color: var(--fail); border-color: var(--fail-border); }
   .badge.na   { background: var(--na-bg); color: var(--muted); border-color: var(--na-border); }
+  .badge.warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-border); }
   h2 .badge { line-height: 18px; }  /* the scenario PASS / FAIL pill: h2's 1.3 would shrink it below the 18px of every other badge */
   .chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin: 14px 0 4px; }
   .chip { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; }
@@ -308,6 +311,60 @@
   .hop-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
   .turn .bubble { transition: box-shadow var(--dur-2) var(--ease-out); }  /* the audio-sync ring glides from turn to turn */
   .turn.playing .bubble { box-shadow: 0 0 0 2px var(--link); }
+
+  /* records.json ↔ conversation.json: rows of turns against messages, the words one side lacks marked */
+  #transcript.diff-mode .tr-main { display: none; }
+  .transcript-head .seg { margin-left: 4px; }
+  .td-src { margin: 0 0 14px; font-size: 13px; }
+  .td-src summary { cursor: pointer; font-weight: 600; color: var(--fg-soft); padding: 2px 0; }
+  .td-src table { width: 100%; border-collapse: collapse; margin-top: 8px; table-layout: fixed; }
+  .td-src th, .td-src td { text-align: left; vertical-align: top; padding: 7px 10px; border-top: 1px solid var(--border-soft); line-height: 1.5; overflow-wrap: anywhere; }
+  .td-src th { font-weight: 600; color: var(--muted); white-space: normal; }
+  .td-src thead th { color: var(--fg); border-top: 0; }
+  .td-src tr > :first-child { width: 72px; padding-left: 0; }
+  .td-src .why { margin: 10px 0 0; padding: 9px 12px; border-radius: 8px; background: var(--surface-2); color: var(--fg-soft); line-height: 1.55; }
+  .td-gap { margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-border); font-size: 13px; }
+  .td-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 10px 22px; margin: 0 0 12px; }
+  .td-legend h4 { margin: 0 0 4px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .td-legend h4 .muted { font-weight: 400; }
+  .td-k { display: grid; grid-template-columns: 104px 28px 1fr; align-items: baseline; gap: 2px 8px; width: 100%; padding: 4px 6px; margin: 0 -6px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 12.5px; color: var(--fg-soft); text-align: left; cursor: pointer; transition: background-color var(--dur-1); }
+  .td-k:hover { background: var(--surface-2); }
+  .td-k.on { background: var(--surface-3); }
+  .td-k .n { font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; color: var(--fg); }
+  .td-k .badge { justify-self: start; }
+  .td-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin: 0 0 6px; }
+  .td-tools label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  .td-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px minmax(0, 1fr); column-gap: 10px; border-bottom: 1px solid var(--border-soft); }
+  .td-head { font-size: 12px; font-weight: 600; color: var(--fg-soft); border-bottom: 1px solid var(--border); position: sticky; top: var(--topbar-h); background: var(--surface); z-index: 1; }
+  .scen-layout:not(.no-panel) .td-head { top: calc(var(--topbar-h) + 52px); }  /* under the task & grading bar (8px gap, 44px tall) */
+  @container scen (min-width: 1000px) { .scen-layout:not(.no-panel) .td-head { top: var(--topbar-h); } }
+  .td-head > div { padding: 6px 0; }
+  .td-head .muted { font-weight: 400; }
+  .td-cell, .td-mid { padding: 8px 0; min-width: 0; }
+  .td-mid { text-align: center; padding-top: 26px; }
+  .td-mid .badge { white-space: normal; line-height: 1.35; padding: 2px 8px; }
+  .td-mid .ratio-n { display: block; margin-top: 3px; font-size: 11px; color: var(--muted); font-family: var(--mono); }
+  .td-b + .td-b { margin-top: 8px; }
+  .td-b .who { font-size: 11px; color: var(--muted); }
+  .td-b .who .badge { padding: 0 7px; font-size: 10.5px; margin-left: 2px; }
+  .td-b .bubble { margin: 3px 0 0; border-radius: 10px; transition: box-shadow var(--dur-2) var(--ease-out); }
+  .td-row.user .bubble { background: var(--bubble-user); color: var(--bubble-user-fg); }
+  .td-row.agent .bubble { background: var(--bubble-agent); }
+  .td-b.playing .bubble { box-shadow: 0 0 0 2px var(--link); }
+  .td-none { margin-top: 18px; padding: 9px 12px; border: 1px dashed var(--border); border-radius: 10px; color: var(--muted); font-size: 12.5px; }
+  mark.dx { background: color-mix(in srgb, var(--star) 34%, transparent); color: inherit; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  .td-side { display: none; }
+  @media (max-width: 720px) {
+    .td-row { grid-template-columns: minmax(0, 1fr); }
+    .td-head { display: none; }
+    .td-mid { order: -1; text-align: left; padding: 14px 0 0; }
+    .td-mid .ratio-n { display: inline; margin-left: 6px; }
+    .td-cell { padding: 4px 0; }
+    .td-cell.rec { padding-bottom: 12px; }
+    .td-side { display: block; font-size: 11px; font-weight: 600; color: var(--faint); margin-bottom: 2px; }
+    .td-none { margin-top: 0; }
+    .td-src tr > :first-child { width: 56px; }
+  }
 
   /* ---------- scenario page: task & grading panel ----------
      .scen-page is a container: from 1000px of page width the panel is a second column, sticky under the
@@ -2305,20 +2362,202 @@ function initAudioSync() {
   const players = [...document.querySelectorAll('.audio-grid audio')];
   const player = players.find(a => a.src.endsWith('/conversation.wav')) || players[0];
   if (!box || !player) return;
-  const turns = [...box.querySelectorAll('[data-span]')].map(el => [el, ...el.dataset.span.split(',').map(Number)]);
   box.addEventListener('click', e => {
     const b = e.target.closest('[data-seek]');
     if (!b) return;
-    if (!player.paused && b.closest('.turn')?.classList.contains('playing')) { player.pause(); return; }
+    if (!player.paused && b.closest('[data-span]')?.classList.contains('playing')) { player.pause(); return; }
     players.forEach(a => a !== player && a.pause());
     player.currentTime = Math.max(0, +b.dataset.seek - 0.2);  // a little lead-in so the first word isn't clipped
     player.play().catch(() => {});
   });
+  // looked up on every tick: the comparison view's rows arrive after this runs
   const mark = e => {
     const t = e.target.currentTime;
-    for (const [el, start, end] of turns) el.classList.toggle('playing', t >= start - 0.2 && t <= end + 0.2);
+    for (const el of box.querySelectorAll('[data-span]')) {
+      const [start, end] = el.dataset.span.split(',').map(Number);
+      el.classList.toggle('playing', t >= start - 0.2 && t <= end + 0.2);
+    }
   };
   for (const a of players) for (const ev of ['timeupdate', 'seeked']) a.addEventListener(ev, mark);
+}
+
+/* ---------- records.json ↔ conversation.json ---------- */
+const TD_VIEW_KEY = 'viewer_transcript_view';  // 'diff' while this reader wants the comparison open
+const TD_SRC_KEY = 'viewer_tdiff_sources';     // '0' once this reader folded the "where they come from" table
+const TD_WHO = { user: '用户', agent: 'Agent' };
+// per speaker and row kind: [label, badge class, why the two files differ there]
+const TD_KINDS = {
+  user: {
+    same: ['一致', 'pass', '两边文字相同（不计大小写和标点）'],
+    text: ['ASR 听错', 'na', 'Talkdesk 的 ASR 把模拟器的原话听成了别的字：拼读的字母、数字、邮箱最常见'],
+    split: ['被拆开', 'na', 'Talkdesk 按停顿把模拟器的一段话切成了几条消息，每条都可能单独触发一次回复'],
+    merge: ['被合并', 'na', 'Talkdesk 把模拟器分开说的几段话合成了一条消息'],
+    mixed: ['多对多', 'na', '几段原话和几条消息交错对应'],
+    conversation_only: ['records 缺失', 'warn', '模拟器说了，records.json 里却没有：平台为这句话开的 turn 没有发回 output_response（多半是 Agent 还没回答，用户又开口了），它引发的 tool call 也一起缺失'],
+    records_only: ['仅 records', 'warn', '找不到对应的模拟器原话'],
+    start: ['开场触发', 'na', '通话开始时平台自己注入的消息，不是用户说的'],
+  },
+  agent: {
+    same: ['一致', 'pass', '两边文字相同（不计大小写和标点）'],
+    text: ['ASR 转写不同', 'na', 'talk-bench 的 ASR 把回复原文转写得不一样：日期、数字、专有名词最常见'],
+    cut: ['没播完', 'warn', '回复只有一部分出现在录音里：被用户插话打断，或通话已结束'],
+    split: ['连播成一段', 'na', '连着播出的几条回复，被 talk-bench 的 ASR 听成了一段'],
+    merge: ['被 ASR 切开', 'na', '一条回复在停顿处被 talk-bench 的 ASR 切成了几段'],
+    mixed: ['多对多', 'na', '几条回复和几段转写交错对应，常见于连播加打断'],
+    records_only: ['没播出', 'warn', 'Talkdesk 生成了这条回复，但录音里没有：被打断、被下一条顶掉，或通话已结束'],
+    conversation_only: ['records 缺失', 'warn', '录音里 Agent 说了这段，records.json 里却没有对应消息'],
+    greeting: ['开场白未记录', 'na', '这次 run 的 records.json 不含开场白'],
+  },
+};
+
+function renderTranscriptDiff(diff, align) {
+  const srcOpen = (() => { try { return localStorage.getItem(TD_SRC_KEY) !== '0'; } catch (e) { return true; } })();
+  const stamps = diff.rows.flatMap(r => [...r.conversation, ...r.records]).map(x => x.timestamp).filter(t => t != null);
+  const t0 = stamps.length ? Math.min(...stamps) : 0;
+  const seek = (s, title, approx) => {
+    const label = (approx ? '≈' : '') + fmtClock(s);
+    return s >= 0 && s < align.duration
+      ? `<button class="ts" type="button" data-seek="${s.toFixed(2)}" title="${esc(title)} · 点击从这里播放">${label}</button>`
+      : `<span class="ts" title="${esc(title)} · 不在录音范围内">${label}</span>`;
+  };
+  const when = (x, rec, sp) => {
+    if (!align) return x.timestamp == null ? '' : `<span class="ts">+${(x.timestamp - t0).toFixed(1)}s</span>`;
+    if (x.span) return seek(x.span[0], `录音中 ${fmtClock(x.span[0])}–${fmtClock(x.span[1])}`);
+    const logged = rec ? 'Talkdesk 记下这条消息的时刻' : sp === 'user' ? '模拟器说完的时刻' : 'ASR 出结果的时刻';
+    return x.timestamp == null ? '' : seek(x.timestamp - align.origin, logged + '，录音里没找到这段话', true);
+  };
+  const words = runs => runs.map(([t, differs]) => {
+    if (!differs) return esc(t);
+    const word = t.trimEnd();
+    return `<mark class="dx">${esc(word)}</mark>${esc(t.slice(word.length))}`;
+  }).join('');
+  const bubble = (x, rec, row) => {
+    const heard = rec && row.conversation.length && x.heard != null && x.heard < 0.9
+      ? ` <span class="badge warn" title="这条回复的词只有 ${Math.round(x.heard * 100)}% 出现在录音的转写里">播出 ${Math.round(x.heard * 100)}%</span>` : '';
+    const action = x.action && x.action !== 'send_to_user' ? ` <span class="badge na">${esc(x.action)}</span>` : '';
+    const head = [TD_WHO[row.speaker] + (x.by ? ` (${esc(x.by)})` : ''), rec ? '' : `turn ${x.turn_index ?? ''}`, when(x, rec, row.speaker)];
+    return `<div class="td-b"${x.span ? ` data-span="${x.span.join(',')}"` : ''}>
+      <div class="who">${head.filter(Boolean).join(' · ')}${heard}${action}</div>
+      <div class="bubble">${words(x.runs)}</div></div>`;
+  };
+  const none = (rec, sp) => `<div class="td-none">${rec ? 'records.json 里没有' : sp === 'user' ? '模拟器没说这句' : '录音里没有'}</div>`;
+
+  const rows = diff.rows.map(row => {
+    const [label, cls, why] = TD_KINDS[row.speaker][row.kind] || [row.kind, 'na', ''];
+    const nc = row.conversation.length, nr = row.records.length;
+    return `
+    <div class="td-row ${row.speaker}" data-k="${row.speaker}:${row.kind}">
+      <div class="td-cell conv"><div class="td-side">conversation.json</div>${nc ? row.conversation.map(x => bubble(x, false, row)).join('') : none(false, row.speaker)}</div>
+      <div class="td-mid"><span class="badge ${cls}" title="${esc(why)}">${label}</span>${nc > 1 || nr > 1 ? `<span class="ratio-n">${nc} → ${nr}</span>` : ''}</div>
+      <div class="td-cell rec"><div class="td-side">records.json</div>${nr ? row.records.map(x => bubble(x, true, row)).join('') : none(true, row.speaker)}</div>
+    </div>`;
+  }).join('');
+
+  const legend = ['user', 'agent'].map(sp => {
+    const counts = diff.counts[sp] || {}, total = diff.totals[sp];
+    return `<div><h4>${TD_WHO[sp]} <span class="muted">· conversation.json ${total.conversation} 段，records.json ${total.records} 条</span></h4>
+      ${Object.entries(TD_KINDS[sp]).filter(([k]) => counts[k]).map(([k, [label, cls, why]]) => `
+      <button type="button" class="td-k" data-filter="${sp}:${k}" aria-pressed="false" title="只看这一类">
+        <span class="badge ${cls}">${label}</span><span class="n">${counts[k]}</span><span>${why}</span></button>`).join('')}
+    </div>`;
+  }).join('');
+  const gap = diff.clock_gap ? (diff.clock_gap >= 7200 ? `${(diff.clock_gap / 3600).toFixed(1)} 小时` : `${Math.round(diff.clock_gap / 60)} 分钟`) : '';
+
+  return `
+  <details class="td-src" id="tdSrc"${srcOpen ? ' open' : ''}>
+    <summary>这两个文件从哪来、为什么不一样</summary>
+    <table>
+      <thead><tr><th></th><th>conversation.json · talk-bench 侧</th><th>records.json · Talkdesk 侧</th></tr></thead>
+      <tbody>
+        <tr><th>谁写的</th><td>talk-bench 的编排器（ConversationRecorder），通话结束时一次写出</td>
+          <td>talk-bench-talkdesk 适配器：把 Talkdesk 每个 output_response 帧里的 <span class="mono">records</span> 原样攒起来</td></tr>
+        <tr><th>用户</th><td>用户模拟器生成的原文，送去 TTS 之前</td><td>Talkdesk 的 ASR 从通话音频里听到的文字</td></tr>
+        <tr><th>Agent</th><td>talk-bench 自己的 ASR 从 Agent 音频里转写出来的</td><td>平台 LLM 生成的回复原文，送去 TTS 之前，不管最后播没播出</td></tr>
+        <tr><th>怎么切分</th><td>用户：模拟器每说一次算一段；Agent：ASR 判断一句话说完（speech_final）就切</td><td>平台自己的 turn-taking，一条消息一行</td></tr>
+        <tr><th>时间</th><td>用户说完、或 ASR 出结果的时刻（本机时钟）</td><td>Talkdesk 记下这条消息的时刻（平台时钟）</td></tr>
+        <tr><th>另外</th><td>只有对话</td><td>还有内部流转和 tool call；但用户抢话时，被放弃的 turn 不发回 output_response，它的消息和 tool call 都不在这里</td></tr>
+      </tbody>
+    </table>
+    <p class="why">所以两边的差异只有几种来源：<b>用户</b>那几行来自 Talkdesk 的 ASR 和断句；<b>Agent</b> 那几行来自 talk-bench 的 ASR，以及回复没播完、没播出；整段缺失则是 records.json 没收到那个 turn。下面按说话人把两边逐段对齐，<mark class="dx">高亮</mark>的是另一边没有的词。</p>
+  </details>
+  ${gap ? `<div class="td-gap" role="note">records.json 的时间和这通电话相差 ${gap}，没有重叠：它多半是另一次会话留下的，所以下面几乎全是缺失。</div>` : ''}
+  <div class="td-legend">${legend}</div>
+  <div class="td-tools">
+    <label><input type="checkbox" id="tdOnly"> 只看有差异的行</label>
+    <span id="tdCount" aria-live="polite"></span>
+    <button class="navbtn" type="button" id="tdClear" hidden>清除筛选</button>
+    <span>records.json 另有 ${diff.hidden.notes} 条内部流转、${diff.hidden.tools} 个 tool call，不在比对范围内</span>
+  </div>
+  <div class="td-row td-head" aria-hidden="true"><div>conversation.json <span class="muted">· 模拟器原文 / Agent 音频的 ASR</span></div><div></div><div>records.json <span class="muted">· Talkdesk 的 ASR / 回复原文</span></div></div>
+  ${rows || '<p class="muted">两边都没有对话。</p>'}`;
+}
+
+function initTranscriptDiff(box) {
+  let filter = '';
+  const only = box.querySelector('#tdOnly'), clear = box.querySelector('#tdClear'), count = box.querySelector('#tdCount');
+  const rows = [...box.querySelectorAll('.td-row[data-k]')];
+  const apply = () => {
+    let shown = 0;
+    for (const r of rows) {
+      r.hidden = filter ? r.dataset.k !== filter : only.checked && r.dataset.k.endsWith(':same');
+      shown += r.hidden ? 0 : 1;
+    }
+    for (const b of box.querySelectorAll('.td-k')) {
+      const on = b.dataset.filter === filter;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on);
+    }
+    only.disabled = !!filter;
+    clear.hidden = !filter;
+    count.textContent = `显示 ${shown} / ${rows.length} 行`;
+  };
+  box.querySelector('.td-legend').addEventListener('click', e => {
+    const b = e.target.closest('.td-k');
+    if (!b) return;
+    filter = filter === b.dataset.filter ? '' : b.dataset.filter;
+    apply();
+  });
+  clear.addEventListener('click', () => { filter = ''; apply(); });
+  only.addEventListener('change', apply);
+  box.querySelector('#tdSrc').addEventListener('toggle', e => {
+    try { localStorage.setItem(TD_SRC_KEY, e.target.open ? '' : '0'); } catch (err) { /* private mode */ }
+  });
+  apply();
+}
+
+// the transcript card's 对话 / 对比 switch; the comparison is fetched the first time it opens
+function initTranscriptView(path, align) {
+  const seg = document.getElementById('trView');
+  if (!seg) return;
+  const card = document.getElementById('transcript'), box = document.getElementById('trDiff');
+  let loaded = false;
+  const show = async diff => {
+    card.classList.toggle('diff-mode', diff);
+    box.hidden = !diff;
+    for (const b of seg.querySelectorAll('button')) {
+      const on = (b.dataset.view === 'diff') === diff;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on);
+    }
+    try { localStorage.setItem(TD_VIEW_KEY, diff ? 'diff' : ''); } catch (e) { /* private mode */ }
+    if (!diff || loaded) return;
+    loaded = true;
+    box.innerHTML = '<p class="muted">对齐中…</p>';
+    try {
+      const data = await getJSON('/api/transcript_diff?path=' + encodeURIComponent(path));
+      if (!box.isConnected) return;
+      box.innerHTML = renderTranscriptDiff(data, align);
+      initTranscriptDiff(box);
+    } catch (e) {
+      loaded = false;
+      box.innerHTML = `<p class="err">⚠ ${esc(e.message)}</p>`;
+    }
+  };
+  seg.addEventListener('click', e => {
+    const b = e.target.closest('button[data-view]');
+    if (b) show(b.dataset.view === 'diff');
+  });
+  if (card.classList.contains('diff-mode')) show(true);
 }
 
 /* ---------- per-scenario scores ---------- */
@@ -2854,6 +3093,9 @@ async function renderScenario(path) {
   const turnCount = d.transcript ? d.transcript.filter(x => x.kind === 'turn').length : d.conversation?.length;
   const toolCount = d.transcript ? d.transcript.filter(x => x.kind === 'tool').length : d.tool_log?.length || 0;
   const hopsOn = (() => { try { return localStorage.getItem(HOPS_KEY) === '1'; } catch (e) { return false; } })();
+  // a Talkdesk scenario has both files: its transcript can be compared with conversation.json
+  const canDiff = !!d.transcript && d.conversation?.length > 0;
+  const diffOn = canDiff && (() => { try { return localStorage.getItem(TD_VIEW_KEY) === 'diff'; } catch (e) { return false; } })();
   const panel = taskPanelHTML(d);
 
   setView(`
@@ -2887,20 +3129,25 @@ async function renderScenario(path) {
       <audio controls preload="none" src="${dataHref(`${path}/${n}.wav`)}"></audio></div>`).join('')}
   </div></div>` : ''}
 
-  <div class="card${hopsOn ? ' show-hops' : ''}" id="transcript">
+  <div class="card${hopsOn ? ' show-hops' : ''}${diffOn ? ' diff-mode' : ''}" id="transcript">
     <div class="report-head transcript-head">
       <h3>Transcript
-        ${turnCount != null ? `<span class="muted" style="font-weight:400">(${turnCount} ${d.transcript ? 'messages' : 'turns'} · ${toolCount} tool calls)</span>` : ''}</h3>
-      ${d.transcript?.some(x => x.kind === 'note') ? `<label class="hop-toggle" title="records.json 里 Agent 内部各部分（DISPATCH、COORDINATOR、ACTION_AGENT、RESPOND…）之间的转交与回复">
+        ${turnCount != null ? `<span class="muted tr-main" style="font-weight:400">(${turnCount} ${d.transcript ? 'messages' : 'turns'} · ${toolCount} tool calls)</span>` : ''}</h3>
+      ${canDiff ? `<div class="seg" id="trView" role="group" aria-label="Transcript view">
+        <button type="button" data-view="" class="${diffOn ? '' : 'active'}" aria-pressed="${!diffOn}">对话</button>
+        <button type="button" data-view="diff" class="${diffOn ? 'active' : ''}" aria-pressed="${diffOn}" title="records.json（Talkdesk 侧）和 conversation.json（talk-bench 侧）逐段对比">对比 conversation.json</button>
+      </div>` : ''}
+      ${d.transcript?.some(x => x.kind === 'note') ? `<label class="hop-toggle tr-main" title="records.json 里 Agent 内部各部分（DISPATCH、COORDINATOR、ACTION_AGENT、RESPOND…）之间的转交与回复">
         <input type="checkbox" id="hopToggle"${hopsOn ? ' checked' : ''}> 内部流转</label>` : ''}
-      ${turnCount ? `<span class="muted" id="trStatus" style="font-size:12px" aria-live="polite"></span>
-      <button class="navbtn" id="trBtn" type="button">中文翻译</button>` : ''}
+      ${turnCount ? `<span class="muted tr-main" id="trStatus" style="font-size:12px" aria-live="polite"></span>
+      <button class="navbtn tr-main" id="trBtn" type="button">中文翻译</button>` : ''}
     </div>
-    ${d.transcript || align ? `<div class="muted" style="font-size:12.5px;margin:-4px 0 10px">${[
+    ${d.transcript || align ? `<div class="muted tr-main" style="font-size:12.5px;margin:-4px 0 10px">${[
       d.transcript && 'One bubble per message, in records.json order.',
       align && 'Times are positions in the recording — click one to play the audio from there.',
     ].filter(Boolean).join(' ')}</div>` : ''}
-    ${renderTimeline(d, align)}
+    <div class="tr-main">${renderTimeline(d, align)}</div>
+    ${canDiff ? `<div id="trDiff"${diffOn ? '' : ' hidden'}></div>` : ''}
   </div>
 
   <div class="card">
@@ -2927,6 +3174,7 @@ async function renderScenario(path) {
     try { localStorage.setItem(HOPS_KEY, e.target.checked ? '1' : ''); } catch (err) { /* private mode */ }
   });
   if (align) initAudioSync();
+  initTranscriptView(path, align);
 
   const go = i => { location.hash = scenHref(runPath, siblings[i].id); };
   const jump = document.getElementById('scenJump');

@@ -36,6 +36,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from functools import cache, lru_cache
 from pathlib import Path
 from types import SimpleNamespace
@@ -687,6 +688,191 @@ def _audio_alignment(sdir: Path, conversation: list | None, transcript: list[dic
     return {"origin": origin[0], "duration": round(duration, 3), "spans": spans}
 
 
+# ---- records.json ↔ conversation.json ----
+# The two files log one call from opposite ends of the line. conversation.json is talk-bench's own
+# (ConversationRecorder): a caller turn is the user simulator's text before its TTS, an agent turn
+# is talk-bench's ASR of the agent's audio, cut wherever that ASR hears an utterance end.
+# records.json is Talkdesk's (the adapter keeps each output_response frame's records): a caller
+# message is what Talkdesk's ASR heard, cut by the platform's own turn-taking, and an agent message
+# is the reply text before its TTS, voiced or not. Lined up per speaker, the words each side lacks
+# show whose ASR, turn-taking or barge-in made the two differ.
+
+_DIFF_WORD = re.compile(r"\S+\s*")
+_DIFF_LINK = 0.4  # a turn and a message belong together once they share this share of the shorter's words
+
+
+def _diff_words(text: str) -> list[tuple[str, str]]:
+    """(word with its trailing space, key) per word; the key ignores case and punctuation and is ''
+    for a lone dash or symbol, which never counts as a difference."""
+    return [(w, re.sub(r"\W", "", w.lower())) for w in _DIFF_WORD.findall(text)]
+
+
+def _diff_matches(left: list[list], right: list[list]) -> list[tuple[tuple, tuple]]:
+    """Pairs ((left item, word), (right item, word)) of the words both sides say, matched in order
+    across each side's whole run of items."""
+    a = [(i, n, k) for i, words in enumerate(left) for n, (_, k) in enumerate(words) if k]
+    b = [(j, n, k) for j, words in enumerate(right) for n, (_, k) in enumerate(words) if k]
+    matcher = SequenceMatcher(None, [k for *_, k in a], [k for *_, k in b], autojunk=False)
+    return [(a[x + o][:2], b[y + o][:2]) for x, y, size in matcher.get_matching_blocks() for o in range(size)]
+
+
+def _diff_runs(words: list[tuple[str, str]], said: set[int], mark: bool = True) -> list[list]:
+    """The item's text as [text, 1 when the other side lacks it] runs (all 0 unless mark)."""
+    runs: list[list] = []
+    for n, (w, k) in enumerate(words):
+        flag = int(mark and bool(k) and n not in said)
+        if runs and runs[-1][1] == flag:
+            runs[-1][0] += w
+        else:
+            runs.append([w, flag])
+    return runs
+
+
+def _transcript_diff(sdir: Path) -> dict | None:
+    """conversation.json's turns lined up with records.json's caller and agent messages, as rows of
+    one or more turns against one or more messages, each with a kind saying how they differ. None
+    unless the scenario has both files."""
+    conversation = _load_json(sdir / "conversation.json")
+    transcript = _records_transcript(_load_json(sdir / "records.json"), None)
+    if not isinstance(conversation, list) or transcript is None:
+        return None
+    conv = [t for t in conversation if isinstance(t, dict) and isinstance(t.get("text"), str)]
+    recs = [it for it in transcript if it["kind"] == "turn"]
+    align = _audio_alignment(sdir, conv)
+    _audio_alignment(sdir, conv, recs)  # sets each message's "span"
+    origin = align["origin"] if align else None
+    conv_spans = align["spans"] if align else {}
+
+    def started(ts: Any, span: list | None) -> float:
+        """When the speech began on the wall clock, or the logged time when it was not located."""
+        if span and origin is not None:
+            return origin + span[0]
+        return ts if isinstance(ts, (int, float)) else float("inf")
+
+    rows: list[dict] = []
+    for speaker in ("user", "agent"):
+        turns = [t for t in conv if t.get("speaker") == speaker]
+        msgs = [it for it in recs if it["speaker"] == speaker]
+        tw = [_diff_words(t["text"]) for t in turns]
+        mw = [_diff_words(it["text"]) for it in msgs]
+        shared = Counter((i, j) for (i, _), (j, _) in _diff_matches(tw, mw))
+        size = lambda words: sum(1 for _, k in words if k)  # noqa: E731
+        links = {(i, j) for (i, j), n in shared.items() if n >= _DIFF_LINK * min(size(tw[i]), size(mw[j]))}
+
+        if speaker == "user":
+            # Every caller message is Talkdesk's ASR of something the simulator said, so one whose
+            # words match nothing (letters spelled out are often heard as other letters) belongs to
+            # the turn whose speech its own overlaps in the recording — or, where either was not
+            # located, the turn being spoken when it was logged: from its speech start (else the
+            # previous turn's end) to a few seconds after it ends, Talkdesk's ASR and logging lag
+            linked = {j for _, j in links}
+            for j, it in enumerate(msgs):
+                t, heard_at = it.get("timestamp"), it.get("span")
+                if j in linked:
+                    continue
+                prev_end = None
+                for i, turn in enumerate(turns):
+                    end, span = turn.get("timestamp"), conv_spans.get(turn.get("turn_index"))
+                    if span and heard_at:
+                        hit = heard_at[0] < span[1] and span[0] < heard_at[1]
+                    elif isinstance(t, (int, float)) and isinstance(end, (int, float)):
+                        begin = origin + span[0] - 1 if span and origin is not None else prev_end
+                        hit = (begin is None or t >= begin) and t <= end + 5
+                    else:
+                        hit = False
+                    if hit:
+                        links.add((i, j))
+                        break
+                    if isinstance(end, (int, float)):
+                        prev_end = end
+
+        # rows are the linked groups (union-find over turn and message ids)
+        parent: dict[tuple, tuple] = {}
+
+        def root(x: tuple) -> tuple:
+            while parent.setdefault(x, x) != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for i, j in links:
+            parent[root(("c", i))] = root(("r", j))
+        groups: dict[tuple, tuple[list, list]] = {}
+        for i in range(len(turns)):
+            groups.setdefault(root(("c", i)), ([], []))[0].append(i)
+        for j in range(len(msgs)):
+            groups.setdefault(root(("r", j)), ([], []))[1].append(j)
+
+        for ci, ri in groups.values():
+            left, right = [tw[i] for i in ci], [mw[j] for j in ri]
+            pairs = _diff_matches(left, right)
+            said_l = {(a, n) for (a, n), _ in pairs}
+            said_r = {(b, n) for _, (b, n) in pairs}
+            both = bool(ci and ri)  # one side alone: its row's kind says it all, no words to mark
+            row_turns = []
+            for a, i in enumerate(ci):
+                t = turns[i]
+                row_turns.append({
+                    "text": t["text"], "timestamp": t.get("timestamp"), "span": conv_spans.get(t.get("turn_index")),
+                    "turn_index": t.get("turn_index"),
+                    "runs": _diff_runs(tw[i], {n for x, n in said_l if x == a}, both),
+                })
+            row_msgs = []
+            for b, j in enumerate(ri):
+                it, words = msgs[j], mw[j]
+                said = {n for x, n in said_r if x == b}
+                total = size(words)
+                row_msgs.append({
+                    "text": it["text"], "timestamp": it.get("timestamp"), "span": it.get("span"),
+                    "by": it.get("by"), "action": it.get("action"),
+                    "runs": _diff_runs(words, said, both),
+                    # share of the reply's words that were heard in the recording
+                    "heard": round(len(said) / total, 2) if total and speaker == "agent" else None,
+                })
+            if not ri:
+                kind = "conversation_only"
+            elif not ci:
+                kind = "records_only"
+            elif len(ci) == 1 and len(ri) == 1:
+                differs = any(f for r in row_turns + row_msgs for _, f in r["runs"])
+                cut = speaker == "agent" and (row_msgs[0]["heard"] or 0) < 0.75
+                kind = "cut" if cut else "text" if differs else "same"
+            else:
+                kind = "split" if len(ci) == 1 else "merge" if len(ri) == 1 else "mixed"
+            rows.append({"speaker": speaker, "kind": kind, "conversation": row_turns, "records": row_msgs,
+                         "_at": min([started(t["timestamp"], t["span"]) for t in row_turns]
+                                    or [started(m["timestamp"], m["span"]) for m in row_msgs])})
+
+    rows.sort(key=lambda r: r.pop("_at"))
+    # the call's opening: Talkdesk's synthetic first caller message ("Welcome") and, in older runs,
+    # a greeting the records never logged
+    first = next(iter(rows), None)
+    if first and first["kind"] == "records_only" and first["speaker"] == "user":
+        first["kind"] = "start"
+    for row in rows:
+        if row["kind"] == "conversation_only" and row["speaker"] == "agent" and conv and \
+                row["conversation"][0]["turn_index"] == conv[0].get("turn_index"):
+            row["kind"] = "greeting"
+    counts = {sp: dict(Counter(r["kind"] for r in rows if r["speaker"] == sp)) for sp in ("user", "agent")}
+    # records.json left over from another session (seen in an August run) logs nothing during this
+    # call: the seconds between the two files' spans of time, when they do not overlap
+    conv_ts = [t["timestamp"] for t in conv if isinstance(t.get("timestamp"), (int, float))]
+    rec_ts = [it["timestamp"] for it in recs if isinstance(it.get("timestamp"), (int, float))]
+    gap = None
+    if conv_ts and rec_ts:
+        apart = max(min(rec_ts) - max(conv_ts), min(conv_ts) - max(rec_ts))
+        gap = round(apart) if apart > 60 else None
+    return {
+        "rows": rows,
+        "clock_gap": gap,
+        "counts": counts,
+        "totals": {sp: {"conversation": sum(1 for t in conv if t.get("speaker") == sp),
+                        "records": sum(1 for it in recs if it["speaker"] == sp)} for sp in ("user", "agent")},
+        "hidden": {"notes": sum(1 for it in transcript if it["kind"] == "note"),
+                   "tools": sum(1 for it in transcript if it["kind"] == "tool")},
+    }
+
+
 def _scenario_results(sdir: Path) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
     """The parent run's results.json plus this scenario's entry in it and its evaluation
     session result (without ``turns``, which duplicate conversation.json)."""
@@ -1323,6 +1509,15 @@ def api_scenario(path: str = Query(...)):
         "transcript_zh": _cached_translation(sdir, _transcript_texts(conversation, transcript)),
         "task_zh": _cached_task_translation(sdir),
     }
+
+
+@app.get("/api/transcript_diff")
+def api_transcript_diff(path: str = Query(...)):
+    """conversation.json against records.json, for the scenario page's comparison view."""
+    diff = _transcript_diff(_data_dir_at_depth(path, 2, "scenario"))
+    if diff is None:
+        raise HTTPException(404, "This scenario lacks conversation.json or records.json")
+    return diff
 
 
 def _invalidate_index() -> None:
