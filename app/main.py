@@ -3464,7 +3464,7 @@ def api_resume_run(body: ResumeRunBody):
     if st is None:
         raise HTTPException(status_code=409, detail="this run's run_config.json holds no usable agent config")
     if st["scripted"]:
-        raise HTTPException(status_code=409, detail="this run used scripted_user_sim, which this page does not launch")
+        raise HTTPException(status_code=409, detail="this run used scripted_user_sim, which has been removed — it cannot be resumed")
     try:
         config_text = _dump_yaml({"agent": _normalize_agent(st["_agent"])})
     except HTTPException:

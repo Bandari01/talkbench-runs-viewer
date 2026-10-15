@@ -1,8 +1,0 @@
-# Selected retained STANDARD essential-only sandbox checkpoint.
-# Credentials and domain-specific MCP URL come from environment; no live IDs bundled.
-agent_name: "talkbench-pinehaven-childrens-health-text-best"
-api_base_url: "https://api.talkdeskqa.com"
-mcp_name_prefix: "Pinehaven Childrens Health Text"
-mcp_description: "Isolated generated pinehaven_childrens_health test-domain tools"
-template_name: "retained-best/pinehaven-childrens-health-text-agent-template.json"
-external_tool_count_max: 30

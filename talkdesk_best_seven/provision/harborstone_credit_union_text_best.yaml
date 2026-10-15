@@ -1,8 +1,0 @@
-# Selected retained STANDARD essential-only sandbox checkpoint.
-# Credentials and domain-specific MCP URL come from environment; no live IDs bundled.
-agent_name: "talkbench-harborstone-credit-union-text-best"
-api_base_url: "https://api.talkdeskqa.com"
-mcp_name_prefix: "Harborstone Credit Union Text"
-mcp_description: "Isolated generated harborstone_credit_union test-domain tools"
-template_name: "retained-best/harborstone-credit-union-text-agent-template.json"
-external_tool_count_max: 30

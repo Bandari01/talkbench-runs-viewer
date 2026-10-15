@@ -1,8 +1,0 @@
-# Selected retained STANDARD essential-only sandbox checkpoint.
-# Credentials and domain-specific MCP URL come from environment; no live IDs bundled.
-agent_name: "talkbench-meridian-text-best"
-api_base_url: "https://api.talkdeskqa.com"
-mcp_name_prefix: "Meridian Text"
-mcp_description: "Isolated generated meridian test-domain tools"
-template_name: "retained-best/meridian-text-agent-template.json"
-external_tool_count_max: 30

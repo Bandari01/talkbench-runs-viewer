@@ -1,8 +1,0 @@
-# Selected retained STANDARD essential-only sandbox checkpoint.
-# Credentials and domain-specific MCP URL come from environment; no live IDs bundled.
-agent_name: "talkbench-griddlepoint-text-best"
-api_base_url: "https://api.talkdeskqa.com"
-mcp_name_prefix: "Griddlepoint Text"
-mcp_description: "Isolated generated griddlepoint test-domain tools"
-template_name: "retained-best/griddlepoint-text-agent-template.json"
-external_tool_count_max: 30

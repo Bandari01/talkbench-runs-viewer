@@ -1,8 +1,0 @@
-# Selected retained STANDARD essential-only sandbox checkpoint.
-# Credentials and domain-specific MCP URL come from environment; no live IDs bundled.
-agent_name: "talkbench-northline-insurance-text-best"
-api_base_url: "https://api.talkdeskqa.com"
-mcp_name_prefix: "Northline Insurance Text"
-mcp_description: "Isolated generated northline_insurance test-domain tools"
-template_name: "retained-best/northline-insurance-text-agent-template.json"
-external_tool_count_max: 30

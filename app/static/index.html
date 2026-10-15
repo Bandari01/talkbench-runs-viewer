@@ -4442,7 +4442,7 @@ function updateResumeInfo() {
     r.in_archive ? `<a href="#/run/${encodeURIComponent(r.name)}">open the run</a>` : '',
     r.running_job ? `<b>a test is running in it</b> — <a href="#" data-resume-log="${esc(r.running_job)}">show its log</a>` : '',
     resumeRecent(r) ? `<span style="color:var(--star)">files changed ${fmtElapsed(r.last_write)} ago — if talk-bench is still running it from a terminal, wait for that to end</span>` : '',
-    r.scripted ? 'made with scripted_user_sim, which this page does not launch' : '',
+    r.scripted ? 'made with scripted_user_sim (removed) — cannot be resumed' : '',
   ].filter(Boolean).join(' · ');
 }
 

@@ -201,12 +201,3 @@ server) does not start one twice.
 
 Copy `.env.example` to `.env` and set `VIEWER_LLM_MODEL` (litellm naming, default `azure/gpt-4.1`;
 for Azure use the deployment name) plus the provider key. Restart the server after changes.
-
-## Seven Talkdesk checkpoints
-
-`talkdesk_best_seven/` carries [ai-ds-research#473](https://github.com/Talkdesk/ai-ds-research/pull/473)
-into a checkout without it: the seven retained text-agent templates with their provisioning YAMLs, the
-seven-domain MCP host, `talkdesk-agent update` / `external_tool_count_max`, and the judge's
-`evaluation.reasoning_effort`, as launchers that patch talk-bench in their own process (like
-`tau2_user_sim/launch.py`). Usage is in `talkdesk_best_seven/README.md`; the upstream commit it follows
-and every later change are in `talkdesk_best_seven/VERSION.md`. The viewer does not use it.
