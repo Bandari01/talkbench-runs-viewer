@@ -11,6 +11,10 @@ talk-bench already uses tau2's own simulator for them. Nothing in the checkout
 changes: ``BenchmarkRunner`` is patched in this process only.
 
 Also, in this process:
+- the agent-side ASR also hands its interim (non-final) hypotheses to the
+  simulator while the agent speaks. talk-bench forwards only committed text, and
+  Azure commits once per utterance, so tau2's interruption policy never had
+  anything to judge (see ``_InterimPartials``);
 - talk-bench's simulator / mid-turn-speak / terminal-hangup gates are turned off
   if talkbench.yaml enables them — they would override tau2's own decisions;
 - the run directory gets ``user_simulator.json`` recording which simulator and
@@ -26,6 +30,7 @@ import json
 import logging
 import os
 import sys
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -83,10 +88,56 @@ def _warn_user_tools(env: Any, scenario_id: str) -> None:
         )
 
 
+class _InterimPartials:
+    """One ASRSession's agent-side ASR provider, also reporting interim hypotheses.
+
+    While the agent speaks, talk-bench's ``WakeContext.agent_live_partial_text`` grows
+    only on *committed* (``is_final``) segments, and Azure ASR commits once per
+    utterance. That left the text empty at every ``agent_speaking_for`` wake, so the
+    tau2 simulator never asked its interruption policy. tau2 judges the agent's speech
+    as it streams, so each interim hypothesis is forwarded here, after the utterance's
+    committed text, through the session's own ``on_partial_transcript``. Finals still
+    go through ASRSession unchanged.
+    """
+
+    def __init__(self, provider: Any, session: Any) -> None:
+        self._provider = provider
+        self._session = session
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._provider, name)
+
+    async def transcribe_stream(self, *args: Any, **kwargs: Any) -> AsyncIterator[Any]:
+        async for partial in self._provider.transcribe_stream(*args, **kwargs):
+            # read per partial: the orchestrator wires the callback after construction
+            callback = self._session.on_partial_transcript
+            if callback is not None and not partial.is_final and partial.text.strip():
+                try:
+                    callback(f"{self._session._committed_text} {partial.text}".strip())
+                except Exception:
+                    logger.exception("interim agent partial: on_partial_transcript raised")
+            yield partial
+
+
 def install() -> None:
     """Patch talk-bench's runner so voice scenarios get the tau2 user simulator."""
+    from talk_bench.orchestrator.asr_session import ASRSession
     from talk_bench.runner.runner import BenchmarkRunner
     from tau2_native_user_simulator import Tau2NativeVoiceUserSimulator, tau2_persona_config
+
+    original_asr_init = ASRSession.__init__
+    asr_source = inspect.getsource(ASRSession)
+    asr_fields = ("_asr_provider", "_committed_text", "on_partial_transcript")
+    if not all(f"self.{name}" in asr_source for name in asr_fields):
+        _say(
+            "this checkout's ASRSession no longer keeps _asr_provider / _committed_text / "
+            f"on_partial_transcript; update _InterimPartials in {Path(__file__).name}"
+        )
+        sys.exit(2)
+
+    def asr_init(self: Any, *args: Any, **kwargs: Any) -> None:
+        original_asr_init(self, *args, **kwargs)
+        self._asr_provider = _InterimPartials(self._asr_provider, self)
 
     original_init = BenchmarkRunner.__init__
     original_create = BenchmarkRunner._create_components
@@ -124,6 +175,7 @@ def install() -> None:
         _write_marker(self, simulator.describe())
         return env, simulator
 
+    ASRSession.__init__ = asr_init  # type: ignore[method-assign]
     BenchmarkRunner.__init__ = __init__  # type: ignore[method-assign]
     BenchmarkRunner._create_components = _create_components  # type: ignore[method-assign]
 

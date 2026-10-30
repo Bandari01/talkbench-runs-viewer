@@ -28,6 +28,11 @@ turn-taking maps onto talk-bench's wake events:
     interrupt when the policy says YES        agent_speaking_for → barge_in, else listen_more
     backchannel ("uh-huh", "mm-hmm")          not reproduced: talk-bench has no backchannel action
 
+The interruption policy judges the agent's live text (``agent_live_partial_text``,
+fed interim ASR hypotheses by launch.py) and is asked once per ``agent_speaking_for``
+wake, i.e. once per stretch of continuous agent speech, where tau2 asks again every
+``interrupt_check_seconds``.
+
 Like talk-bench's text-channel ``Tau2FaithfulUserSimulator``, the user gets no
 user-side tools.
 """
