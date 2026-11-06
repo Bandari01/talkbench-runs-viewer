@@ -416,10 +416,10 @@
   .tp-list { list-style: none; margin: 0; padding: 0; }
   .tp-item { padding: 6px 0; border-top: 1px solid var(--border-soft); color: var(--fg-soft); }
   .tp-row { display: flex; gap: 6px; align-items: baseline; }
-  .tp-row > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+  .tp-row > span:not(.tp-mark, .tp-tag) { min-width: 0; overflow-wrap: anywhere; }
   .tp-item details > summary { color: inherit; font-size: inherit; font-weight: inherit; user-select: text; }
   .tp-item details > summary::before { content: none; }
-  .tp-item details > summary:hover > span:last-child { text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
+  .tp-item details > summary:hover > span:not(.tp-mark, .tp-tag) { text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
   .tp-mark { flex: none; width: 14px; font-weight: 700; text-align: center; }
   .tp-mark.ok { color: var(--pass); }
   .tp-mark.bad { color: var(--fail); }
@@ -456,6 +456,53 @@
   .tp-long > summary { display: inline; color: inherit; font: inherit; cursor: pointer; }
   .tp-long > summary::before { content: none; }
   .tp-long[open] > summary { display: none; }
+  /* how the reward combines, and where it lost points (top of the Grading section) */
+  .tp-model { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+  .tp-model b { color: var(--fg-soft); font-weight: 600; }
+  .tp-sum { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .tp-tile { padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface); min-width: 0; }
+  .tp-tile.bad { border-color: var(--fail-border); background: var(--fail-bg); }
+  .tp-tile.ok { border-color: var(--pass-border); background: var(--pass-bg); }
+  .tp-tile .t { font-size: 11px; color: var(--muted); }
+  .tp-tile .n { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tp-tile.bad .n { color: var(--fail); }
+  .tp-tile.ok .n { color: var(--pass); }
+  .tp-tile .d { font-size: 11.5px; color: var(--muted); }
+  .tp-bar { position: relative; height: 6px; margin: 5px 0 3px; border-radius: 3px; background: var(--border-soft); }
+  .tp-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: currentColor; }
+  .tp-bar > b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--fg-soft); border-radius: 1px; }
+  .tp-formula { margin: 0 0 10px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tp-formula .ok { color: var(--pass); }
+  .tp-formula .bad { color: var(--fail); font-weight: 600; }
+  .tp-lost { margin: 0 0 6px; padding: 8px 10px; border: 1px solid var(--fail-border); border-radius: 10px; background: var(--fail-bg); }
+  .tp-lost-h { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--fail); }
+  .tp-lost-h label { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-weight: 400; color: var(--muted); cursor: pointer; }
+  .tp-lost ol { list-style: none; margin: 4px 0 0; padding: 0; }
+  .tp-lost li { display: flex; align-items: baseline; gap: 6px; padding: 3px 0; border-top: 1px solid color-mix(in srgb, var(--fail-border) 60%, transparent); }
+  .tp-lost li:first-child { border-top: 0; }
+  .tp-lost button { all: unset; flex: 1; min-width: 0; cursor: pointer; font-size: 12px; color: var(--fg-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tp-lost button:hover { text-decoration: underline; }
+  .tp-lost button:focus-visible { outline: 2px solid var(--focus, currentColor); outline-offset: 1px; border-radius: 3px; }
+  .tp-lost .ch { flex: none; font-size: 11px; color: var(--muted); }
+  .tp-ok-all { margin: 0 0 6px; font-size: 12px; color: var(--pass); }
+  .tp-tag { flex: none; margin-left: auto; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); font-size: 10.5px; line-height: 16px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .tp-tag.gate { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+  .tp-tag.lostgate { border-color: var(--fail-border); background: var(--fail-bg); color: var(--fail); font-weight: 600; }
+  .tp-row > .tp-tag { align-self: center; }
+  .tp-item.lost { box-shadow: inset 3px 0 0 var(--fail); padding-left: 6px; }
+  .tp-item.flash { animation: call-flash 1.6s var(--ease-out); }
+  .tp-body.only-lost .tp-group .tp-list > .tp-item:not(.lost), .tp-body.only-lost .tp-group.clean, .tp-body.only-lost .tp-group .tp-legend, .tp-body.only-lost .tp-group .tp-k { display: none; }
+  /* run page: lost points across the run */
+  .loss-sum { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
+  .loss-sum b { color: var(--fg); font-variant-numeric: tabular-nums; }
+  .loss-table td { vertical-align: top; }
+  .loss-table .ids { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 12px; }
+  .loss-bar { display: inline-block; height: 6px; margin-right: 6px; border-radius: 3px; background: var(--fail); vertical-align: middle; opacity: .75; }
+  .loss-table tr.picked td { background: var(--fail-bg); }
+  .lostline { font-size: 11px; line-height: 16px; margin-top: 2px; color: var(--fail); white-space: normal; max-width: 420px; }
+  .lostline .gate { font-weight: 600; }
+  .lostline .muted { color: var(--muted); }
+  .scen-filter { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 
   /* ---------- scenario nav & buttons ---------- */
   .scen-nav { display: flex; align-items: center; gap: 8px; margin-left: auto; }
@@ -1731,7 +1778,7 @@ function scenRowHTML(runPath) {
     <td>${fmtScore(s.goal_score)}${s.breakdown ? `<div class="subscore">${
       Object.entries(s.breakdown).map(([k, v]) =>
         `<span class="${factorOk(v) ? 'ok' : 'bad'}">${esc(k)} ${fmtFactor(v)}</span>`).join(' · ')
-    }</div>` : ''}</td>
+    }</div>` : ''}${lostLineHTML(s.loss)}</td>
     <td>${esc(s.end_reason ?? '—')}</td>
     <td>${s.turn_count ?? '—'}</td>
     <td>${fmtDur(s.duration_ms)}</td>
@@ -1748,12 +1795,15 @@ function updateScenRows() {
   const seg = document.getElementById('scenResult');
   if (seg) seg.innerHTML = SCEN_RESULTS.map(([k, label, t]) => {
     const on = k === scenState.result;
-    return `<button type="button" data-result="${k}" class="${on ? 'active' : ''}" aria-pressed="${on}">${label} <span class="seg-n">${CUR_RUN.scenarios.filter(t).length}</span></button>`;
+    return `<button type="button" data-result="${k}" class="${on ? 'active' : ''}" aria-pressed="${on}">${label} <span class="seg-n">${CUR_RUN.scenarios.filter(t).filter(x => !scenState.ids || scenState.ids.has(x.id)).length}</span></button>`;
   }).join('');
-  const rows = CUR_RUN.scenarios.filter(test);
+  const inPick = s => !scenState.ids || scenState.ids.has(s.id);
+  const rows = CUR_RUN.scenarios.filter(test).filter(inPick);
+  const chip = document.getElementById('scenFilter');
+  if (chip) chip.innerHTML = scenState.ids ? `missed <b>${esc(scenState.pick)}</b> <button class="navbtn" type="button" id="scenFilterClear" style="padding:0 8px">✕ clear</button>` : '';
   tbody.innerHTML = rows.length
     ? sortRows(rows, scenSorters, scenState.sort, scenState.dir).map(scenRowHTML(CUR_RUN.path)).join('')
-    : `<tr><td colspan="6" class="empty">No ${scenState.result === 'pass' ? 'passed' : 'failed'} scenarios in this run.</td></tr>`;
+    : `<tr><td colspan="6" class="empty">No ${scenState.result === 'pass' ? 'passed ' : scenState.result === 'fail' ? 'failed ' : ''}scenarios${scenState.ids ? ' with this miss' : ''} in this run.</td></tr>`;
 }
 // the scenario table's result filter: [key, label, test]
 const SCEN_RESULTS = [['all', 'All', () => true], ['pass', 'Passed', s => s.passed === true], ['fail', 'Failed', s => s.passed === false]];
@@ -1767,6 +1817,111 @@ async function fillCriteriaCounts(path, seq, sessById, enforceIntegrity) {
     fetch(dataHref(`${path}/${s.id}/scenario.json`)).then(r => r.ok ? r.json() : null).then(criteriaTotals, () => null)));
   if (seq !== routeSeq || CUR_RUN?.path !== path) return;
   todo.forEach((s, i) => { if (totals[i]) s.breakdown = rewardBreakdown(sessById.get(s.id), enforceIntegrity, totals[i]); });
+  updateScenRows();
+}
+
+/* ---------- points lost across a run (/api/run_losses, see _grading in main.py) ---------- */
+const LOSS_ROWS = 10;  // rows of the lost-points table shown before "Show all"
+const LOSS_CH = { action: 'Action', db: 'DB state', integrity: 'State integrity', communicate: 'Communicate', nl: 'NL assertion' };
+
+// one line under a scenario's score: what it missed (gate items in bold), and the gated pool
+function lostLineHTML(l) {
+  if (!l) return '';
+  const gated = l.model === 'gated';
+  const named = l.lost.filter(x => x.channel === 'action' || x.channel === 'db' || x.channel === 'integrity');
+  const counts = ['communicate', 'nl'].map(ch => [ch, l.lost.filter(x => x.channel === ch).length]).filter(([, n]) => n);
+  const parts = [
+    ...named.map(x => `<span class="${x.critical ? 'gate' : ''}"${x.critical ? ' title="gate item: must hold"' : ''}>✗ ${esc(x.channel === 'action' ? x.label : LOSS_CH[x.channel])}</span>`),
+    ...counts.map(([ch, n]) => `<span>✗ ${n} ${ch === 'nl' ? 'NL' : 'communicate'}</span>`),
+  ];
+  if (gated && l.pool_weight) parts.push(`<span class="${l.pool_score >= l.threshold ? 'muted' : ''}">pool ${fmtScore(l.pool_score)}</span>`);
+  if (gated && l.stored_model !== 'gated' && l.passed !== l.stored_passed)
+    parts.push(`<span class="muted" title="Re-scored with talk-bench's gated reward; the stored result is multiplicative">gated: ${l.passed ? 'pass' : 'fail'}</span>`);
+  return parts.length ? `<div class="lostline">${parts.join(' · ')}</div>` : '';
+}
+
+function pickLoss(row) {
+  scenState.ids = row ? new Set(row.ids) : null;
+  scenState.pick = row?.label || '';
+  if (row) scenState.result = 'all';
+  document.querySelectorAll('#lossCard tr[data-k]').forEach(tr => tr.classList.toggle('picked', !!row && tr.dataset.k === row.key));
+  updateScenRows();
+  if (row) document.getElementById('scenCard')?.scrollIntoView({ behavior: smoothScroll(), block: 'start' });
+}
+
+function lossCardHTML(scens) {
+  const byKey = new Map();
+  for (const s of scens) for (const x of s.lost) {
+    const named = x.channel === 'action' || x.channel === 'db' || x.channel === 'integrity';
+    const key = named ? `${x.channel}:${x.label}` : x.channel;
+    const label = x.channel === 'action' ? x.label : named ? LOSS_CH[x.channel] : `${LOSS_CH[x.channel]} criteria`;
+    const r = byKey.get(key) || byKey.set(key, { key, label, channel: x.channel, critical: x.critical, weights: new Set(), ids: [], items: 0 }).get(key);
+    r.items++;
+    if (x.weight != null) r.weights.add(x.tier === 'procedure' ? `×${fmtW(x.weight)} procedure` : `×${fmtW(x.weight)}`);
+    if (r.ids.at(-1) !== s.id) r.ids.push(s.id);
+  }
+  const rows = [...byKey.values()].sort((a, b) => (b.critical === true) - (a.critical === true) || b.ids.length - a.ids.length);
+  if (!rows.length) return '';
+  const gated = scens.filter(s => s.model === 'gated');
+  const rescored = gated.filter(s => s.stored_model !== 'gated');
+  const failed = gated.filter(s => !s.passed);
+  const gateOnly = failed.filter(s => !s.gate_passed && s.pool_score >= s.threshold).length;
+  const poolOnly = failed.filter(s => s.gate_passed && s.pool_score < s.threshold).length;
+  const both = failed.filter(s => !s.gate_passed && s.pool_score < s.threshold).length;
+  const max = Math.max(...rows.map(r => r.ids.length));
+  const kind = r => r.critical === true ? '<span class="tp-tag lostgate" title="Critical: one miss fails the scenario">gate</span>'
+    : r.critical === false ? `<span class="tp-tag" title="Weighted pool">pool ${[...r.weights].join(', ')}</span>`
+    : '<span class="tp-tag" title="Multiplicative factor">factor</span>';
+  const MAX_IDS = 8;
+  return `<div class="card table-card">
+    <div class="card-head"><h3>Where points were lost</h3></div>
+    ${gated.length ? `<div class="loss-sum">
+      <span>Gated reward${rescored.length ? ' <span title="These results were stored with the multiplicative model; the viewer re-scores them with talk-bench\'s gated formula and the domain\'s tool kinds">(re-scored)</span>' : ''}: <b>${gated.length - failed.length}/${gated.length}</b> pass${
+        rescored.length ? ` · stored: <b>${rescored.filter(s => s.stored_passed).length}/${rescored.length}</b>` : ''}</span>
+      ${failed.length ? `<span>failed on the gate only <b>${gateOnly}</b> · on the pool only <b>${poolOnly}</b> · on both <b>${both}</b></span>` : ''}
+    </div>` : ''}
+    <div class="table-wrap"><table class="loss-table">
+      <thead><tr><th>Missed criterion</th><th>Counts as</th><th>Scenarios</th><th>Where (click a row to filter the table below)</th></tr></thead>
+      <tbody>${rows.map((r, i) => `<tr class="rowlink" data-k="${esc(r.key)}" data-i="${i}" tabindex="0"${i >= LOSS_ROWS ? ' hidden' : ''}>
+        <td class="${r.channel === 'action' ? 'mono' : ''}">${esc(r.label)}${r.channel === 'communicate' || r.channel === 'nl' ? ` <span class="muted">(${r.items} missed)</span>` : ''}</td>
+        <td>${kind(r)}</td>
+        <td class="nowrap"><span class="loss-bar" style="width:${Math.round(48 * r.ids.length / max)}px"></span>${r.ids.length}</td>
+        <td><div class="ids">${r.ids.slice(0, MAX_IDS).map(id => `<a class="mono" href="${scenHref(CUR_RUN.path, id)}">${esc(id)}</a>`).join('')}${
+          r.ids.length > MAX_IDS ? `<span class="muted">+${r.ids.length - MAX_IDS} more</span>` : ''}</div></td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    ${rows.length > LOSS_ROWS ? `<div style="margin-top:8px"><button class="navbtn" type="button" id="lossMore">Show all ${rows.length}</button></div>` : ''}</div>`;
+}
+
+async function fillLosses(path, seq) {
+  let data;
+  try { data = await getJSON('/api/run_losses?path=' + encodeURIComponent(path)); } catch (e) { return; }
+  if (seq !== routeSeq || CUR_RUN?.path !== path) return;
+  const byId = new Map(data.scenarios.map(s => [s.id, s]));
+  CUR_RUN.scenarios.forEach(s => { s.loss = byId.get(s.id); });
+  const card = document.getElementById('lossCard');
+  card.innerHTML = lossCardHTML(data.scenarios);
+  const rows = [...byId.values()];
+  const keyed = new Map();
+  card.querySelectorAll('tr[data-k]').forEach(tr => keyed.set(tr.dataset.k, tr));
+  const rowOf = tr => {
+    const ids = rows.filter(s => s.lost.some(x => (['action', 'db', 'integrity'].includes(x.channel) ? `${x.channel}:${x.label}` : x.channel) === tr.dataset.k)).map(s => s.id);
+    return { key: tr.dataset.k, label: tr.cells[0].textContent.trim(), ids };
+  };
+  const toggle = tr => pickLoss(tr.classList.contains('picked') ? null : rowOf(tr));
+  card.addEventListener('click', e => {
+    if (e.target.closest('#lossMore')) {
+      card.querySelectorAll('tr[hidden]').forEach(tr => { tr.hidden = false; });
+      e.target.closest('div').remove();
+      return;
+    }
+    const tr = e.target.closest('tr[data-k]');
+    if (tr && !e.target.closest('a')) toggle(tr);
+  });
+  card.addEventListener('keydown', e => {
+    const tr = e.target.closest('tr[data-k]');
+    if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(tr); }
+  });
   updateScenRows();
 }
 
@@ -1798,6 +1953,7 @@ async function renderRun(path) {
   scenState.sort = 'id';
   scenState.dir = 1;
   scenState.result = 'all';
+  scenState.ids = null;
   setView(`
   <div class="crumbs"><a href="#">All runs</a> / ${esc(path)}</div>
   <div class="card">
@@ -1819,8 +1975,9 @@ async function renderRun(path) {
     ${res ? '' : '<p class="muted">This run has no results.json (likely errored or interrupted) — scenario directories are still browsable below.</p>'}
   </div>
   ${aiCardsHTML('AI Run 报告', '一键让 AI 生成整个 run 的详细报告：总体结果、按根因分组的失败原因分布（含图）、高频问题详解（引用具体场景）和改进建议。', 'run')}
-  <div class="card table-card">
-    <div class="card-head"><h3>Scenarios (${d.scenarios.length})</h3><div class="seg" id="scenResult" role="group" aria-label="Show scenarios"></div></div>
+  <div id="lossCard"></div>
+  <div class="card table-card" id="scenCard">
+    <div class="card-head"><h3>Scenarios (${d.scenarios.length})</h3><span class="scen-filter" id="scenFilter" aria-live="polite"></span><div class="seg" id="scenResult" role="group" aria-label="Show scenarios"></div></div>
     <div class="table-wrap">
       <table id="scenTable">
         <thead id="scenHead"></thead>
@@ -1837,7 +1994,12 @@ async function renderRun(path) {
     scenState.result = b.dataset.result;
     updateScenRows();
   });
+  document.getElementById('scenFilter').addEventListener('click', e => {
+    if (!e.target.closest('#scenFilterClear')) return;
+    pickLoss(null);
+  });
   fillCriteriaCounts(path, seq, sessById, enforceIntegrity);
+  fillLosses(path, seq);
   addResumeLink(path, seq);
   initReport(path, '/api/run_report', '生成中…（大 run 可能需要 1–3 分钟）');
   initChat(path);
@@ -2667,7 +2829,7 @@ function tpGroup(title, items, factor, basis, key, badgeTitle = '', legend = '')
   if (!items.length) return '';
   const off = basis && key && !basis.has(key);
   const badge = factor == null ? '' : `<span class="badge ${factorOk(factor) ? 'pass' : 'fail'}"${badgeTitle ? ` title="${esc(badgeTitle)}"` : ''}>${fmtFactor(factor)}</span>`;
-  return `<div class="tp-group${off ? ' off' : ''}">
+  return `<div class="tp-group${off ? ' off' : ''}"${key ? ` data-key="${key}"` : ''}>
     <div class="tp-ghead"><span>${title}</span>${off ? '<span class="tp-off" title="Not in this scenario\'s reward_basis: scored, but does not change the reward">not in reward</span>' : ''}${badge}</div>
     ${legend}<ul class="tp-list">${items.join('')}</ul></div>`;
 }
@@ -2914,6 +3076,135 @@ function initCallLinks() {
   });
 }
 
+/* How the reward combines (grading from /api/scenario, see _grading in main.py). Gated: every
+   gate item (write / notify / transfer action, DB state, enforced state integrity) must hold and the
+   weighted pool (read actions and NL ×2, communicate ×2 core / ×1 procedure) must reach the pass
+   threshold. Multiplicative: the product of the reward_basis factors. */
+const fmtW = v => Number.isInteger(v) ? String(v) : (+v).toFixed(1);
+function gradingSummaryHTML(g, tc, factors, basisList, LABELS) {
+  if (!g) return basisList.length ? `<div class="tp-limits">Counts toward reward: ${basisList.map(b => LABELS[b] || esc(b)).join(' × ')}</div>` : '';
+  const thr = g.threshold ?? 0.8;
+  const prohibited = g.prohibited ? '<div class="tp-problem">A prohibited action or disclosure ended scoring: reward 0, whatever the criteria below say.</div>' : '';
+  if (g.model !== 'gated') {
+    const parts = basisList.filter(k => factors[k] != null).map(k =>
+      `<span class="${factorOk(factors[k]) ? 'ok' : 'bad'}">${esc(LABELS[k] || k)} ${fmtFactor(factors[k])}</span>`);
+    return `<div class="tp-model"><b>Multiplicative reward</b>: the factors multiply, so one missed criterion lowers the whole reward; a pass needs ≥ ${fmtScore(thr)}.</div>
+      ${parts.length ? `<div class="tp-formula">${parts.join(' × ')}${typeof tc?.reward === 'number' ? ` = <span class="${tc.reward >= thr ? 'ok' : 'bad'}">${fmtScore(tc.reward)}</span>` : ''}</div>` : ''}${prohibited}`;
+  }
+  const rescored = g.stored_model !== 'gated';
+  const gateOk = g.gate_passed, poolOk = g.pool_score >= thr;
+  const pct = v => `${Math.max(0, Math.min(100, v * 100)).toFixed(1)}%`;
+  const failedGate = g.critical_total - g.critical_met;
+  const gateTile = `<div class="tp-tile ${g.critical_total ? (gateOk ? 'ok' : 'bad') : ''}" title="Critical items: every write / notify / transfer expected action (a tool tool_spec.json does not list counts too), the DB state (all assertions) and, when enforced, state integrity. One miss fails the scenario.">
+      <div class="t">Gate · must all hold</div>
+      <div class="n">${!g.critical_total ? '—' : gateOk ? '✓ held' : `✗ ${failedGate} failed`}</div>
+      <div class="d">${g.critical_total ? `${g.critical_met}/${g.critical_total} critical items held` : 'no write action or DB expectation'}</div></div>`;
+  const poolTile = `<div class="tp-tile ${g.pool_weight ? (poolOk ? 'ok' : 'bad') : ''}" title="Weighted pool: read / search / preview actions ×2, communicate ×2 (procedure tier ×1), NL assertions ×2. Pass needs ≥ ${fmtScore(thr)}.">
+      <div class="t">Pool · weighted</div>
+      <div class="n">${g.pool_weight ? `${fmtScore(g.pool_score)} <span style="font-size:12px;font-weight:400">${poolOk ? '≥' : '<'} ${fmtScore(thr)}</span>` : '—'}</div>
+      ${g.pool_weight ? `<div class="tp-bar" style="color:var(${poolOk ? '--pass' : '--fail'})"><i style="width:${pct(g.pool_score)}"></i><b style="left:${pct(thr)}" title="pass threshold ${fmtScore(thr)}"></b></div>` : ''}
+      <div class="d">${g.pool_weight ? `${fmtW(g.pool_met)} of ${fmtW(g.pool_weight)} weight met` : 'no pooled items'}</div></div>`;
+  const note = rescored
+    ? ` <span title="Recomputed in the viewer from this result's own verdicts, with talk-bench's gated formula and the domain's tool kinds; the stored result predates the gated model.">Re-scored here — the stored result used the multiplicative model (${typeof tc?.reward === 'number' ? `reward ${fmtScore(tc.reward)}, ` : ''}${tc?.passed ? 'pass' : 'fail'}); under the gated model: ${passBadge(g.passed)} reward ${fmtScore(g.reward)}.</span>`
+    : '';
+  return `<div class="tp-model"><b>Gated reward</b>: pass = gate holds and pool ≥ ${fmtScore(thr)}.${note}</div>
+    <div class="tp-sum">${gateTile}${poolTile}</div>${prohibited}
+    ${g.known ? '' : '<div class="tp-problem">Some action verdicts are unknown (no talk-bench checkout to match tool_log.json): the gate and pool above are incomplete.</div>'}`;
+}
+
+/* After the panel is on screen: gate / pool tags on each graded item (gated model), every missed
+   criterion marked, and the "points lost" list at the top of Grading — each entry scrolls to its item. */
+const TP_ONLY_LOST_KEY = 'viewer_tp_only_lost';
+function initGrading(g, factors) {
+  const panel = document.getElementById('taskPanel');
+  const host = document.getElementById('tpLost');
+  if (!panel || !host) return;
+  const body = panel.querySelector('.tp-body');
+  const group = k => panel.querySelector(`.tp-group[data-key="${k}"]`);
+  const ownMark = li => li.querySelector(':scope > .tp-row > .tp-mark, :scope > details > summary > .tp-mark');
+  const gated = g?.model === 'gated';
+  const CH = { action: 'ACTION', communicate: 'COMMUNICATE', nl: 'NL_ASSERTION' };
+  const impact = new Map();  // li -> [severity, short text, title]
+
+  if (gated) {
+    for (const it of g.items) {
+      const li = CH[it.channel] && group(CH[it.channel])?.querySelector(`:scope > .tp-list > li:nth-child(${it.index + 1})`);
+      if (!li) continue;
+      const row = li.querySelector('.tp-row');
+      const missed = it.met === false;
+      const share = g.pool_weight ? ` — ${fmtW(it.weight)} of ${fmtW(g.pool_weight)} pool weight` : '';
+      const [cls, text, title] = it.critical
+        ? [missed ? 'lostgate' : 'gate', 'gate', `Critical (${it.kind || 'tool not in tool_spec.json: counts as write'}): must hold, or the scenario fails`]
+        : ['', `pool ×${fmtW(it.weight)}${it.tier === 'procedure' ? ' · procedure' : ''}`, `Pooled${share}${it.tier === 'procedure' ? ' (procedure tier: half weight)' : ''}${it.kind ? ` · tool kind: ${it.kind}` : ''}`];
+      row?.insertAdjacentHTML('beforeend', `<span class="tp-tag ${cls}" title="${esc(title)}">${text}</span>`);
+      if (missed) impact.set(li, it.critical ? [2, 'gate · fails', title] : [1, `−${fmtW(it.weight)}/${fmtW(g.pool_weight)} pool`, title]);
+    }
+    for (const it of g.items.filter(x => x.critical && !CH[x.channel])) {
+      const head = group('DB')?.querySelector('.tp-ghead');
+      if (it.channel === 'db' && head) head.querySelector('span').insertAdjacentHTML('afterend',
+        `<span class="tp-tag ${it.met ? 'gate' : 'lostgate'}" style="margin-left:0" title="Critical: every assertion must hold (DB score 1.0), or the scenario fails">gate</span>`);
+    }
+  }
+
+  // every missed criterion, in groups that count toward the reward
+  const LABEL = { ACTION: 'Action', COMMUNICATE: 'Communicate', NL_ASSERTION: 'NL', DB: 'DB', MUSTNOT: 'Must not' };
+  const lost = [];
+  // a channel whose stored score is full lost nothing, even where the viewer's own re-check disagrees
+  const dbMet = gated ? g.items.find(x => x.channel === 'db')?.met : undefined;
+  const full = key => key === 'DB' && dbMet != null ? dbMet : factors?.[key] != null && factorOk(factors[key]);
+  panel.querySelectorAll('.tp-group[data-key]').forEach(gr => {
+    const key = gr.dataset.key;
+    let n = 0;
+    if (full(key)) { gr.classList.add('clean'); return; }
+    gr.querySelectorAll(':scope > .tp-list > .tp-item').forEach(li => {
+      if (ownMark(li)?.classList.contains('bad') !== true || gr.classList.contains('off')) return;
+      li.classList.add('lost');
+      n++;
+      const textOf = el => el ? [...el.childNodes].filter(x => x.nodeType === 3 || !x.classList?.contains('zh')).map(x => x.textContent).join('').trim() : '';
+      const name = li.querySelector('.tp-name') ? [textOf(li.querySelector('.tp-name')), textOf(li.querySelector('.tp-row .tp-extra'))].filter(Boolean).join(' ')
+        : textOf(li.querySelector('.tr')) || textOf(li.querySelector('.tp-row'));
+      const why = li.querySelector('.tp-verdict.bad')?.textContent.trim() || '';
+      let imp = impact.get(li);
+      if (!imp) imp = key === 'MUSTNOT' ? [3, 'reward 0', 'A prohibited action or disclosure zeroes the reward']
+        : gated && key === 'DB' ? [2, 'gate · fails', 'Critical: every DB assertion must hold']
+        : factors?.[key] != null ? [1, `${LABEL[key]} ${fmtFactor(factors[key])}`, 'This factor multiplies into the reward'] : [0, '', ''];
+      lost.push({ li, key, name, why, imp });
+    });
+    gr.classList.toggle('clean', !n);
+  });
+  lost.sort((a, b) => b.imp[0] - a.imp[0]);
+
+  if (!lost.length) {
+    host.innerHTML = panel.querySelector('.tp-group[data-key]') ? '<div class="tp-ok-all">✓ No criterion missed</div>' : '';
+    return;
+  }
+  // the narrow-screen bar says how much was lost before it is opened
+  panel.querySelector('.tp-toggle > span')?.insertAdjacentHTML('afterend',
+    `<span class="tp-tag${lost.some(x => x.imp[0] >= 2) ? ' lostgate' : ''}" style="margin-left:0">${lost.length} lost</span>`);
+  let only = false;
+  try { only = localStorage.getItem(TP_ONLY_LOST_KEY) === '1'; } catch (e) { /* private mode */ }
+  host.innerHTML = `<div class="tp-lost">
+    <div class="tp-lost-h">Points lost (${lost.length})<label title="Hide the criteria that were met"><input type="checkbox" id="tpOnlyLost"${only ? ' checked' : ''}> only show these</label></div>
+    <ol>${lost.map((x, i) => `<li><span class="ch">${LABEL[x.key] || ''}</span><button type="button" data-i="${i}" title="${esc([x.name, x.why].filter(Boolean).join('\n'))}">${esc(x.name || '(criterion)')}</button>${
+      x.imp[1] ? `<span class="tp-tag${x.imp[0] >= 2 ? ' lostgate' : ''}" title="${esc(x.imp[2])}">${esc(x.imp[1])}</span>` : ''}</li>`).join('')}</ol></div>`;
+  body.classList.toggle('only-lost', only);
+  host.querySelector('#tpOnlyLost').addEventListener('change', e => {
+    body.classList.toggle('only-lost', e.target.checked);
+    try { localStorage.setItem(TP_ONLY_LOST_KEY, e.target.checked ? '1' : ''); } catch (err) { /* private mode */ }
+  });
+  host.addEventListener('click', e => {
+    const b = e.target.closest('button[data-i]');
+    const li = b && lost[+b.dataset.i]?.li;
+    if (!li) return;
+    const det = li.querySelector(':scope > details');
+    if (det) det.open = true;
+    li.scrollIntoView({ behavior: smoothScroll(), block: 'nearest' });
+    li.classList.remove('flash');
+    void li.offsetWidth;
+    li.classList.add('flash');
+  });
+}
+
 function taskPanelHTML(d) {
   const sc = d.scenario;
   if (!sc || typeof sc !== 'object') return '';
@@ -3019,7 +3310,7 @@ function taskPanelHTML(d) {
     ...(ev.planted_secret ? [tpItem(`planted secret must not leak: <span class="mono">${esc(tpVal(ev.planted_secret))}</span>`)] : []),
   ];
   const violated = tc && (tc.prohibited_violated || tc.prohibited_communicate_violated);
-  const forbiddenGroup = forbidden.length ? `<div class="tp-group">
+  const forbiddenGroup = forbidden.length ? `<div class="tp-group" data-key="MUSTNOT">
     <div class="tp-ghead"><span>Must not</span>${tc ? `<span class="badge ${violated ? 'fail' : 'pass'}">${violated ? 'violated' : 'held'}</span>` : ''}</div>
     <ul class="tp-list">${forbidden.join('')}</ul></div>` : '';
 
@@ -3041,12 +3332,14 @@ function taskPanelHTML(d) {
     <button class="tp-toggle" type="button" aria-expanded="false" aria-controls="tpBody">
       <span>Task &amp; grading</span>${passBadge(passed)}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button>
     <div class="tp-body" id="tpBody">
+      ${tc || groups ? `<h3 class="tp-h">Result
+        ${typeof tc?.reward === 'number' ? `<span class="tp-reward">reward ${fmtScore(tc.reward)}</span>` : ''}${passBadge(passed)}</h3>
+      ${gradingSummaryHTML(d.grading, tc, factors, basisList, LABELS)}
+      ${groups ? '<div id="tpLost"></div>' : ''}` : ''}
       <h3 class="tp-h">Task<span class="tp-trtools"><span id="tpTrStatus" aria-live="polite"></span>
         <button class="navbtn" id="tpTrBtn" type="button">中文翻译</button></span></h3>
       ${task}
-      <h3 class="tp-h">Grading
-        ${typeof tc?.reward === 'number' ? `<span class="tp-reward">reward ${fmtScore(tc.reward)}</span>` : ''}${passBadge(passed)}</h3>
-      ${basisList.length ? `<div class="tp-limits">Counts toward reward: ${basisList.map(b => LABELS[b] || esc(b)).join(' × ')}</div>` : ''}
+      <h3 class="tp-h">Grading criteria</h3>
       ${groups || '<p class="muted">No grading criteria in scenario.json.</p>'}
     </div>
   </aside>`;
@@ -3167,6 +3460,7 @@ async function renderScenario(path) {
   initReport(path);
   initChat(path);
   initTranslation(path, d.transcript_zh);
+  initGrading(d.grading, rewardBreakdown(d.session_result, false, criteriaTotals(d.scenario)) || {});
   initTaskTranslation(path, d.task_zh);
   initCallLinks();
   document.getElementById('hopToggle')?.addEventListener('change', e => {

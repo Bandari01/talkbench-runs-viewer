@@ -873,15 +873,19 @@ def _transcript_diff(sdir: Path) -> dict | None:
     }
 
 
-def _scenario_results(sdir: Path) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
+def _scenario_results(sdir: Path, with_config: bool = False
+                      ) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
     """The parent run's results.json plus this scenario's entry in it and its evaluation
-    session result (without ``turns``, which duplicate conversation.json)."""
+    session result (without ``turns``, which duplicate conversation.json). with_config: the
+    session also carries the run's evaluation config_snapshot as ``_config``, for _grading."""
     results = _load_json(sdir.parent / "results.json") or {}
     eval_res = _load_json(sdir.parent / "talk_bench_evaluation_result.json") or {}
     summary = next((s for s in results.get("per_scenario") or [] if s.get("scenario_id") == sdir.name), None)
     session = next((s for s in eval_res.get("session_results") or [] if s.get("session_id") == sdir.name), None)
     if session:
         session = {k: v for k, v in session.items() if k != "turns"}
+        if with_config:
+            session["_config"] = eval_res.get("config_snapshot") or {}
     return results, summary, session
 
 
@@ -1459,6 +1463,196 @@ def _db_assertion_checks(tb: SimpleNamespace, es: dict, final: dict | None, init
     return out
 
 
+# ---- how the reward combines (Task & grading panel, run page's lost points) ----
+# talk-bench has two reward models (talk_bench_evaluation.score_scenario). "multiplicative" is the
+# product of the reward_basis factors. "gated" (talk-bench's default since 2026-11, used for domains
+# whose tool_spec.json gives each tool a `kind`): every critical item must hold — each
+# write/notify/transfer expected action (a tool missing from the spec counts as critical), the DB
+# state (score 1.0) and, when enforced, state integrity — and every other item (read/search/preview
+# actions and NL assertions weigh 2, communicate_info 2 for tier core, 1 for tier procedure) forms
+# one weighted pool that must reach pass_at1_threshold. reward = pool × critical fraction.
+# _grading lays each criterion out under that model with its verdict, so the panel can say what cost
+# the scenario its pass. A result scored before the gated model existed is re-scored here from its
+# own verdicts (and the panel says so); a gated result keeps its stored reward and pass.
+
+_CRITICAL_KINDS = frozenset({"write", "notify", "transfer"})
+_POOL_ACTION_WEIGHT = 2.0
+_POOL_NL_WEIGHT = 2.0
+_TIER_WEIGHTS = {"core": 2.0, "procedure": 1.0}
+_DEFAULT_PASS_THRESHOLD = 0.8  # BenchmarkConfig.pass_at1_threshold, when the run has no config_snapshot
+
+
+def _domain_tool_kinds(domain: str) -> dict[str, str]:
+    """{tool name: kind} from the domain's tool_spec.json in the checkout; {} when it declares none
+    (talk-bench then keeps the multiplicative reward)."""
+    if not re.fullmatch(r"[\w-]+", domain or ""):
+        return {}
+    for repo in _source_repos():
+        spec = repo / "talk-bench" / "libs" / "talk_bench_domains" / "src" / "talk_bench_domains" / domain / "tool_spec.json"
+        with contextlib.suppress(OSError):
+            return dict(_tool_kinds_file(str(spec), spec.stat().st_mtime_ns))
+    return {}
+
+
+@lru_cache(maxsize=32)
+def _tool_kinds_file(path: str, _mtime: int) -> tuple[tuple[str, str], ...]:
+    specs = _load_json(Path(path))
+    if isinstance(specs, dict):
+        specs = specs.get("tools", [])
+    if not isinstance(specs, list):
+        return ()
+    return tuple((str(s["name"]), str(s["kind"])) for s in specs
+                 if isinstance(s, dict) and s.get("name") and s.get("kind"))
+
+
+def _communicate_met_flags(criteria: list[str], checks: list[dict]) -> list[bool]:
+    """talk-bench's score_scenario._communicate_met_flags: one flag per criterion, matched to the
+    judge's checks by text, then by position for a check whose text names no criterion."""
+    by_text: dict[str, list[bool]] = {}
+    for check in checks:
+        by_text.setdefault(str(check.get("expected_info", "")), []).append(bool(check.get("met", False)))
+    texts = set(criteria)
+    flags = []
+    for i, text in enumerate(criteria):
+        queue = by_text.get(text)
+        if queue:
+            flags.append(queue.pop(0))
+        elif i < len(checks) and str(checks[i].get("expected_info", "")) not in texts:
+            flags.append(bool(checks[i].get("met", False)))
+        else:
+            flags.append(False)
+    return flags
+
+
+def _crit_text(c: Any) -> str:
+    return c if isinstance(c, str) else str(_as_dict(c).get("text", c))
+
+
+def _grading(scenario: Any, session: Any, action_checks: dict | None, config: Any) -> dict | None:
+    """Every scored criterion of one scenario with its verdict and, under the gated model, whether
+    it is a critical (gate) item or its weight in the pool, plus the resulting gate / pool / pass."""
+    sc, tc = _as_dict(scenario), _as_dict(_as_dict(session).get("task_completion"))
+    ev, config = _as_dict(sc.get("evaluation")), _as_dict(config)
+    if not tc or not ev.get("reward_basis") or tc.get("source") == "authoritative":
+        return None
+    basis = {str(b).lower() for b in ev["reward_basis"]}
+    threshold = config.get("pass_at1_threshold")
+    threshold = float(threshold) if isinstance(threshold, (int, float)) else _DEFAULT_PASS_THRESHOLD
+    stored = tc.get("reward_model") or "multiplicative"
+    kinds = _domain_tool_kinds(str(sc.get("domain") or ""))
+    gated = stored == "gated" or (bool(kinds) and config.get("reward_model", "gated") == "gated")
+    enforce = config.get("state_integrity_mode", "enforce") == "enforce"
+    items: list[dict[str, Any]] = []
+
+    def add(channel: str, met: Any, label: str, critical: bool | None = None, weight: float | None = None, **extra):
+        items.append({"channel": channel, "label": label, "met": met,
+                      "critical": critical if gated else None, "weight": weight if gated else None, **extra})
+
+    if "action" in basis:
+        checks = (action_checks or {}).get("expected") or []
+        failures = set(tc.get("critical_failures") or [])
+        for i, a in enumerate(ev.get("expected_actions") or []):
+            a = _as_dict(a)
+            if a.get("requestor") not in (None, "assistant"):
+                continue
+            name = str(a.get("name") or f"#{i}")
+            critical = kinds.get(name, "write") in _CRITICAL_KINDS
+            met = _as_dict(checks[i]).get("met") if i < len(checks) else None
+            if met is None and stored == "gated" and critical:
+                met = f"action:{name}" not in failures
+            if met is None and tc.get("action_score") == 1:
+                met = True
+            add("action", met, name, critical, None if critical else _POOL_ACTION_WEIGHT, index=i, kind=kinds.get(name))
+    if "db" in basis and ev.get("expected_state") is not None and isinstance(tc.get("db_state_score"), (int, float)):
+        add("db", tc["db_state_score"] >= 1, "db_state", True, score=tc["db_state_score"])
+        integrity = tc.get("state_integrity_score")
+        if enforce and isinstance(integrity, (int, float)):
+            add("integrity", integrity >= 1, "state_integrity", True, score=integrity)
+    criteria = ev.get("communicate_info") or []
+    if "communicate" in basis and criteria:
+        texts = [_crit_text(c) for c in criteria]
+        flags = _communicate_met_flags(texts, [_as_dict(c) for c in tc.get("communicate_checks") or []])
+        for i, (text, met) in enumerate(zip(texts, flags)):
+            tier = _as_dict(criteria[i]).get("tier") or "core"
+            add("communicate", met, text, False, _TIER_WEIGHTS.get(tier, _TIER_WEIGHTS["core"]), index=i, tier=tier)
+    nl = ev.get("nl_assertions") or []
+    if "nl_assertion" in basis and nl:
+        nl_checks = tc.get("nl_assertion_checks") or []
+        for i, c in enumerate(nl):
+            met = i < len(nl_checks) and bool(_as_dict(nl_checks[i]).get("met", False))
+            add("nl", met, _crit_text(c), False, _POOL_NL_WEIGHT, index=i)
+
+    out: dict[str, Any] = {"model": "gated" if gated else "multiplicative", "stored_model": stored,
+                           "threshold": threshold, "items": items,
+                           "known": all(it["met"] is not None for it in items),
+                           "prohibited": bool(tc.get("prohibited_violated"))}
+    if not gated:
+        return out
+    crit = [it for it in items if it["critical"]]
+    pool = [it for it in items if not it["critical"]]
+    acts = [it for it in crit if it["channel"] == "action"]
+    critical_score = (sum(bool(it["met"]) for it in acts) / len(acts)) if acts else 1.0
+    for it in crit:
+        if it["channel"] != "action":
+            critical_score *= it["score"]
+    pool_weight = sum(it["weight"] for it in pool)
+    pool_met = sum(it["weight"] for it in pool if it["met"])
+    pool_score = pool_met / pool_weight if pool_weight else 1.0
+    gate = all(it["met"] for it in crit)
+    out.update(pool_weight=pool_weight, pool_met=pool_met, pool_score=round(pool_score, 4),
+               critical_total=len(crit), critical_met=sum(bool(it["met"]) for it in crit), gate_passed=gate,
+               reward=round(pool_score * critical_score, 4), passed=gate and pool_score >= threshold)
+    if out["prohibited"]:  # talk-bench stops at a prohibited action / disclosure: reward 0
+        out.update(reward=0.0, passed=False)
+    if stored == "gated":  # the stored verdict is the authority
+        out.update(reward=tc.get("reward", out["reward"]), passed=tc.get("passed", out["passed"]),
+                   gate_passed=tc.get("critical_gate_passed", out["gate_passed"]),
+                   pool_score=tc.get("weighted_pool_score", out["pool_score"]))
+    return out
+
+
+@app.get("/api/run_losses")
+def api_run_losses(path: str = Query(...)):
+    """Per scenario of a run, the criteria it missed (see _grading), for the run page's lost-points
+    summary. Recomputed only when the run's result files change."""
+    run_dir = _data_dir_at_depth(path, 1, "run")
+    stamp = tuple(_mtime_ns(run_dir / f) for f in ("results.json", "talk_bench_evaluation_result.json"))
+    return _run_losses(str(run_dir), stamp)
+
+
+def _mtime_ns(p: Path) -> int:
+    try:
+        return p.stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
+@lru_cache(maxsize=8)
+def _run_losses(run_dir_s: str, _stamp: tuple) -> dict[str, Any]:
+    run_dir = Path(run_dir_s)
+    eval_res = _load_json(run_dir / "talk_bench_evaluation_result.json") or {}
+    config = eval_res.get("config_snapshot") or {}
+    sessions = {s.get("session_id"): s for s in eval_res.get("session_results") or [] if isinstance(s, dict)}
+
+    def one(sdir: Path) -> dict[str, Any] | None:
+        session = sessions.get(sdir.name)
+        if not session:
+            return None
+        scenario = _load_json(sdir / "scenario.json")
+        g = _grading(scenario, session, _action_checks(scenario, _load_json(sdir / "tool_log.json")), config)
+        if g is None:
+            return None
+        g["id"] = sdir.name
+        g["stored_passed"] = _as_dict(session.get("task_completion")).get("passed")
+        g["lost"] = [{k: it.get(k) for k in ("channel", "label", "critical", "weight", "tier")}
+                     for it in g.pop("items") if it["met"] is False]
+        return g
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        scenarios = [g for g in pool.map(one, _scenario_dirs(run_dir)) if g]
+    return {"scenarios": scenarios}
+
+
 def _run_meta(sdir: Path) -> dict[str, Any]:
     """run_meta.json without db_state (huge and rarely needed inline)."""
     meta = _load_json(sdir / "run_meta.json")
@@ -1475,7 +1669,7 @@ def api_scenario(path: str = Query(...)):
     final_db = meta.pop("db_state", None)  # huge: graded below, not sent
 
     # per-scenario scores live in the parent run's result files
-    _, scenario_summary, session_result = _scenario_results(sdir)
+    _, scenario_summary, session_result = _scenario_results(sdir, with_config=True)
     files = []
     for f in sorted(sdir.rglob("*")):
         relative = f.relative_to(sdir)
@@ -1488,12 +1682,15 @@ def api_scenario(path: str = Query(...)):
     tool_log = _load_json(sdir / "tool_log.json")
     scenario = _load_json(sdir / "scenario.json")
     transcript = _records_transcript(_load_json(sdir / "records.json"), tool_log)
+    action_checks = _action_checks(scenario, tool_log)
+    config = (session_result or {}).pop("_config", None)
     return {
         "path": path,
         "scenario": scenario,
         "conversation": conversation,
         "tool_log": tool_log,
-        "action_checks": _action_checks(scenario, tool_log),
+        "action_checks": action_checks,
+        "grading": _grading(scenario, session_result, action_checks, config),
         "db_checks": _db_checks(scenario, final_db, _load_json(sdir / "db_state_initial.json"),
                                 _as_dict(_as_dict(session_result).get("task_completion")).get("db_semantic_checks")),
         "transcript": transcript,
