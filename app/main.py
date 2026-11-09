@@ -3175,6 +3175,28 @@ def _pid_alive(pid: int | None) -> bool:
     return True
 
 
+# a test's process is spawned right after its record is created; a process with its pid that
+# started later than this is another program that reused the pid (e.g. after a reboot)
+_PID_REUSE_SLACK_S = 300
+
+
+def _pid_started(pid: int) -> float | None:
+    try:
+        out = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return _etime_start(out.strip()) if out.strip() else None
+
+
+def _job_pid_alive(job: dict[str, Any]) -> bool:
+    """Whether the job's own process is still running: its pid is alive and was not reused."""
+    pid = job.get("pid")
+    if not _pid_alive(pid):
+        return False
+    born = _pid_started(pid)
+    return born is None or not job.get("started") or born <= job["started"] + _PID_REUSE_SLACK_S
+
+
 def _child_env() -> dict[str, str]:
     """Environment for a test: the viewer's process environment from before its own
     .env was loaded (so the checkout's .env, which the CLI loads itself, is the only
@@ -3349,7 +3371,7 @@ def _watch_job(job_id: str, proc: subprocess.Popen | None) -> None:
     last_snapshot = time.time()
     last_progress: tuple[int, int] | None = None
     while True:
-        alive = (proc.poll() is None) if proc is not None else _pid_alive(job.get("pid"))
+        alive = (proc.poll() is None) if proc is not None else _job_pid_alive(job)
         _ingest_log(job, log_path)
         if not job.get("run_dir"):
             _locate_run_dir(job)
@@ -3625,10 +3647,13 @@ def api_cancel_test(job_id: str):
     job = _get_job(job_id)
     if job["status"] not in ("running", "cancelling"):
         raise HTTPException(status_code=409, detail="this test is not running")
+    own = _job_pid_alive(job)  # before cancelling: a reused pid belongs to another program
     job["status"] = "cancelling"
     pid = job.get("pid")
 
     def _signal(sig: int) -> None:
+        if not own:
+            return
         try:
             os.killpg(pid, sig)  # started with start_new_session: the pid is its group's id
         except OSError:
